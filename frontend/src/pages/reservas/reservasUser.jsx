@@ -148,7 +148,7 @@ export default function ReservasUser() {
   };
   const cerrarConfirmacion = () => setConfirmBox((p) => ({ ...p, open: false }));
 
-  /* ===== Crear reserva (urlencoded) ===== */
+  /* ===== Crear reserva (JSON) ===== */
   const reservarConfirmado = async () => {
     const { fecha: f, hora: h, modalidad } = confirmBox;
     if (!servicioSel || !f || !h) {
@@ -167,22 +167,14 @@ export default function ReservasUser() {
       servicioId: servicio,
       modalidad,
       status: 'pending',
+      paqueteId, // si está vacío, el backend lo ignorará
     };
-
-    // urlencoded
-    const body = new URLSearchParams();
-    Object.entries(minimal).forEach(([k, v]) => body.append(k, v ?? ''));
 
     try {
       await http('/api/reservas', {
         method: 'POST',
-        data: body, // pasamos el objeto URLSearchParams (http.js ya no lo convierte a JSON)
-        auth: true,
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        },
-        // redundante pero inocuo si el backend mira req.query:
-        query: { ...minimal },
+        data: minimal, // JSON
+        auth: true
       });
 
       showSuccess('Reserva creada.');
@@ -201,7 +193,7 @@ export default function ReservasUser() {
       );
       setTrace({
         time: new Date().toISOString(),
-        action: 'POST /api/reservas (urlencoded)',
+        action: 'POST /api/reservas (json)',
         payload_preview: minimal,
         error: e?.responseData || e?.data || String(e?.message || e),
       });
@@ -225,13 +217,15 @@ export default function ReservasUser() {
   /* ===== Aceptar (origin=admin) ===== */
   const aceptarReserva = async (id) => {
     try {
-      await http(`/api/reservas/${id}/accept`, { method: 'PATCH', auth: true });
+      // Primero, endpoint correcto del backend
+      await http(`/api/reservas/${id}/confirm`, { method: 'PATCH', auth: true });
     } catch (e1) {
       try {
+        // Fallback: puente genérico
         await http(`/api/reservas/${id}`, { method: 'PATCH', data: { status: 'confirmed' }, auth: true });
       } catch (e2) {
         showError(e2?.responseData?.error || e1?.responseData?.error || 'No se pudo aceptar.');
-        setTraceErr({ action: 'PATCH accept fallback', id, error: e2?.responseData || e1?.responseData || String(e2?.message || e1?.message) });
+        setTraceErr({ action: 'PATCH confirm fallback', id, error: e2?.responseData || e1?.responseData || String(e2?.message || e1?.message) });
         return;
       }
     }
@@ -312,7 +306,7 @@ export default function ReservasUser() {
 
       {trace && (
         <details open className="trace" style={{ marginTop: 10 }}>
-          <summary>🪵 Diagnóstico</summary>
+          <summary>Diagnóstico</summary>
           <pre>{JSON.stringify(trace, null, 2)}</pre>
         </details>
       )}
@@ -405,7 +399,7 @@ export default function ReservasUser() {
               value={confirmBox.modalidad}
               onChange={(e) => setConfirmBox((p) => ({ ...p, modalidad: e.target.value }))}
             >
-              {['presencial', 'online', 'a domicilio'].map((m) => (
+              {allowedModalities.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -481,12 +475,12 @@ export default function ReservasUser() {
               }
 
               cells.push(
-                <button
+                <div
                   key={i}
-                  type="button"
-                  className={`daycell ${inMonth ? '' : 'out'} ${
-                    disabled ? 'disabled' : ''
-                  } ${isSelected ? 'selected' : ''}`}
+                  role="button"
+                  tabIndex={disabled ? -1 : 0}
+                  aria-disabled={disabled}
+                  className={`daycell ${inMonth ? '' : 'out'} ${disabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`}
                   onClick={async () => {
                     if (!inMonth || disabled) return;
                     if (f === fecha) {
@@ -498,7 +492,20 @@ export default function ReservasUser() {
                       await cargarDisponibilidad(f);
                     }
                   }}
-                  disabled={!inMonth || disabled}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (!inMonth || disabled) return;
+                      if (f === fecha) {
+                        setFecha('');
+                        setHora('');
+                      } else {
+                        setFecha(f);
+                        setHora('');
+                        await cargarDisponibilidad(f);
+                      }
+                    }
+                  }}
                 >
                   {inMonth ? dayNum : ''}
 
@@ -515,9 +522,8 @@ export default function ReservasUser() {
                             return (
                               <button
                                 key={t}
-                                className={`slot ${isBusy ? 'busy' : ''} ${
-                                  hora === t ? 'active' : ''
-                                }`}
+                                type="button"
+                                className={`slot ${isBusy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
                                 disabled={isBusy}
                                 onClick={() => {
                                   if (!isBusy) abrirConfirmacion(f, t);
@@ -532,7 +538,7 @@ export default function ReservasUser() {
                       )}
                     </div>
                   )}
-                </button>
+                </div>
               );
             }
             return cells;

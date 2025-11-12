@@ -17,6 +17,18 @@ function rewritePath(path) {
   return p;
 }
 
+// Detecta objeto plano (para serializar a JSON)
+function isPlainObject(v) {
+  return (
+    v &&
+    typeof v === 'object' &&
+    !(v instanceof FormData) &&
+    !(v instanceof URLSearchParams) &&
+    !(v instanceof Blob) &&
+    !(v instanceof ArrayBuffer)
+  );
+}
+
 export async function http(
   path,
   {
@@ -25,7 +37,7 @@ export async function http(
     auth = false,
     headers = {},
     query = null,
-    credentials = 'same-origin',
+    credentials = 'include', // útil si usas cookies; con Bearer no molesta
     timeoutMs = 15000,
   } = {}
 ) {
@@ -45,48 +57,43 @@ export async function http(
   }
 
   // ==== Headers / Body
-  const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
-  const isURLSearch = typeof URLSearchParams !== 'undefined' && data instanceof URLSearchParams;
-  const isString = typeof data === 'string';
-
-  const finalHeaders = { ...headers };
+  const finalHeaders = { Accept: 'application/json', ...headers };
 
   // Autorización
   if (auth) {
     const token = localStorage.getItem('token');
-    if (token) finalHeaders.Authorization = `Bearer ${token}`;
-  }
-
-  // Content-Type por defecto:
-  if (data !== undefined && data !== null) {
-    if (isFormData) {
-      // NO fijar Content-Type -> que lo ponga el navegador (con boundary)
-    } else if (isURLSearch) {
-      if (!finalHeaders['Content-Type']) {
-        finalHeaders['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
-      }
-    } else if (isString) {
-      // Si el llamador ya puso un Content-Type urlencoded o texto, respetarlo.
-      if (!finalHeaders['Content-Type']) {
-        finalHeaders['Content-Type'] = 'text/plain;charset=UTF-8';
-      }
-    } else {
-      // JSON por defecto
-      finalHeaders['Content-Type'] = finalHeaders['Content-Type'] || 'application/json';
+    if (token && !finalHeaders.Authorization) {
+      finalHeaders.Authorization = `Bearer ${token}`;
     }
   }
 
-  // Body
+  // Content-Type y body
   let body;
   if (data === undefined || data === null) {
     body = undefined;
-  } else if (isFormData) {
+  } else if (data instanceof FormData) {
+    // No fijar Content-Type: el navegador añade el boundary
     body = data;
-  } else if (isURLSearch) {
-    body = data; // se envía tal cual
-  } else if (isString) {
-    body = data; // tal cual (no JSON.stringify)
+  } else if (data instanceof URLSearchParams) {
+    if (!finalHeaders['Content-Type']) {
+      finalHeaders['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+    }
+    body = data;
+  } else if (typeof data === 'string') {
+    if (!finalHeaders['Content-Type']) {
+      finalHeaders['Content-Type'] = 'text/plain;charset=UTF-8';
+    }
+    body = data;
+  } else if (isPlainObject(data)) {
+    if (!finalHeaders['Content-Type']) {
+      finalHeaders['Content-Type'] = 'application/json;charset=UTF-8';
+    }
+    body = JSON.stringify(data);
   } else {
+    // Caso raro: tipos no previstos -> intenta serializar a JSON
+    if (!finalHeaders['Content-Type']) {
+      finalHeaders['Content-Type'] = 'application/json;charset=UTF-8';
+    }
     body = JSON.stringify(data);
   }
 
@@ -107,6 +114,8 @@ export async function http(
     clearTimeout(t);
     const err = new Error('No se pudo conectar con el servidor.');
     err.cause = e;
+    err.status = 0;
+    err.data = null;
     throw err;
   } finally {
     clearTimeout(t);
