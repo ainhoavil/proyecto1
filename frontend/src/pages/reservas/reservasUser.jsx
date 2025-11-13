@@ -1,4 +1,3 @@
-// frontend/src/pages/reservas/reservasUser.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { http } from '../../helpers/http';
@@ -34,10 +33,18 @@ export default function ReservasUser() {
     () => servicios.find((s) => [s.id, s._id, s.uuid].includes(servicioId)) || null,
     [servicios, servicioId]
   );
+
   const servicioTituloSel = useMemo(
     () => first(servicioSel?.title, servicioSel?.titulo, servicioSel?.name, 'Servicio'),
     [servicioSel]
   );
+
+  // Fallback de servicio en reservas (cuando backend no trae título)
+  const getServicioTitulo = (sid) => {
+    if (!sid) return null;
+    const s = servicios.find((x) => [x.id, x._id, x.uuid].includes(sid));
+    return s ? first(s.title, s.titulo, s.name, null) : null;
+  };
 
   useEffect(() => {
     (async () => {
@@ -54,7 +61,6 @@ export default function ReservasUser() {
         setTraceErr({ action: 'GET /api/servicios', error: String(e?.message || e) });
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -66,7 +72,7 @@ export default function ReservasUser() {
     }
   }, [servicioSel]);
 
-  /* ===== Paquetes del usuario ===== */
+  /* ===== Paquetes ===== */
   const [paquetes, setPaquetes] = useState([]);
   const [paqueteId, setPaqueteId] = useState('');
   async function cargarMisPaquetes() {
@@ -111,7 +117,7 @@ export default function ReservasUser() {
       setLoadingHoras(false);
     }
   };
-  useEffect(() => { if (fecha) cargarDisponibilidad(fecha); }, [fecha, durationMin, servicioId]); // eslint-disable-line
+  useEffect(() => { if (fecha) cargarDisponibilidad(fecha); }, [fecha, durationMin, servicioId]);
 
   /* ===== Confirmación ===== */
   const allowedModalities = useMemo(() => {
@@ -125,11 +131,8 @@ export default function ReservasUser() {
   }, [servicioSel]);
 
   const [confirmBox, setConfirmBox] = useState({
-    open: false,
-    fecha: '',
-    hora: '',
-    servicioTitulo: '',
-    modalidad: '',
+    open: false, fecha: '', hora: '',
+    servicioTitulo: '', modalidad: '',
   });
 
   const abrirConfirmacion = (f, h) => {
@@ -146,9 +149,10 @@ export default function ReservasUser() {
     });
     setFecha(''); setHora('');
   };
+
   const cerrarConfirmacion = () => setConfirmBox((p) => ({ ...p, open: false }));
 
-  /* ===== Crear reserva (JSON) ===== */
+  /* ===== Crear reserva ===== */
   const reservarConfirmado = async () => {
     const { fecha: f, hora: h, modalidad } = confirmBox;
     if (!servicioSel || !f || !h) {
@@ -165,15 +169,16 @@ export default function ReservasUser() {
       fecha: f,
       hora: h,
       servicioId: servicio,
+      servicioTitulo: servicioTituloSel,
       modalidad,
       status: 'pending',
-      paqueteId, // si está vacío, el backend lo ignorará
+      paqueteId,
     };
 
     try {
       await http('/api/reservas', {
         method: 'POST',
-        data: minimal, // JSON
+        data: minimal,
         auth: true
       });
 
@@ -185,12 +190,7 @@ export default function ReservasUser() {
         f ? cargarDisponibilidad(f) : Promise.resolve(),
       ]);
     } catch (e) {
-      showError(
-        e?.responseData?.error ||
-        e?.data?.error ||
-        e?.message ||
-        'No se pudo crear la reserva.'
-      );
+      showError(e?.responseData?.error || e?.data?.error || e?.message || 'No se pudo crear la reserva.');
       setTrace({
         time: new Date().toISOString(),
         action: 'POST /api/reservas (json)',
@@ -200,7 +200,7 @@ export default function ReservasUser() {
     }
   };
 
-  /* ===== Mis reservas ===== */
+  /* ===== MIS RESERVAS ===== */
   const [mias, setMias] = useState([]);
   async function cargarMias() {
     if (!isAuthenticated) { setMias([]); return; }
@@ -214,524 +214,352 @@ export default function ReservasUser() {
     }
   }
 
-  /* ===== Aceptar (origin=admin) ===== */
-  const aceptarReserva = async (id) => {
+  /* ===== NOTAS TIPO HILO ===== */
+  const [notesByRes, setNotesByRes] = useState({});
+  const [noteDraftByRes, setNoteDraftByRes] = useState({});
+  const [notesOpen, setNotesOpen] = useState({});
+
+  const loadNotes = async (id) => {
     try {
-      // Primero, endpoint correcto del backend
-      await http(`/api/reservas/${id}/confirm`, { method: 'PATCH', auth: true });
-    } catch (e1) {
-      try {
-        // Fallback: puente genérico
-        await http(`/api/reservas/${id}`, { method: 'PATCH', data: { status: 'confirmed' }, auth: true });
-      } catch (e2) {
-        showError(e2?.responseData?.error || e1?.responseData?.error || 'No se pudo aceptar.');
-        setTraceErr({ action: 'PATCH confirm fallback', id, error: e2?.responseData || e1?.responseData || String(e2?.message || e1?.message) });
-        return;
-      }
+      const rows = await http(`/api/reservas/${id}/notes`, { auth: true });
+      setNotesByRes(p => ({ ...p, [id]: Array.isArray(rows) ? rows : [] }));
+    } catch (e) {
+      setNotesByRes(p => ({ ...p, [id]: [] }));
     }
-    showSuccess('Reserva aceptada.');
-    await Promise.all([cargarMias(), fecha ? cargarDisponibilidad(fecha) : Promise.resolve()]);
   };
 
-  /* ===== Cancelar ===== */
+  const addNote = async (id) => {
+    const txt = (noteDraftByRes[id] || '').trim();
+    if (!txt) return;
+    try {
+      const n = await http(`/api/reservas/${id}/notes`, {
+        method: 'POST',
+        data: { text: txt },
+        auth: true
+      });
+      setNoteDraftByRes(p => ({ ...p, [id]: '' }));
+      setNotesByRes(p => ({ ...p, [id]: [n, ...(p[id] || [])] }));
+    } catch (e) {
+      showError('No se pudo añadir la nota');
+    }
+  };
+
+  const deleteNote = async (id, noteId) => {
+    try {
+      await http(`/api/reservas/${id}/notes/${noteId}`, {
+        method: 'DELETE',
+        auth: true
+      });
+      setNotesByRes(p => ({
+        ...p,
+        [id]: (p[id] || []).filter(n => n.id !== noteId)
+      }));
+    } catch (e) {
+      showError('No se pudo borrar la nota');
+    }
+  };
+
+  /* ===== CANCELAR ===== */
   const [cancelModal, setCancelModal] = useState({ open: false, id: '', reason: '' });
   const abrirCancelModal = (id) => setCancelModal({ open: true, id, reason: '' });
   const cerrarCancelModal = () => setCancelModal({ open: false, id: '', reason: '' });
+
   const confirmarCancelModal = async () => {
-    const bid = cancelModal.id; const reason = (cancelModal.reason || '').trim();
+    const bid = cancelModal.id;
+    const reason = (cancelModal.reason || '').trim();
     try {
-      await http(`/api/reservas/${bid}/cancel`, { method: 'PATCH', data: { reason }, auth: true });
+      await http(`/api/reservas/${bid}/cancel`, {
+        method: 'PATCH',
+        data: { reason },
+        auth: true
+      });
     } catch (e1) {
       try {
-        await http(`/api/reservas/${bid}`, { method: 'PATCH', data: { status: 'cancelled', cancelReason: reason }, auth: true });
+        await http(`/api/reservas/${bid}`, {
+          method: 'PATCH',
+          data: { status: 'cancelled', cancelReason: reason },
+          auth: true
+        });
       } catch (e2) {
         showError(e2?.responseData?.error || e1?.responseData?.error || 'No se pudo cancelar.');
-        setTraceErr({ action: 'PATCH cancel fallback', id: bid, error: e2?.responseData || e1?.responseData || String(e2?.message || e1?.message) });
         return;
       }
     }
+
     showSuccess('Reserva cancelada.');
     cerrarCancelModal();
     await Promise.all([cargarMias(), fecha ? cargarDisponibilidad(fecha) : Promise.resolve()]);
   };
 
-  /* ===== Notas usuario ===== */
-  const [noteOpen, setNoteOpen] = useState({});
-  const [noteDraft, setNoteDraft] = useState({});
-  const toggleNote = (id, open) => setNoteOpen((p) => ({ ...p, [id]: open ?? !p[id] }));
-  const setDraft = (id, txt) => setNoteDraft((p) => ({ ...p, [id]: txt }));
-  const enviarNota = async (id) => {
-    const note = (noteDraft[id] || '').trim();
-    if (!note) { toggleNote(id, false); return; }
-    try {
-      await http(`/api/reservas/${id}/note-user`, { method: 'PATCH', data: { note }, auth: true });
-      showSuccess('Nota enviada.');
-      toggleNote(id, false); setDraft(id, '');
-      await cargarMias();
-    } catch (e1) {
-      showError(e1?.responseData?.error || 'No se pudo guardar la nota.');
-      setTraceErr({ action: 'PATCH /api/reservas/:id/note-user', id, error: e1?.responseData || String(e1?.message || e1) });
-    }
-  };
-
-  /* ===== Ocultar rechazadas/eliminadas ===== */
+  /* ===== DISMISS ===== */
   const [dismissed, setDismissed] = useState(
     () => new Set(JSON.parse(localStorage.getItem('reservas.dismissed') || '[]'))
   );
+
   const dismiss = (id) => {
-    const next = new Set(dismissed); next.add(id);
+    const next = new Set(dismissed);
+    next.add(id);
     setDismissed(next);
     localStorage.setItem('reservas.dismissed', JSON.stringify(Array.from(next)));
   };
 
-  useEffect(() => { cargarMias(); cargarMisPaquetes(); }, [isAuthenticated]); // eslint-disable-line
+  useEffect(() => { cargarMias(); cargarMisPaquetes(); }, [isAuthenticated]);
 
-  /* ===== Buckets UI ===== */
-  const groupUserReservations = useMemo(() => {
-    const pending = [], approved = [], rejected = [];
-    for (const r of mias) {
-      const s = String(r.status || '').toLowerCase();
-      if (s === 'pending' || s === '') pending.push(r);
-      else if (s === 'confirmed' || s === 'approved' || s === 'confirmada') approved.push(r);
-      else if (['rejected', 'cancelled', 'deleted', 'rechazada', 'cancelada', 'eliminada'].includes(s)) rejected.push(r);
-      else pending.push(r);
-    }
-    return { pending, approved, rejected };
-  }, [mias]);
-
-  /* ===== UI ===== */
+  /* ===== RENDER ===== */
   return (
-    <div className="reservas-user">
-      {notice.text && <div className={`notice ${notice.type}`}>{notice.text}</div>}
+    <div className="reservas-page">
 
-      {trace && (
-        <details open className="trace" style={{ marginTop: 10 }}>
-          <summary>Diagnóstico</summary>
-          <pre>{JSON.stringify(trace, null, 2)}</pre>
-        </details>
+      {/* Avisos */}
+      {notice.text && (
+        <div className={`notice ${notice.type}`}>
+          {notice.text}
+          <button onClick={() => setNotice({ type: '', text: '' })}>×</button>
+        </div>
       )}
+
+      {/* Traza debug */}
+      {trace && (
+        <pre className="debug-trace">
+          {JSON.stringify(trace, null, 2)}
+        </pre>
+      )}
+
+      {/* Selección de servicio */}
+      <div className="servicios-box">
+        <label>Servicio:</label>
+        <select
+          value={servicioId}
+          onChange={(e) => setServicioId(e.target.value)}
+        >
+          {servicios.map((s) => {
+            const id = first(s.id, s._id, s.uuid);
+            const t = first(s.title, s.titulo, s.name, 'Servicio');
+            return <option key={id} value={id}>{t}</option>;
+          })}
+        </select>
+      </div>
+
+      {/* Calendario */}
+      <div className="calendar-box">
+        <h2>{mesBase.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</h2>
+
+        <div className="calendar-grid">
+          {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map((d) => (
+            <div key={d} className="cal-header">{d}</div>
+          ))}
+
+          {Array.from({ length: 42 }).map((_, i) => {
+            const d = new Date(mesBase);
+            const startDay = (mesBase.getDay() + 6) % 7;
+            d.setDate(1 + (i - startDay));
+            const isCurrentMonth = d.getMonth() === mesBase.getMonth();
+            const yyyyMMdd = d.toISOString().slice(0, 10);
+
+            return (
+              <button
+                key={i}
+                className={`cal-cell ${isCurrentMonth ? '' : 'other-month'}`}
+                onClick={() => {
+                  setFecha(yyyyMMdd);
+                  setHora('');
+                }}
+              >
+                {d.getDate()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Horas disponibles */}
+      {fecha && (
+        <div className="horas-box">
+          <h3>Horas disponibles – {humanDate(fecha)}</h3>
+
+          {loadingHoras ? (
+            <p>Cargando…</p>
+          ) : (
+            <div className="horas-grid">
+              {HOURS.map((h) => {
+                const disabled = unavailable.includes(h);
+                return (
+                  <button
+                    key={h}
+                    disabled={disabled}
+                    className={disabled ? 'hora-disabled' : 'hora'}
+                    onClick={() => abrirConfirmacion(fecha, h)}
+                  >
+                    {h}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Confirmación */}
+      {confirmBox.open && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Confirmar reserva</h3>
+            <p><b>Servicio:</b> {servicioTituloSel}</p>
+            <p><b>Fecha:</b> {humanDate(confirmBox.fecha)}</p>
+            <p><b>Hora:</b> {confirmBox.hora}</p>
+
+            <label>Modalidad:</label>
+            <select
+              value={confirmBox.modalidad}
+              onChange={(e) =>
+                setConfirmBox((p) => ({ ...p, modalidad: e.target.value }))
+              }
+            >
+              {allowedModalities.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+
+            <div className="modal-actions">
+              <button onClick={reservarConfirmado} className="btn-primary">Reservar</button>
+              <button onClick={cerrarConfirmacion} className="btn-ghost">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lista de reservas */}
+      <h2 className="mis-reservas-title">Mis reservas</h2>
+
+      <div className="mis-reservas-list">
+        {mias.length === 0 && (
+          <p className="empty">No tienes reservas todavía.</p>
+        )}
+
+        {mias.map((r) => {
+          const clave = r.id;
+          const tituloSrv = first(
+            r.servicioTitulo,
+            getServicioTitulo(r.servicioId),
+            'Servicio'
+          );
+
+          const statusColor = {
+            pending: 'yellow',
+            confirmed: 'green',
+            rejected: 'red',
+            cancelled: 'gray',
+          }[r.status] || 'gray';
+
+          return (
+            <div key={r.id} className="reserva-card">
+              <div className="reserva-header">
+                <h3>{tituloSrv}</h3>
+                <span className={`status ${statusColor}`}>{r.status}</span>
+              </div>
+
+              <div className="reserva-body">
+                <p><b>Fecha:</b> {humanDate(r.fecha)}</p>
+                <p><b>Hora:</b> {r.hora}</p>
+                {r.modalidad && <p><b>Modalidad:</b> {r.modalidad}</p>}
+              </div>
+
+              {/* Notas tipo hilo */}
+              <div className="notes-thread">
+                <button
+                  className="btn-ghost"
+                  onClick={async () => {
+                    setNotesOpen(o => ({ ...o, [r.id]: !o[r.id] }));
+                    if (!notesByRes[r.id]) await loadNotes(r.id);
+                  }}
+                >
+                  📝 Notas
+                </button>
+
+                {notesOpen[r.id] && (
+                  <div className="notes-box">
+                    <div className="notes-list">
+                      {(notesByRes[r.id] || []).length === 0 ? (
+                        <div className="empty">Sin notas aún.</div>
+                      ) : (
+                        (notesByRes[r.id] || []).map((n) => (
+                          <div key={n.id} className="note-item">
+                            <div className="note-meta">
+                              <b>{n.author === 'admin' ? 'Adiestrador' : 'Tú'}</b> ·{' '}
+                              {new Date(n.createdAt).toLocaleString()}
+                            </div>
+
+                            <div className="note-text">{n.text}</div>
+
+                            <div className="note-actions">
+                              <button
+                                className="btn-ghost"
+                                onClick={() => deleteNote(r.id, n.id)}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Escribir nueva nota */}
+                    <div className="note-compose">
+                      <textarea
+                        rows={2}
+                        placeholder="Escribe una nota…"
+                        value={noteDraftByRes[r.id] || ''}
+                        onChange={(e) =>
+                          setNoteDraftByRes(p => ({ ...p, [r.id]: e.target.value }))
+                        }
+                      />
+                      <button className="btn-primary" onClick={() => addNote(r.id)}>
+                        Agregar nota
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Cancelar */}
+              {['pending', 'confirmed'].includes(r.status) && (
+                <button
+                  className="btn-ghost cancel-btn"
+                  onClick={() => abrirCancelModal(r.id)}
+                >
+                  Cancelar reserva
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Modal cancelar */}
       {cancelModal.open && (
-        <div className="modal-overlay">
-          <div className="modal">
+        <div className="modal">
+          <div className="modal-content">
             <h3>Cancelar reserva</h3>
-            <label>
-              Motivo (opcional)
-              <input
-                value={cancelModal.reason}
-                onChange={(e) => setCancelModal((p) => ({ ...p, reason: e.target.value }))}
-                placeholder="Ej. no puedo asistir"
-              />
-            </label>
+
+            <textarea
+              placeholder="Motivo (opcional)"
+              value={cancelModal.reason}
+              onChange={(e) =>
+                setCancelModal((p) => ({ ...p, reason: e.target.value }))
+              }
+            />
+
             <div className="modal-actions">
-              <button onClick={cerrarCancelModal}>Cerrar</button>
-              <button className="btn-danger" onClick={confirmarCancelModal}>
-                Cancelar reserva
+              <button className="btn-primary" onClick={confirmarCancelModal}>
+                Confirmar
+              </button>
+              <button className="btn-ghost" onClick={cerrarCancelModal}>
+                Cerrar
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Selector servicio / paquete */}
-      <section style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span>Servicio:</span>
-            <select
-              value={servicioId}
-              onChange={(e) => setServicioId(e.target.value)}
-              disabled={!servicios.length}
-            >
-              {servicios.map((s) => {
-                const sid = first(s.id, s._id, s.uuid);
-                const title = first(s.title, s.titulo, s.name, `Servicio ${sid?.slice?.(0, 6) || ''}`);
-                return (
-                  <option key={sid} value={sid}>
-                    {title}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-
-          {paquetes.length > 1 && (
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span>Paquete:</span>
-              <select value={paqueteId} onChange={(e) => setPaqueteId(e.target.value)}>
-                <option value="">— Sin paquete —</option>
-                {paquetes.map((p) => {
-                  const s = p.saldo || {};
-                  const restantes = (s.total || 0) - (s.usadas || 0) - (s.pendientes || 0);
-                  const pid = first(p.id, p._id, p.uuid);
-                  return (
-                    <option key={pid} value={pid}>
-                      {first(p.servicioId, p.serviceId, 'pack')} · {Math.max(0, restantes)}/{s.total || 0}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-          )}
-        </div>
-        {servicioSel && (
-          <div style={{ fontSize: 13, color: '#666', marginTop: 6 }}>
-            <span>⏱ {first(servicioSel?.duration, servicioSel?.duracion, `${durationMin} min`)}</span>
-            {first(servicioSel?.mode, servicioSel?.modo, '') && (
-              <span> · 📍 {first(servicioSel?.mode, servicioSel?.modo, '')}</span>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* Confirmar creación */}
-      {confirmBox.open && (
-        <div className="confirm-box">
-          <div className="title">Confirmar reserva</div>
-          <div className="msg">
-            ¿Reservar <b>{confirmBox.servicioTitulo}</b> el <b>{humanDate(confirmBox.fecha)}</b> a las{' '}
-            <b>{confirmBox.hora}</b>?
-          </div>
-          <div className="row">
-            <label>Modalidad</label>
-            <select
-              value={confirmBox.modalidad}
-              onChange={(e) => setConfirmBox((p) => ({ ...p, modalidad: e.target.value }))}
-            >
-              {allowedModalities.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="actions">
-            <button onClick={() => setConfirmBox((p) => ({ ...p, open: false }))}>Cerrar</button>
-            <button className="btn-primary" onClick={reservarConfirmado}>
-              Confirmar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Calendario + horas */}
-      <section className="month-scheduler">
-        <div className="month-header">
-          <button
-            className="btn-ghost"
-            onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
-            }
-          >
-            ‹
-          </button>
-          <div className="month-label">
-            {mesBase.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
-          </div>
-          <button
-            className="btn-ghost"
-            onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
-            }
-          >
-            ›
-          </button>
-        </div>
-
-        <div className="weekdays">
-          {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => (
-            <div key={d}>{d}</div>
-          ))}
-        </div>
-
-        <div className="month-grid">
-          {(() => {
-            const firstDay = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
-            const startOffset = (firstDay.getDay() + 6) % 7; // lunes=0
-            const lastDay = new Date(
-              mesBase.getFullYear(),
-              mesBase.getMonth() + 1,
-              0
-            ).getDate();
-
-            const cells = [];
-            const busySet = new Set(unavailable);
-
-            for (let i = 0; i < 42; i++) {
-              const dayNum = i - startOffset + 1;
-              const inMonth = dayNum >= 1 && dayNum <= lastDay;
-
-              let f = '',
-                disabled = true,
-                isSelected = false;
-
-              if (inMonth) {
-                const d = new Date(mesBase.getFullYear(), mesBase.getMonth(), dayNum);
-                f = d.toISOString().slice(0, 10);
-                const dow = d.getDay();
-                disabled = dow === 0 || dow === 6 || f < todayYMD();
-                isSelected = f === fecha;
-              }
-
-              cells.push(
-                <div
-                  key={i}
-                  role="button"
-                  tabIndex={disabled ? -1 : 0}
-                  aria-disabled={disabled}
-                  className={`daycell ${inMonth ? '' : 'out'} ${disabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`}
-                  onClick={async () => {
-                    if (!inMonth || disabled) return;
-                    if (f === fecha) {
-                      setFecha('');
-                      setHora('');
-                    } else {
-                      setFecha(f);
-                      setHora('');
-                      await cargarDisponibilidad(f);
-                    }
-                  }}
-                  onKeyDown={async (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      if (!inMonth || disabled) return;
-                      if (f === fecha) {
-                        setFecha('');
-                        setHora('');
-                      } else {
-                        setFecha(f);
-                        setHora('');
-                        await cargarDisponibilidad(f);
-                      }
-                    }
-                  }}
-                >
-                  {inMonth ? dayNum : ''}
-
-                  {inMonth && f === fecha && (
-                    <div className="popover">
-                      <div className="pop-title">{humanDate(fecha)}</div>
-                      {loadingHoras ? (
-                        <div className="hint">Cargando…</div>
-                      ) : (
-                        <div className="pop-hours">
-                          {HOURS.map((hh) => {
-                            const t = `${String(hh).padStart(2, '0')}:00`;
-                            const isBusy = busySet.has(t);
-                            return (
-                              <button
-                                key={t}
-                                type="button"
-                                className={`slot ${isBusy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
-                                disabled={isBusy}
-                                onClick={() => {
-                                  if (!isBusy) abrirConfirmacion(f, t);
-                                }}
-                                title={isBusy ? 'Ocupada' : 'Reservar'}
-                              >
-                                {t}–{addMinutes(t, durationMin)}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            return cells;
-          })()}
-        </div>
-      </section>
-
-      {/* Mis reservas */}
-      <section style={{ marginTop: 20 }}>
-        <h2>Mis reservas</h2>
-
-        {!isAuthenticated && <p>Inicia sesión para ver y gestionar tus reservas.</p>}
-        {isAuthenticated && !mias.length && (
-          <div className="empty">No tienes reservas aún.</div>
-        )}
-
-        {isAuthenticated && !!mias.length && (
-          <div
-            style={{
-              display: 'grid',
-              gap: 16,
-              gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))',
-            }}
-          >
-            {/* Pendientes */}
-            <div>
-              <h3>Pendientes</h3>
-              {!groupUserReservations.pending.length ? (
-                <div className="empty">Sin pendientes.</div>
-              ) : (
-                <ul className="reservas-list">
-                  {groupUserReservations.pending.map((r) => (
-                    <li key={r.id} className="reserva-item">
-                      <div className="reserva-main">
-                        <div className="title">{r.servicioTitulo}</div>
-                        <div className="meta">
-                          {r.fecha} · {r.hora} · <i>{r.modalidad}</i>
-                        </div>
-                      </div>
-                      <div className={`badge ${r.status}`}>{r.status}</div>
-
-                      {(r.adminNote || r.userNote) && (
-                        <div className="note-box">
-                          {r.adminNote && (
-                            <div>
-                              <b>Nota del adiestrador:</b> {r.adminNote}
-                            </div>
-                          )}
-                          {r.userNote && (
-                            <div>
-                              <b>Tu nota:</b> {r.userNote}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="admin-actions">
-                        {r.origin === 'admin' && (
-                          <button className="btn-primary" onClick={() => aceptarReserva(r.id)}>
-                            Aceptar
-                          </button>
-                        )}
-                        <button className="btn-danger" onClick={() => abrirCancelModal(r.id)}>
-                          Cancelar
-                        </button>
-                        <button
-                          className="btn-ghost"
-                          onClick={() => toggleNote(r.id)}
-                          title="Enviar nota"
-                        >
-                          ✉️ Nota
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Aprobadas */}
-            <div>
-              <h3>Aprobadas</h3>
-              {!groupUserReservations.approved.length ? (
-                <div className="empty">Sin aprobadas.</div>
-              ) : (
-                <ul className="reservas-list">
-                  {groupUserReservations.approved.map((r) => (
-                    <li key={r.id} className="reserva-item">
-                      <div className="reserva-main">
-                        <div className="title">{r.servicioTitulo}</div>
-                        <div className="meta">
-                          {r.fecha} · {r.hora} · <i>{r.modalidad}</i>
-                        </div>
-                      </div>
-                      <div className={`badge ${r.status}`}>{r.status}</div>
-
-                      {(r.adminNote || r.userNote) && (
-                        <div className="note-box">
-                          {r.adminNote && (
-                            <div>
-                              <b>Nota del adiestrador:</b> {r.adminNote}
-                            </div>
-                          )}
-                          {r.userNote && (
-                            <div>
-                              <b>Tu nota:</b> {r.userNote}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="admin-actions">
-                        <button className="btn-danger" onClick={() => abrirCancelModal(r.id)}>
-                          Cancelar
-                        </button>
-                        <button
-                          className="btn-ghost"
-                          onClick={() => toggleNote(r.id)}
-                          title="Enviar nota"
-                        >
-                          ✉️ Nota
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Rechazadas / Eliminadas */}
-            <div>
-              <h3>Rechazadas / Eliminadas</h3>
-              {!groupUserReservations.rejected.filter((x) => !dismissed.has(x.id)).length ? (
-                <div className="empty">Sin rechazadas/eliminadas.</div>
-              ) : (
-                <ul className="reservas-list">
-                  {groupUserReservations.rejected
-                    .filter((x) => !dismissed.has(x.id))
-                    .map((r) => (
-                      <li key={r.id} className="reserva-item">
-                        <div className="reserva-main">
-                          <div className="title">{r.servicioTitulo}</div>
-                          <div className="meta">
-                            {r.fecha} · {r.hora} · <i>{r.modalidad}</i>
-                          </div>
-                        </div>
-                        <div className={`badge ${r.status}`}>{r.status}</div>
-
-                        {(r.adminNote || r.cancelReason || r.userNote) && (
-                          <div className="note-box">
-                            {r.adminNote && (
-                              <div>
-                                <b>Nota del adiestrador:</b> {r.adminNote}
-                              </div>
-                            )}
-                            {r.cancelReason && (
-                              <div>
-                                <b>Motivo:</b> {r.cancelReason}
-                              </div>
-                            )}
-                            {r.userNote && (
-                              <div>
-                                <b>Tu nota:</b> {r.userNote}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="admin-actions">
-                          <button className="btn-ghost" onClick={() => dismiss(r.id)}>
-                            Quitar de la lista
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* estilos mínimos locales */}
-      <style>{`
-        .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999}
-        .modal{background:#fff;border-radius:10px;max-width:420px;width:92%;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
-        .modal h3{margin:0 0 12px}
-        .modal label{display:block;margin:8px 0}
-        .modal input{width:100%;padding:8px}
-        .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-        .note-box{grid-column:1 / -1; background:#f7fafc; border:1px solid #e4e8ee; padding:8px 10px; border-radius:8px; color:#333; font-size:13px; margin:6px 0}
-        .note-box textarea{width:100%;padding:8px;border-radius:6px;border:1px solid #d9dfe7;resize:vertical}
-      `}</style>
     </div>
   );
 }
