@@ -4,10 +4,11 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { query } from "../db.js";
 import { nanoid } from "nanoid";
-import { verifyToken } from "../middleware/auth.js";
+import { verifyToken, requireAdmin } from "../middleware/auth.js";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
+const ROLES = ["user", "admin", "adiestrador"];
 
 /* ============================================================
    Firma un token JWT coherente con verifyToken
@@ -119,6 +120,58 @@ router.post("/login", async (req, res) => {
   } catch (e) {
     console.error("[LOGIN] ERROR", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/* ============================================================
+   POST /api/auth/role  (admin)  → { uid, rol }
+   Cambia rol: 'user' | 'admin' | 'adiestrador'
+============================================================ */
+router.post("/role", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { uid, rol } = req.body || {};
+    if (!uid || !rol)
+      return res.status(400).json({ error: "Faltan uid o rol" });
+
+    if (!ROLES.includes(rol)) {
+      return res.status(400).json({ error: "Rol inválido" });
+    }
+
+    // Buscar en usuarios y/o users
+    const uRows = await query(
+      "SELECT id, email FROM usuarios WHERE id = ? LIMIT 1",
+      [uid]
+    );
+
+    let emailFromDB = null;
+
+    if (!uRows.length) {
+      // Intentar buscarlo en tabla users por uid
+      const rowsUsers = await query(
+        "SELECT uid, email FROM users WHERE uid = ? LIMIT 1",
+        [uid]
+      );
+      if (!rowsUsers.length) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+      emailFromDB = rowsUsers[0].email;
+      // Creamos fila en usuarios con ese rol
+      await ensureUsuariosRow({ uid, email: emailFromDB, rol });
+    } else {
+      emailFromDB = uRows[0].email;
+      await query(
+        `UPDATE usuarios
+            SET rol = ?, updated_at = datetime('now')
+          WHERE id = ?`,
+        [rol, uid]
+      );
+    }
+
+    // (opcional) aquí luego podremos añadir audit_log: role.change
+    res.json({ ok: true, uid, rol });
+  } catch (e) {
+    console.error("[ROLE] ERROR", e);
+    res.status(500).json({ error: "No se pudo cambiar el rol" });
   }
 });
 

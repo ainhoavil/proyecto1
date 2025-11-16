@@ -28,46 +28,24 @@ export default function Login() {
 
     try {
       // POST /api/auth/login { email, password }
+      // Backend responde: { token, email, rol }
       const res = await http('/api/auth/login', {
         method: 'POST',
         data: { email, password: pass },
       });
 
-      // Adapta a varios formatos posibles de respuesta
-      const token =
-        res?.token ||
-        res?.accessToken ||
-        res?.jwt ||
-        res?.data?.token ||
-        null;
-
-      const role =
-        res?.user?.role ||
-        res?.role ||
-        res?.data?.user?.role ||
-        'client';
-
-      const user =
-        res?.user ||
-        res?.data?.user ||
-        { email };
-
-      // Actualiza el contexto (esto también sincroniza localStorage en tu AuthProvider)
+      // Delega todo en AuthProvider.loginSuccess
+      // que ya sabe interpretar { token, email, rol }
       if (typeof loginSuccess === 'function') {
-        loginSuccess({ token, role, user });
-      } else {
-        // Fallback por si aún no montaste el AuthProvider
-        localStorage.setItem('usuarioLogueado', '1');
-        localStorage.setItem('rol', role);
-        if (token) localStorage.setItem('token', token);
-        if (user) localStorage.setItem('user', JSON.stringify(user));
+        loginSuccess(res);
       }
 
       // Redirección respetando ?next=
       const next = nextParam || location.state?.next || '/';
       navigate(next, { replace: true });
     } catch (err) {
-      const status = err?.status || err?.response?.status;
+      const status = err?.status || err?.httpStatus || err?.response?.status;
+
       if (status === 401) setError('Email o contraseña incorrectos.');
       else if (status === 400) setError('Solicitud inválida. Revisa los campos.');
       else if (status === 429) setError('Demasiados intentos. Prueba de nuevo en unos minutos.');

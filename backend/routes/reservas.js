@@ -432,7 +432,7 @@ router.get('/', verifyToken, requireAdmin, async (req, res) => {
              servicio_id AS servicioId, servicio_titulo AS servicioTitulo, modalidad, duration,
              price, currency, perro, telefono, direccion, pricing, paquete_id AS paqueteId,
              status, origin, user_note AS userNote, admin_note AS adminNote, cancel_reason AS cancelReason,
-             created_at AS createdAt, updated_at AS updatedAt
+             created_at AS createdAt, updated_at AS UpdatedAt
         FROM reservas
        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
        ORDER BY fecha DESC, hora DESC
@@ -626,7 +626,7 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
     const { reason = '' } = req.body || {};
 
     const rRows = await query(
-      `SELECT id, uid, paquete_id AS paqueteId, status
+      `SELECT id, uid, email, paquete_id AS paqueteId, status
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
@@ -634,7 +634,9 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
     const r = rRows[0];
 
     const isAdmin = !!req.user?.isAdmin;
-    const isOwner = r.uid && req.user?.uid && r.uid === req.user.uid;
+    const isOwner =
+      (r.uid && req.user?.uid && r.uid === req.user.uid) ||
+      (r.email && req.user?.email && r.email === req.user.email);
     if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
 
     if (r.paqueteId) {
@@ -685,7 +687,7 @@ router.delete('/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
 
     const rRows = await query(
-      `SELECT id, uid, paquete_id AS paqueteId, status
+      `SELECT id, uid, email, paquete_id AS paqueteId, status
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
@@ -693,7 +695,9 @@ router.delete('/:id', verifyToken, async (req, res) => {
     const r = rRows[0];
 
     const isAdmin = !!req.user?.isAdmin;
-    const isOwner = r.uid && req.user?.uid && r.uid === req.user.uid;
+    const isOwner =
+      (r.uid && req.user?.uid && r.uid === req.user.uid) ||
+      (r.email && req.user?.email && r.email === req.user.email);
     if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
 
     if (isAdmin) {
@@ -824,7 +828,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
 
     if (status === 'cancelled') {
       const rRows = await query(
-        `SELECT id, uid, paquete_id AS paqueteId, status
+        `SELECT id, uid, email, paquete_id AS paqueteId, status
            FROM reservas WHERE id=? LIMIT 1`,
         [id]
       );
@@ -832,7 +836,9 @@ router.patch('/:id', verifyToken, async (req, res) => {
       const r = rRows[0];
 
       const isAdmin = !!req.user?.isAdmin;
-      const isOwner = r.uid && req.user?.uid && r.uid === req.user.uid;
+      const isOwner =
+        (r.uid && req.user?.uid && r.uid === req.user.uid) ||
+        (r.email && req.user?.email && r.email === req.user.email);
       if (!isAdmin && !isOwner)
         return res.status(403).json({ error: 'Sin permisos para cancelar' });
 
