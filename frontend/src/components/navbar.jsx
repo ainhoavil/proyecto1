@@ -1,4 +1,5 @@
 // src/components/navbar.jsx
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/auth';
 import '../styles/navbar.scss';
@@ -10,45 +11,42 @@ export default function Navbar() {
   const esAdmin = role === 'admin';
   const esTrainer = role === 'adiestrador';
 
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
+    setMenuOpen(false);
   };
 
-  return (
-    <nav className="navbar">
-      <div className="left">
-        <Link to="/" className="logo">Dogform</Link>
+  const closeMenu = () => setMenuOpen(false);
 
-        <ul>
-          {/* Menú común para todos */}
+  return (
+    <nav className={`navbar ${menuOpen ? 'open' : ''}`}>
+
+      {/* LEFT: Logo + Desktop */}
+      <div className="navbar__left">
+        <Link to="/" className="navbar__logo" onClick={closeMenu}>
+          <span className="paw">🐾</span> Dogform
+        </Link>
+
+        <ul className="navbar__links">
           <li><Link to="/servicios">Servicios</Link></li>
           <li><Link to="/reservas">Reservas</Link></li>
-          <li><Link to="/videos">Vídeos</Link></li>
           <li><Link to="/contacto">Contacto</Link></li>
 
-          {/* Solo adiestrador */}
-          {esTrainer && (
-            <li><Link to="/trainer-agenda">Agenda</Link></li>
-          )}
-
-          {/* Solo admin */}
-          {esAdmin && (
-            <li><Link to="/admin">Panel admin</Link></li>
-          )}
+          {esTrainer && <li><Link to="/trainer-agenda">Agenda</Link></li>}
+          {esAdmin && <li><Link to="/admin">Panel admin</Link></li>}
         </ul>
       </div>
 
-      <ul className="right">
+      {/* RIGHT: Auth desktop */}
+      <ul className="navbar__right">
         {isAuthenticated ? (
           <>
+            <li><Link to="/perfil">{user?.email || 'Mi perfil'}</Link></li>
             <li>
-              <Link to="/perfil">
-                {user?.email || 'Mi perfil'}
-              </Link>
-            </li>
-            <li>
-              <button className="linklike" onClick={handleLogout}>
+              <button className="logout-btn" onClick={handleLogout}>
                 Salir
               </button>
             </li>
@@ -56,10 +54,62 @@ export default function Navbar() {
         ) : (
           <>
             <li><Link to="/login">Iniciar sesión</Link></li>
-            <li><Link to="/register">Regístrate</Link></li>
+            <li><Link to="/register" className="btn-small">Regístrate</Link></li>
           </>
         )}
       </ul>
+
+      {/* HAMBURGER ICON */}
+      <button
+        className="navbar__toggle"
+        onClick={() => setMenuOpen(!menuOpen)}
+        aria-label="Abrir menú"
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
+      {/* MOBILE MENU */}
+      <div className="navbar__mobile">
+
+        {/* CLOSE BUTTON (X) */}
+        <button className="close-mobile" onClick={closeMenu} aria-label="Cerrar menú">
+          ✕
+        </button>
+
+        <ul>
+          <li><Link to="/servicios" onClick={closeMenu}>Servicios</Link></li>
+          <li><Link to="/reservas" onClick={closeMenu}>Reservas</Link></li>
+          <li><Link to="/contacto" onClick={closeMenu}>Contacto</Link></li>
+
+          {esTrainer && (
+            <li><Link to="/trainer-agenda" onClick={closeMenu}>Agenda</Link></li>
+          )}
+
+          {esAdmin && (
+            <li><Link to="/admin" onClick={closeMenu}>Panel admin</Link></li>
+          )}
+
+          <hr />
+
+          {isAuthenticated ? (
+            <>
+              <li><Link to="/perfil" onClick={closeMenu}>{user?.email || 'Mi perfil'}</Link></li>
+              <li>
+                <button className="logout-btn" onClick={handleLogout}>Salir</button>
+              </li>
+            </>
+          ) : (
+            <>
+              <li><Link to="/login" onClick={closeMenu}>Iniciar sesión</Link></li>
+              <li><Link to="/register" onClick={closeMenu}>Regístrate</Link></li>
+            </>
+          )}
+        </ul>
+
+      </div>
+
     </nav>
   );
 }

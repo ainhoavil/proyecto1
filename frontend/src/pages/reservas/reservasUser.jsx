@@ -13,6 +13,10 @@ import {
   humanDate,
 } from '../../helpers/reservas';
 
+// Función auxiliar para obtener el ID de la reserva venga como venga
+const getReservaId = (r) =>
+  r?.id ?? r?.reservaId ?? r?.reserva_id ?? r?.uuid ?? null;
+
 export default function ReservasUser() {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
@@ -31,7 +35,10 @@ export default function ReservasUser() {
 
   const servicioSel = useMemo(
     () =>
-      servicios.find((s) => [s.id, s._id, s.uuid].includes(servicioId)) || null,
+      servicios.find((s) => {
+        const sid = first(s.id, s._id, s.uuid);
+        return String(sid) === String(servicioId);
+      }) || null,
     [servicios, servicioId]
   );
 
@@ -49,7 +56,10 @@ export default function ReservasUser() {
   // Fallback de servicio en reservas (cuando backend no trae título)
   const getServicioTitulo = (sid) => {
     if (!sid) return null;
-    const s = servicios.find((x) => [x.id, x._id, x.uuid].includes(sid));
+    const s = servicios.find((x) => {
+      const xid = first(x.id, x._id, x.uuid);
+      return String(xid) === String(sid);
+    });
     return s ? first(s.title, s.titulo, s.name, null) : null;
   };
 
@@ -75,6 +85,7 @@ export default function ReservasUser() {
   }, []);
 
   useEffect(() => {
+    if (!servicioSel) return;
     if (servicioSel?.durationMin)
       setDurationMin(Number(servicioSel.durationMin) || 60);
     else {
@@ -87,6 +98,7 @@ export default function ReservasUser() {
   /* ===== Paquetes ===== */
   const [paquetes, setPaquetes] = useState([]);
   const [paqueteId, setPaqueteId] = useState('');
+
   async function cargarMisPaquetes() {
     if (!isAuthenticated) {
       setPaquetes([]);
@@ -143,6 +155,7 @@ export default function ReservasUser() {
       setLoadingHoras(false);
     }
   };
+
   useEffect(() => {
     if (fecha) cargarDisponibilidad(fecha);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -250,6 +263,7 @@ export default function ReservasUser() {
 
   /* ===== MIS RESERVAS ===== */
   const [mias, setMias] = useState([]);
+
   async function cargarMias() {
     if (!isAuthenticated) {
       setMias([]);
@@ -322,46 +336,51 @@ export default function ReservasUser() {
     id: '',
     reason: '',
   });
-  const abrirCancelModal = (id) =>
+
+  const abrirCancelModal = (rawId) => {
+    const id = rawId || '';
     setCancelModal({ open: true, id, reason: '' });
+  };
+
   const cerrarCancelModal = () =>
     setCancelModal({ open: false, id: '', reason: '' });
 
+  // Versión simplificada: usa solo PATCH /api/reservas/:id/cancel
   const confirmarCancelModal = async () => {
     const bid = cancelModal.id;
     const reason = (cancelModal.reason || '').trim();
+
+    if (!bid) {
+      showError('No se ha encontrado el ID de la reserva.');
+      return;
+    }
+
     try {
-      // Ruta nueva
       await http(`/api/reservas/${bid}/cancel`, {
         method: 'PATCH',
         data: { reason },
         auth: true,
       });
-    } catch (e1) {
-      // Fallback genérico
-      try {
-        await http(`/api/reservas/${bid}`, {
-          method: 'PATCH',
-          data: { status: 'cancelled', cancelReason: reason },
-          auth: true,
-        });
-      } catch (e2) {
-        showError(
-          e2?.data?.error ||
-            e2?.responseData?.error ||
-            e1?.data?.error ||
-            'No se pudo cancelar.'
-        );
-        return;
-      }
-    }
 
-    showSuccess('Reserva cancelada.');
-    cerrarCancelModal();
-    await Promise.all([
-      cargarMias(),
-      fecha ? cargarDisponibilidad(fecha) : Promise.resolve(),
-    ]);
+      showSuccess('Reserva cancelada.');
+      cerrarCancelModal();
+      await Promise.all([
+        cargarMias(),
+        fecha ? cargarDisponibilidad(fecha) : Promise.resolve(),
+      ]);
+    } catch (e) {
+      showError(
+        e?.data?.error ||
+          e?.responseData?.error ||
+          e?.message ||
+          'No se pudo cancelar.'
+      );
+      setTraceErr({
+        action: 'PATCH /api/reservas/:id/cancel',
+        id: bid,
+        error: e?.data || e?.responseData || String(e?.message || e),
+      });
+    }
   };
 
   useEffect(() => {
@@ -370,51 +389,69 @@ export default function ReservasUser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  /* ===== Agrupación por estado ===== */
+  /* ===== Agrupación por estado (con origen) ===== */
   const grouped = useMemo(() => {
     const g = {
-      pending: [],
+      pendingUser: [], // pendientes hechas por el usuario (esperando admin)
+      pendingAdmin: [], // pendientes creadas por admin (tú decides/cancelas)
       confirmed: [],
       done: [],
-      cancelled: [],
-      rejected: [],
+      cancelledRejected: [],
       other: [],
     };
+
     for (const r of mias) {
       const s = String(r.status || '').toLowerCase();
-      if (s === 'pending') g.pending.push(r);
-      else if (s === 'confirmed') g.confirmed.push(r);
-      else if (s === 'done' || s === 'hecha') g.done.push(r);
-      else if (s === 'cancelled') g.cancelled.push(r);
-      else if (s === 'rejected') g.rejected.push(r);
-      else g.other.push(r);
+      const origin = String(r.origin || '').toLowerCase();
+
+      if (s === 'pending' || s === 'pendiente') {
+        if (origin === 'admin') g.pendingAdmin.push(r);
+        else g.pendingUser.push(r);
+      } else if (s === 'confirmed' || s === 'confirmada' || s === 'approved') {
+        g.confirmed.push(r);
+      } else if (s === 'done' || s === 'hecha') {
+        g.done.push(r);
+      } else if (
+        ['cancelled', 'cancelada', 'deleted', 'eliminada', 'rejected', 'rechazada'].includes(s)
+      ) {
+        g.cancelledRejected.push(r);
+      } else {
+        g.other.push(r);
+      }
     }
+
     return g;
   }, [mias]);
 
   const statusColor = (s) => {
     const st = String(s || '').toLowerCase();
-    if (st === 'pending') return 'yellow';
-    if (st === 'confirmed') return 'green';
+    if (st === 'pending' || st === 'pendiente') return 'yellow';
+    if (st === 'confirmed' || st === 'confirmada' || st === 'approved')
+      return 'green';
     if (st === 'done' || st === 'hecha') return 'blue';
-    if (st === 'cancelled') return 'gray';
-    if (st === 'rejected') return 'red';
+    if (
+      ['cancelled', 'cancelada', 'deleted', 'eliminada'].includes(st)
+    )
+      return 'gray';
+    if (st === 'rejected' || st === 'rechazada') return 'red';
     return 'gray';
   };
 
   const renderCard = (r) => {
+    const id = getReservaId(r);
     const tituloSrv = first(
       r.servicioTitulo,
       getServicioTitulo(r.servicioId),
       'Servicio'
     );
 
-    const canCancel = ['pending', 'confirmed'].includes(
-      String(r.status || '').toLowerCase()
+    const st = String(r.status || '').toLowerCase();
+    const canCancel = ['pending', 'pendiente', 'confirmed', 'confirmada'].includes(
+      st
     );
 
     return (
-      <div key={r.id} className="reserva-card">
+      <div key={id || Math.random()} className="reserva-card">
         <div className="reserva-header">
           <h3>{tituloSrv}</h3>
           <span className={`status ${statusColor(r.status)}`}>
@@ -441,20 +478,21 @@ export default function ReservasUser() {
           <button
             className="btn-ghost"
             onClick={async () => {
-              setNotesOpen((o) => ({ ...o, [r.id]: !o[r.id] }));
-              if (!notesByRes[r.id]) await loadNotes(r.id);
+              if (!id) return;
+              setNotesOpen((o) => ({ ...o, [id]: !o[id] }));
+              if (!notesByRes[id]) await loadNotes(id);
             }}
           >
             📝 Notas
           </button>
 
-          {notesOpen[r.id] && (
+          {id && notesOpen[id] && (
             <div className="notes-box">
               <div className="notes-list">
-                {(notesByRes[r.id] || []).length === 0 ? (
+                {(notesByRes[id] || []).length === 0 ? (
                   <div className="empty">Sin notas aún.</div>
                 ) : (
-                  (notesByRes[r.id] || []).map((n) => (
+                  (notesByRes[id] || []).map((n) => (
                     <div key={n.id} className="note-item">
                       <div className="note-meta">
                         <b>
@@ -468,7 +506,7 @@ export default function ReservasUser() {
                       <div className="note-actions">
                         <button
                           className="btn-ghost"
-                          onClick={() => deleteNote(r.id, n.id)}
+                          onClick={() => deleteNote(id, n.id)}
                         >
                           🗑️
                         </button>
@@ -483,17 +521,17 @@ export default function ReservasUser() {
                 <textarea
                   rows={2}
                   placeholder="Escribe una nota…"
-                  value={noteDraftByRes[r.id] || ''}
+                  value={noteDraftByRes[id] || ''}
                   onChange={(e) =>
                     setNoteDraftByRes((p) => ({
                       ...p,
-                      [r.id]: e.target.value,
+                      [id]: e.target.value,
                     }))
                   }
                 />
                 <button
                   className="btn-primary"
-                  onClick={() => addNote(r.id)}
+                  onClick={() => addNote(id)}
                 >
                   Agregar nota
                 </button>
@@ -503,10 +541,10 @@ export default function ReservasUser() {
         </div>
 
         {/* Cancelar */}
-        {canCancel && (
+        {canCancel && id && (
           <button
             className="btn-ghost cancel-btn"
-            onClick={() => abrirCancelModal(r.id)}
+            onClick={() => abrirCancelModal(id)}
           >
             Cancelar reserva
           </button>
@@ -658,15 +696,19 @@ export default function ReservasUser() {
           ) : (
             <div className="horas-grid">
               {HOURS.map((h) => {
-                const disabled = unavailable.includes(h);
+                const t =
+                  typeof h === 'number'
+                    ? `${String(h).padStart(2, '0')}:00`
+                    : String(h);
+                const disabled = unavailable.includes(t);
                 return (
                   <button
-                    key={h}
+                    key={t}
                     disabled={disabled}
                     className={disabled ? 'hora-disabled' : 'hora'}
-                    onClick={() => abrirConfirmacion(fecha, h)}
+                    onClick={() => abrirConfirmacion(fecha, t)}
                   >
-                    {h}
+                    {t}
                   </button>
                 );
               })}
@@ -733,14 +775,19 @@ export default function ReservasUser() {
       ) : (
         <>
           {renderGroup(
-            'Pendientes',
-            grouped.pending,
-            'No tienes reservas pendientes.'
+            'Pendientes (esperando confirmación del adiestrador)',
+            grouped.pendingUser,
+            'No tienes reservas pendientes en espera de confirmación.'
           )}
           {renderGroup(
-            'Confirmadas',
+            'Pendientes (creadas por el admin, a la espera de tu aceptación)',
+            grouped.pendingAdmin,
+            'No tienes reservas pendientes creadas por el admin.'
+          )}
+          {renderGroup(
+            'Aceptadas',
             grouped.confirmed,
-            'No tienes reservas confirmadas.'
+            'No tienes reservas aceptadas.'
           )}
           {renderGroup(
             'Hechas',
@@ -748,14 +795,9 @@ export default function ReservasUser() {
             'Todavía no hay reservas marcadas como hechas.'
           )}
           {renderGroup(
-            'Canceladas',
-            grouped.cancelled,
-            'No hay reservas canceladas.'
-          )}
-          {renderGroup(
-            'Rechazadas',
-            grouped.rejected,
-            'No hay reservas rechazadas.'
+            'Canceladas / Rechazadas',
+            grouped.cancelledRejected,
+            'No hay reservas canceladas o rechazadas.'
           )}
           {grouped.other.length > 0 &&
             renderGroup(

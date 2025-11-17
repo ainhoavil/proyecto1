@@ -1,82 +1,92 @@
 // frontend/src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
+
+// Layout
 import Navbar from './components/navbar';
 import Topbar from './components/topbar';
 
+// Contextos
 import { EditModeProvider } from './context/editmode';
 import { AuthProvider } from './context/auth';
+
+// Rutas protegidas
 import ProtectedRoute from './components/ProtectedRoute';
 import RoleRoute from './components/RoleRoute';
 
-// Páginas principales
+// Páginas públicas
 import Home from './pages/home.jsx';
 import Servicios from './pages/servicios.jsx';
-import Reservas from './pages/reservas.jsx';   // 🔹 coordinador de admin/usuario
+import Reservas from './pages/reservas.jsx';       // Coordinador Admin/User
 import Contacto from './pages/contacto.jsx';
 import Videos from './pages/videos.jsx';
 import Login from './pages/login.jsx';
 import Register from './pages/register.jsx';
 import Contratar from './pages/contratar.jsx';
+
+// Páginas protegidas
 import Perfil from './pages/perfil.jsx';
 
-// Si luego haces panel de admin:
-// import AdminPanel from './pages/admin/index.jsx';
+// Import global styles
+import './styles/global.scss';
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <EditModeProvider>
-        <Topbar />
-        <Navbar />
+	return (
+		<AuthProvider>
+			<EditModeProvider>
+				{/* Layout superior */}
+				<Topbar />
+				<Navbar />
 
-        <main className="container">
-          <Routes>
-            {/* ===== PÚBLICAS ===== */}
-            <Route path="/" element={<Home />} />
-            <Route path="/servicios" element={<Servicios />} />
-            <Route path="/contratar" element={<Contratar />} />
-            <Route path="/multimedia" element={<Videos />} />
-            <Route path="/contacto" element={<Contacto />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+				{/* Contenido principal */}
+				<main className="container">
+					<Routes>
 
-            {/* ===== PROTEGIDAS ===== */}
-            <Route
-              path="/perfil"
-              element={
-                <ProtectedRoute>
-                  <Perfil />
-                </ProtectedRoute>
-              }
-            />
+						{/* ===== PÚBLICAS ===== */}
+						<Route path="/" element={<Home />} />
+						<Route path="/servicios" element={<Servicios />} />
+						<Route path="/contratar" element={<Contratar />} />
+						<Route path="/multimedia" element={<Videos />} />
+						<Route path="/contacto" element={<Contacto />} />
+						<Route path="/login" element={<Login />} />
+						<Route path="/register" element={<Register />} />
 
-            <Route
-              path="/reservas"
-              element={
-                <ProtectedRoute>
-                  <Reservas />  {/* 🔹 el coordinador detecta admin o usuario */}
-                </ProtectedRoute>
-              }
-            />
+						{/* ===== PROTEGIDAS ===== */}
+						<Route
+							path="/perfil"
+							element={
+								<ProtectedRoute>
+									<Perfil />
+								</ProtectedRoute>
+							}
+						/>
 
-            {/* ===== EJEMPLO ADMIN FUTURO =====
-            <Route
-              path="/admin/*"
-              element={
-                <ProtectedRoute>
-                  <RoleRoute allow={['admin']}>
-                    <AdminPanel />
-                  </RoleRoute>
-                </ProtectedRoute>
-              }
-            />
-            */}
+						<Route
+							path="/reservas"
+							element={
+								<ProtectedRoute>
+									<Reservas />   {/* Detecta admin o usuario */}
+								</ProtectedRoute>
+							}
+						/>
 
-            {/* ===== CATCH-ALL ===== */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </main>
-      </EditModeProvider>
-    </AuthProvider>
-  );
+						{/* ===== FUTURO PANEL ADMIN =====
+						<Route
+							path="/admin/*"
+							element={
+								<ProtectedRoute>
+									<RoleRoute allow={['admin']}>
+										<AdminPanel />
+									</RoleRoute>
+								</ProtectedRoute>
+							}
+						/>
+						*/}
+
+						{/* ===== CATCH-ALL ===== */}
+						<Route path="*" element={<Navigate to="/" replace />} />
+					</Routes>
+				</main>
+			</EditModeProvider>
+		</AuthProvider>
+	);
 }

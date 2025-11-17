@@ -59,18 +59,18 @@ export default function ReservasAdmin() {
   const showSuccess = (t) => setNotice({ type: 'success', text: t });
   const showError = (t) => setNotice({ type: 'error', text: t });
   const clearNotice = () => setNotice({ type: '', text: '' });
-  const setTraceErr = (obj) => setTrace({ time: new Date().toISOString(), ...obj });
+  const setTraceErr = (obj) =>
+    setTrace({ time: new Date().toISOString(), ...obj });
 
   /* ===== Notas (hilo) por reserva ===== */
-  const [notesByRes, setNotesByRes] = useState({});       // { [reservaId]: [{id,author,text,createdAt}] }
-  const [noteDraftByRes, setNoteDraftByRes] = useState({}); // { [reservaId]: '...' }
-  const [notesOpen, setNotesOpen] = useState({});         // { [reservaId]: bool }
+  const [notesByRes, setNotesByRes] = useState({});
+  const [noteDraftByRes, setNoteDraftByRes] = useState({});
+  const [notesOpen, setNotesOpen] = useState({});
 
   const loadNotes = async (id) => {
     try {
       const rows = await http(`/api/reservas/${id}/notes`, { auth: true });
       const arr = Array.isArray(rows) ? rows : [];
-      // backend devuelve DESC; para estilo chat (lo más reciente abajo) los invertimos
       setNotesByRes((p) => ({
         ...p,
         [id]: [...arr].reverse(),
@@ -97,7 +97,7 @@ export default function ReservasAdmin() {
       setNoteDraftByRes((p) => ({ ...p, [id]: '' }));
       setNotesByRes((p) => ({
         ...p,
-        [id]: [...(p[id] || []), n], // añadimos al final → reciente abajo
+        [id]: [...(p[id] || []), n],
       }));
       showSuccess('Nota añadida');
     } catch (e) {
@@ -217,10 +217,23 @@ export default function ReservasAdmin() {
   };
 
   /* ===== Bloquear hora / crear para email ===== */
+
   const [quickFecha, setQuickFecha] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
-  const [quickHora, setQuickHora] = useState('09:00');
+
+  // quickHora robusto: soporta HOURS numérico o string
+  const [quickHora, setQuickHora] = useState(() => {
+    const firstH = HOURS?.[0];
+    if (typeof firstH === 'number') {
+      return `${String(firstH).padStart(2, '0')}:00`;
+    }
+    if (typeof firstH === 'string') {
+      return firstH;
+    }
+    return '09:00';
+  });
+
   const [quickEmail, setQuickEmail] = useState('');
   const [quickMod, setQuickMod] = useState('presencial');
 
@@ -294,7 +307,9 @@ export default function ReservasAdmin() {
 
     const sortByDT = (arr) =>
       [...arr].sort((a, b) =>
-        (`${a.fecha || ''} ${a.hora || ''}`).localeCompare(`${b.fecha || ''} ${b.hora || ''}`)
+        (`${a.fecha || ''} ${a.hora || ''}`).localeCompare(
+          `${b.fecha || ''} ${b.hora || ''}`
+        )
       );
 
     return {
@@ -313,7 +328,9 @@ export default function ReservasAdmin() {
 
   return (
     <div className="reservas-admin">
-      {notice.text && <div className={`notice ${notice.type}`}>{notice.text}</div>}
+      {notice.text && (
+        <div className={`notice ${notice.type}`}>{notice.text}</div>
+      )}
 
       {trace && (
         <details open className="trace" style={{ marginTop: 10 }}>
@@ -343,9 +360,15 @@ export default function ReservasAdmin() {
           </label>
           <label>
             Hora
-            <select value={quickHora} onChange={(e) => setQuickHora(e.target.value)}>
+            <select
+              value={quickHora}
+              onChange={(e) => setQuickHora(e.target.value)}
+            >
               {HOURS.map((h) => {
-                const t = `${String(h).padStart(2, '0')}:00`;
+                const t =
+                  typeof h === 'number'
+                    ? `${String(h).padStart(2, '0')}:00`
+                    : String(h);
                 return (
                   <option key={t} value={t}>
                     {t}
@@ -356,7 +379,10 @@ export default function ReservasAdmin() {
           </label>
           <label>
             Servicio
-            <select value={servicioId} onChange={(e) => setServicioId(e.target.value)}>
+            <select
+              value={servicioId}
+              onChange={(e) => setServicioId(e.target.value)}
+            >
               {servicios.map((s) => {
                 const sid = first(s.id, s._id, s.uuid);
                 const title = first(s.title, s.titulo, s.name, 'Servicio');
@@ -370,13 +396,18 @@ export default function ReservasAdmin() {
           </label>
           <label>
             Modalidad
-            <select value={quickMod} onChange={(e) => setQuickMod(e.target.value)}>
+            <select
+              value={quickMod}
+              onChange={(e) => setQuickMod(e.target.value)}
+            >
               <option value="presencial">Presencial</option>
               <option value="online">Online</option>
               <option value="a domicilio">A domicilio</option>
             </select>
           </label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div
+            style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
+          >
             <button className="btn-danger" onClick={bloquear}>
               Bloquear hora
             </button>
@@ -390,7 +421,9 @@ export default function ReservasAdmin() {
               onChange={(e) => setQuickEmail(e.target.value)}
             />
           </label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <div
+            style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
+          >
             <button className="btn-primary" onClick={reservarParaEmail}>
               Crear reserva
             </button>
@@ -425,7 +458,9 @@ export default function ReservasAdmin() {
               min={50}
               max={1000}
               value={adminLimit}
-              onChange={(e) => setAdminLimit(Number(e.target.value || 300))}
+              onChange={(e) =>
+                setAdminLimit(Number(e.target.value || 300))
+              }
               style={{ width: 100 }}
             />
           </label>
@@ -452,7 +487,11 @@ export default function ReservasAdmin() {
               items: adminBuckets.pendingUserAccept,
               actions: false,
             },
-            { title: 'Confirmadas', items: adminBuckets.confirmed, actions: false },
+            {
+              title: 'Confirmadas',
+              items: adminBuckets.confirmed,
+              actions: false,
+            },
             {
               title: 'Canceladas / Rechazadas',
               items: adminBuckets.cancelled,
@@ -472,16 +511,19 @@ export default function ReservasAdmin() {
                     return (
                       <li key={r.id} className="reserva-item">
                         <div className="reserva-main">
-                          <div className="title">{r.servicioTitulo || 'Servicio'}</div>
+                          <div className="title">
+                            {r.servicioTitulo || 'Servicio'}
+                          </div>
                           <div className="meta">
                             <b>De:</b> {r.email} · {r.fecha} · {r.hora} ·{' '}
                             <i>{r.modalidad}</i>
                           </div>
                         </div>
 
-                        <div className={`badge ${r.status}`}>{r.status}</div>
+                        <div className={`badge ${r.status}`}>
+                          {r.status}
+                        </div>
 
-                        {/* Botón notas tipo hilo */}
                         <div
                           style={{
                             gridColumn: '1 / -1',
@@ -495,11 +537,11 @@ export default function ReservasAdmin() {
                             className="btn-ghost"
                             onClick={() => toggleNotes(r)}
                           >
-                            📝 Notas {notes.length ? `(${notes.length})` : ''}
+                            📝 Notas{' '}
+                            {notes.length ? `(${notes.length})` : ''}
                           </button>
                         </div>
 
-                        {/* Hilo de notas (mismo estilo que en usuario, adaptado a admin) */}
                         {isOpen && (
                           <div
                             className="notes-box"
@@ -524,7 +566,9 @@ export default function ReservasAdmin() {
                               }}
                             >
                               {notes.length === 0 ? (
-                                <div className="empty">Sin notas aún.</div>
+                                <div className="empty">
+                                  Sin notas aún.
+                                </div>
                               ) : (
                                 notes.map((n) => (
                                   <div
@@ -571,7 +615,9 @@ export default function ReservasAdmin() {
                                     >
                                       <button
                                         className="btn-ghost"
-                                        onClick={() => deleteNote(r.id, n.id)}
+                                        onClick={() =>
+                                          deleteNote(r.id, n.id)
+                                        }
                                         title="Borrar nota"
                                       >
                                         🗑️
@@ -584,7 +630,11 @@ export default function ReservasAdmin() {
 
                             <div
                               className="note-compose"
-                              style={{ display: 'grid', gap: 8, marginTop: 8 }}
+                              style={{
+                                display: 'grid',
+                                gap: 8,
+                                marginTop: 8,
+                              }}
                             >
                               <textarea
                                 rows={2}
@@ -614,7 +664,6 @@ export default function ReservasAdmin() {
                           </div>
                         )}
 
-                        {/* Acciones admin */}
                         <div
                           className="admin-actions"
                           style={{
