@@ -1,0 +1,429 @@
+@import './global.scss';
+
+.servicios.page-wrapper {
+  padding: $sp-6 0 $sp-8;
+}
+
+.servicios h1 {
+  font-family: $font-display;
+  font-size: clamp(28px, 4vw, 40px);
+  margin-bottom: $sp-5;
+}
+
+.error-msg {
+  color: crimson;
+  margin-bottom: $sp-4;
+}
+
+/* ==========================
+   ADMIN: CREAR SERVICIO
+========================== */
+
+.admin-create {
+  margin-bottom: $sp-6;
+  padding: $sp-5;
+  border-radius: $radius-xl;
+  background: $color-brand-light;
+  border: 1px solid rgba(0,0,0,0.06);
+
+  h2 {
+    margin-bottom: $sp-4;
+    font-family: $font-display;
+  }
+
+  .admin-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: $sp-4;
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: $sp-1;
+      font-size: 14px;
+      color: $color-text;
+    }
+
+    .full {
+      grid-column: 1 / -1;
+    }
+
+    input,
+    textarea {
+      border-radius: $radius;
+      border: 1px solid $color-border;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .featured-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: $sp-2;
+
+      input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+      }
+    }
+
+    small {
+      font-size: 12px;
+      opacity: 0.8;
+      margin-top: 2px;
+    }
+
+    .form-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: $sp-3;
+      margin-top: $sp-2;
+
+      button {
+        border: none;
+        border-radius: $radius-large;
+        padding: 8px 18px;
+        background: $color-brand;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.25s ease;
+
+        &:hover {
+          background: $color-brand-dark;
+          transform: translateY(-1px);
+        }
+      }
+
+      .msg-inline {
+        font-size: 14px;
+      }
+    }
+  }
+}
+
+/* ==========================
+   GRID DE SERVICIOS
+========================== */
+
+.servicios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: $sp-5;
+}
+
+.service-card {
+  cursor: pointer;
+  border-radius: $radius-xl;
+  background: #fff;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: 0.25s ease;
+
+  &:hover {
+    transform: translateY(-6px);
+    box-shadow: $shadow-strong;
+  }
+
+  .card-img {
+    height: 210px;
+    background-size: cover;
+    background-position: center;
+  }
+
+  .card-content {
+    padding: $sp-4;
+    display: flex;
+    flex-direction: column;
+    gap: $sp-3;
+
+    .badge {
+      align-self: flex-start;
+      background: $color-brand;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    h3 {
+      font-family: $font-display;
+      font-size: 20px;
+    }
+
+    .short {
+      color: $color-text-light;
+      font-size: 15px;
+    }
+
+    .details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: $sp-2;
+      font-size: 14px;
+      opacity: 0.9;
+
+      div {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: $color-brand-light;
+      }
+    }
+
+    .actions {
+      margin-top: auto;
+      display: flex;
+      gap: $sp-3;
+
+      button {
+        flex: 1;
+        border-radius: $radius-large;
+        border: none;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.25s ease;
+      }
+
+      button:first-child {
+        background: transparent;
+        border: 1px solid $color-brand;
+        color: $color-brand-dark;
+
+        &:hover {
+          background: $color-brand-light;
+        }
+      }
+
+      button:last-child {
+        background: $color-brand;
+        color: #fff;
+
+        &:hover {
+          background: $color-brand-dark;
+        }
+      }
+    }
+  }
+
+  &.featured {
+    border: 2px solid $color-brand;
+  }
+}
+
+/* ==========================
+   MODAL DETALLE
+========================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: grid;
+  place-items: center;
+  padding: $sp-4;
+  z-index: 1200;
+}
+
+.modal-card {
+  position: relative;
+  background: #fff;
+  border-radius: $radius-xl;
+  max-width: 780px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: $sp-5;
+  box-shadow: $shadow-strong;
+  display: flex;
+  flex-direction: column;
+  gap: $sp-4;
+
+  .close-modal {
+    position: absolute;
+    top: $sp-3;
+    right: $sp-3;
+    border: none;
+    background: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: $color-text;
+    transition: 0.25s ease;
+
+    &:hover {
+      color: $color-brand;
+      transform: rotate(8deg);
+    }
+  }
+
+  .modal-img {
+    width: 100%;
+    height: 260px;
+    border-radius: $radius-large;
+    background-size: cover;
+    background-position: center;
+  }
+
+  h3 {
+    font-family: $font-display;
+    font-size: 22px;
+  }
+
+  .modal-description {
+    font-size: 15px;
+    line-height: 1.6;
+    color: $color-text;
+  }
+
+  .modal-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $sp-2;
+    font-size: 14px;
+
+    div {
+      padding: 4px 8px;
+      background: $color-brand-light;
+      border-radius: 999px;
+    }
+  }
+
+  .modal-btn {
+    align-self: flex-start;
+    margin-top: $sp-2;
+    border: none;
+    border-radius: $radius-large;
+    padding: 10px 20px;
+    background: $color-brand;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.25s ease;
+
+    &:hover {
+      background: $color-brand-dark;
+      transform: translateY(-1px);
+    }
+  }
+}
+
+/* ==========================
+   ADMIN EDITOR EN MODAL
+========================== */
+
+.admin-edit-form {
+  margin-top: $sp-4;
+  padding-top: $sp-4;
+  border-top: 1px solid $color-border;
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $sp-3;
+
+  h4 {
+    grid-column: 1 / -1;
+    margin-bottom: $sp-1;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 14px;
+  }
+
+  .full {
+    grid-column: 1 / -1;
+  }
+
+  input,
+  textarea {
+    border-radius: $radius;
+    border: 1px solid $color-border;
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 70px;
+  }
+
+  .featured-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: $sp-1;
+  }
+
+  .form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: $sp-3;
+    margin-top: $sp-2;
+
+    button {
+      border: none;
+      border-radius: $radius-large;
+      padding: 8px 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.25s ease;
+    }
+
+    button[type='submit'] {
+      background: $color-brand;
+      color: #fff;
+
+      &:hover {
+        background: $color-brand-dark;
+      }
+    }
+
+    .delete-btn {
+      background: #f44336;
+      color: #fff;
+
+      &:hover {
+        background: #d32f2f;
+      }
+    }
+
+    .msg-inline {
+      font-size: 14px;
+    }
+  }
+}
+
+/* ==========================
+   RESPONSIVE
+========================== */
+
+@media (max-width: 800px) {
+  .admin-form,
+  .admin-edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-card {
+    padding: $sp-4;
+  }
+
+  .modal-img {
+    height: 220px;
+  }
+}

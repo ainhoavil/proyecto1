@@ -490,7 +490,7 @@ export default function ReservasAdmin() {
             {
               title: 'Confirmadas',
               items: adminBuckets.confirmed,
-              actions: false,
+              actions: true, // aquí el admin puede rechazar
             },
             {
               title: 'Canceladas / Rechazadas',
@@ -507,6 +507,23 @@ export default function ReservasAdmin() {
                   {group.items.map((r) => {
                     const isOpen = !!notesOpen[r.id];
                     const notes = notesByRes[r.id] || [];
+
+                    const rawStatus = String(r.status || '').toLowerCase();
+                    const canConfirm =
+                      rawStatus === 'pending' || rawStatus === 'pendiente';
+                    const canReject =
+                      rawStatus === 'pending' ||
+                      rawStatus === 'pendiente' ||
+                      rawStatus === 'confirmed' ||
+                      rawStatus === 'confirmada';
+                    const canDelete = [
+                      'cancelled',
+                      'cancelada',
+                      'rejected',
+                      'rechazada',
+                      'deleted',
+                      'eliminada',
+                    ].includes(rawStatus);
 
                     return (
                       <li key={r.id} className="reserva-item">
@@ -675,28 +692,34 @@ export default function ReservasAdmin() {
                             marginTop: 8,
                           }}
                         >
-                          {group.actions && (
-                            <>
-                              <button
-                                className="btn-primary"
-                                onClick={() => confirmar(r.id)}
-                              >
-                                Confirmar
-                              </button>
-                              <button
-                                className="btn-danger"
-                                onClick={() => rechazar(r.id)}
-                              >
-                                Rechazar
-                              </button>
-                            </>
+                          {/* Confirmar / Rechazar solo en grupos con actions=true */}
+                          {group.actions && canConfirm && !canDelete && (
+                            <button
+                              className="btn-primary"
+                              onClick={() => confirmar(r.id)}
+                            >
+                              Confirmar
+                            </button>
                           )}
-                          <button
-                            className="btn-ghost"
-                            onClick={() => eliminar(r.id)}
-                          >
-                            Eliminar
-                          </button>
+
+                          {group.actions && canReject && !canDelete && (
+                            <button
+                              className="btn-danger"
+                              onClick={() => rechazar(r.id)}
+                            >
+                              Rechazar
+                            </button>
+                          )}
+
+                          {/* Eliminar solo para canceladas / rechazadas / eliminadas */}
+                          {canDelete && (
+                            <button
+                              className="btn-ghost"
+                              onClick={() => eliminar(r.id)}
+                            >
+                              Eliminar
+                            </button>
+                          )}
                         </div>
                       </li>
                     );

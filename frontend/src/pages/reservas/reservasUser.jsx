@@ -17,6 +17,29 @@ import {
 const getReservaId = (r) =>
   r?.id ?? r?.reservaId ?? r?.reserva_id ?? r?.uuid ?? null;
 
+/* ===== helpers de fechas (alineados con backend) ===== */
+const MS_24H = 24 * 60 * 60 * 1000;
+
+function buildDateFromFechaHora(fecha, hora) {
+  if (!fecha) return null;
+  const [Y, M, D] = String(fecha).split('-').map(Number);
+  const [h, m = 0] = String(hora || '00:00').split(':').map(Number);
+  if (!Y || !M || !D) return null;
+  return new Date(Y, (M || 1) - 1, D, h || 0, m || 0);
+}
+
+function isFuture(fecha, hora) {
+  const d = buildDateFromFechaHora(fecha, hora);
+  if (!d) return false;
+  return d.getTime() > Date.now();
+}
+
+function canCancel24h(fecha, hora) {
+  const d = buildDateFromFechaHora(fecha, hora);
+  if (!d) return false;
+  return d.getTime() - Date.now() > MS_24H;
+}
+
 export default function ReservasUser() {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
@@ -345,7 +368,7 @@ export default function ReservasUser() {
   const cerrarCancelModal = () =>
     setCancelModal({ open: false, id: '', reason: '' });
 
-  // Versión simplificada: usa solo PATCH /api/reservas/:id/cancel
+  // Usa PATCH /api/reservas/:id/cancel (el backend ya aplica la regla de 24h)
   const confirmarCancelModal = async () => {
     const bid = cancelModal.id;
     const reason = (cancelModal.reason || '').trim();
@@ -389,26 +412,29 @@ export default function ReservasUser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  /* ===== Agrupación por estado (con origen) ===== */
+  /* ===== Agrupación por estado + tiempo ===== */
   const grouped = useMemo(() => {
     const g = {
-      pendingUser: [], // pendientes hechas por el usuario (esperando admin)
-      pendingAdmin: [], // pendientes creadas por admin (tú decides/cancelas)
-      confirmed: [],
-      done: [],
-      cancelledRejected: [],
+      pendingUser: [],        // pendientes pedidas por el usuario (futuras)
+      pendingAdmin: [],       // pendientes creadas por admin (futuras)
+      confirmedUpcoming: [],  // confirmadas futuras
+      confirmedPast: [],      // confirmadas pasadas (historial)
+      done: [],               // hechas / completadas
+      cancelledRejected: [],  // canceladas / rechazadas / eliminadas
       other: [],
     };
 
     for (const r of mias) {
       const s = String(r.status || '').toLowerCase();
       const origin = String(r.origin || '').toLowerCase();
+      const future = isFuture(r.fecha, r.hora);
 
       if (s === 'pending' || s === 'pendiente') {
         if (origin === 'admin') g.pendingAdmin.push(r);
         else g.pendingUser.push(r);
       } else if (s === 'confirmed' || s === 'confirmada' || s === 'approved') {
-        g.confirmed.push(r);
+        if (future) g.confirmedUpcoming.push(r);
+        else g.confirmedPast.push(r);
       } else if (s === 'done' || s === 'hecha') {
         g.done.push(r);
       } else if (
@@ -429,9 +455,7 @@ export default function ReservasUser() {
     if (st === 'confirmed' || st === 'confirmada' || st === 'approved')
       return 'green';
     if (st === 'done' || st === 'hecha') return 'blue';
-    if (
-      ['cancelled', 'cancelada', 'deleted', 'eliminada'].includes(st)
-    )
+    if (['cancelled', 'cancelada', 'deleted', 'eliminada'].includes(st))
       return 'gray';
     if (st === 'rejected' || st === 'rechazada') return 'red';
     return 'gray';
@@ -446,9 +470,12 @@ export default function ReservasUser() {
     );
 
     const st = String(r.status || '').toLowerCase();
-    const canCancel = ['pending', 'pendiente', 'confirmed', 'confirmada'].includes(
+
+    const canCancelStatus = ['pending', 'pendiente', 'confirmed', 'confirmada'].includes(
       st
     );
+    const canCancelTime = canCancel24h(r.fecha, r.hora);
+    const showCancel = canCancelStatus && canCancelTime;
 
     return (
       <div key={id || Math.random()} className="reserva-card">
@@ -469,6 +496,11 @@ export default function ReservasUser() {
           {r.modalidad && (
             <p>
               <b>Modalidad:</b> {r.modalidad}
+            </p>
+          )}
+          {r.cancelReason && (
+            <p>
+              <b>Motivo:</b> {r.cancelReason}
             </p>
           )}
         </div>
@@ -540,8 +572,8 @@ export default function ReservasUser() {
           )}
         </div>
 
-        {/* Cancelar */}
-        {canCancel && id && (
+        {/* Cancelar (solo si futura y >24h) */}
+        {showCancel && id && (
           <button
             className="btn-ghost cancel-btn"
             onClick={() => abrirCancelModal(id)}
@@ -775,24 +807,24 @@ export default function ReservasUser() {
       ) : (
         <>
           {renderGroup(
-            'Pendientes (esperando confirmación del adiestrador)',
+            'Pendientes (pedidas por ti, esperando confirmación)',
             grouped.pendingUser,
             'No tienes reservas pendientes en espera de confirmación.'
           )}
           {renderGroup(
-            'Pendientes (creadas por el admin, a la espera de tu aceptación)',
+            'Pendientes (creadas por el admin, a la espera de tu decisión)',
             grouped.pendingAdmin,
             'No tienes reservas pendientes creadas por el admin.'
           )}
           {renderGroup(
-            'Aceptadas',
-            grouped.confirmed,
-            'No tienes reservas aceptadas.'
+            'Próximas confirmadas',
+            grouped.confirmedUpcoming,
+            'No tienes reservas próximas confirmadas.'
           )}
           {renderGroup(
-            'Hechas',
-            grouped.done,
-            'Todavía no hay reservas marcadas como hechas.'
+            'Historial (reservas pasadas)',
+            [...grouped.confirmedPast, ...grouped.done],
+            'Todavía no hay reservas en el historial.'
           )}
           {renderGroup(
             'Canceladas / Rechazadas',

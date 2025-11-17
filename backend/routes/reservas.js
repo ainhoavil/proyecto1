@@ -11,6 +11,8 @@ const BUSINESS_HOURS = { start: 9, end: 21, skipHours: new Set([14, 15]) };
 
 /* ===================== Helpers ===================== */
 const nowISO = () => new Date().toISOString();
+const MS_24H = 24 * 60 * 60 * 1000;
+
 const toMin = (hhmm) => {
   const [h, m = 0] = String(hhmm).split(':').map(Number);
   return h * 60 + m;
@@ -29,6 +31,44 @@ const parseJSONSafe = (v, fb = {}) => {
     return fb;
   }
 };
+
+function buildDateFromFechaHora(fecha, hora) {
+  if (!fecha) return null;
+  const [Y, M, D] = String(fecha).split('-').map(Number);
+  const [h, m = 0] = String(hora || '00:00').split(':').map(Number);
+  if (!Y || !M || !D) return null;
+  return new Date(Y, (M || 1) - 1, D, h || 0, m || 0);
+}
+
+function isPast(fecha, hora) {
+  const d = buildDateFromFechaHora(fecha, hora);
+  if (!d) return false;
+  return d.getTime() < Date.now();
+}
+
+function puedeCancelar24h(fecha, hora) {
+  const d = buildDateFromFechaHora(fecha, hora);
+  if (!d) return false;
+  return d.getTime() - Date.now() > MS_24H;
+}
+
+async function autoExpireIfPast(rows) {
+  for (const r of rows) {
+    const s = String(r.status || '').toLowerCase();
+    if ((s === 'pending' || s === 'pendiente') && isPast(r.fecha, r.hora)) {
+      await query(
+        `UPDATE reservas
+            SET status='rejected',
+                cancel_reason=COALESCE(cancel_reason,'auto-expirada'),
+                updated_at=?
+         WHERE id=?`,
+        [nowISO(), r.id]
+      );
+      r.status = 'rejected';
+      if (!r.cancelReason) r.cancelReason = 'auto-expirada';
+    }
+  }
+}
 
 async function tx(run) {
   try {
@@ -398,6 +438,9 @@ router.get('/mias', verifyToken, async (req, res) => {
       [uid || null, email || null]
     );
 
+    // auto-expirar pendientes pasadas
+    await autoExpireIfPast(rows);
+
     res.json(
       rows.map((r) => ({
         ...r,
@@ -440,6 +483,9 @@ router.get('/', verifyToken, requireAdmin, async (req, res) => {
     params.push(Math.min(Number(limit || 300), 1000));
 
     const rows = await query(sql, params);
+
+    // auto-expirar pendientes pasadas
+    await autoExpireIfPast(rows);
 
     res.json(
       rows.map((r) => ({
@@ -626,7 +672,7 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
     const { reason = '' } = req.body || {};
 
     const rRows = await query(
-      `SELECT id, uid, email, paquete_id AS paqueteId, status
+      `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
@@ -638,6 +684,10 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
       (r.uid && req.user?.uid && r.uid === req.user.uid) ||
       (r.email && req.user?.email && r.email === req.user.email);
     if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
+
+    if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
+      return res.status(400).json({ error: 'No se puede cancelar con menos de 24h' });
+    }
 
     if (r.paqueteId) {
       await tx(async () => {
@@ -681,71 +731,42 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /api/reservas/:id
-router.delete('/:id', verifyToken, async (req, res) => {
+// DELETE /api/reservas/:id (solo admin)
+router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
     const rRows = await query(
-      `SELECT id, uid, email, paquete_id AS paqueteId, status
+      `SELECT id, paquete_id AS paqueteId, status
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
     if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
     const r = rRows[0];
 
-    const isAdmin = !!req.user?.isAdmin;
-    const isOwner =
-      (r.uid && req.user?.uid && r.uid === req.user.uid) ||
-      (r.email && req.user?.email && r.email === req.user.email);
-    if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
+    // Mantengo la lógica existente: marcar como rejected + ajuste de paquete
+    const note = 'Eliminada por admin';
+    await query(
+      `UPDATE reservas
+          SET status='rejected',
+              admin_note=COALESCE(?,admin_note),
+              updated_at=?
+       WHERE id=?`,
+      [note, nowISO(), id]
+    );
 
-    if (isAdmin) {
-      const note = 'Eliminada por admin';
-      await query(
-        `UPDATE reservas
-            SET status='rejected',
-                admin_note=COALESCE(?,admin_note),
-                updated_at=?
-         WHERE id=?`,
-        [note, nowISO(), id]
+    if (r.paqueteId && ['pending', 'confirmed'].includes(r.status)) {
+      const pRows = await query(
+        `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
+        [r.paqueteId]
       );
-      if (r.paqueteId && ['pending', 'confirmed'].includes(r.status)) {
-        const pRows = await query(
-          `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-          [r.paqueteId]
+      if (pRows.length) {
+        const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+        saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+        await query(
+          `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
+          [JSON.stringify(saldo), nowISO(), r.paqueteId]
         );
-        if (pRows.length) {
-          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-          saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-          await query(
-            `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-            [JSON.stringify(saldo), nowISO(), r.paqueteId]
-          );
-        }
-      }
-    } else {
-      await query(
-        `UPDATE reservas
-            SET status='cancelled',
-                cancel_reason='eliminada-por-usuario',
-                updated_at=?
-         WHERE id=?`,
-        [nowISO(), id]
-      );
-      if (r.paqueteId && ['pending', 'confirmed'].includes(r.status)) {
-        const pRows = await query(
-          `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-          [r.paqueteId]
-        );
-        if (pRows.length) {
-          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-          saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-          await query(
-            `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-            [JSON.stringify(saldo), nowISO(), r.paqueteId]
-          );
-        }
       }
     }
 
@@ -828,7 +849,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
 
     if (status === 'cancelled') {
       const rRows = await query(
-        `SELECT id, uid, email, paquete_id AS paqueteId, status
+        `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
            FROM reservas WHERE id=? LIMIT 1`,
         [id]
       );
@@ -841,6 +862,10 @@ router.patch('/:id', verifyToken, async (req, res) => {
         (r.email && req.user?.email && r.email === req.user.email);
       if (!isAdmin && !isOwner)
         return res.status(403).json({ error: 'Sin permisos para cancelar' });
+
+      if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
+        return res.status(400).json({ error: 'No se puede cancelar con menos de 24h' });
+      }
 
       if (r.paqueteId) {
         await tx(async () => {

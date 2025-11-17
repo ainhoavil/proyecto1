@@ -157,3 +157,20 @@ a {
     display: none !important;
   }
 }
+/* ============================
+   BASE DE BOTONES GLOBAL
+============================ */
+@mixin btn-base {
+  background: $color-brand;
+  color: white;
+  padding: 10px 20px;
+  border-radius: $radius-large;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: 0.25s ease;
+
+  &:hover {
+    background: $color-brand-dark;
+  }
+}
