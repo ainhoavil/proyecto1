@@ -1,0 +1,176 @@
+/* =========================================
+   🎨 SISTEMA GLOBAL DE DISEÑO DOGFORM
+   Amigable – Perruno – Terracota Cálido
+========================================= */
+
+/* ---------- COLORES ---------- */
+/* Paleta cálida y perruna */
+$color-brand:       #E68A4E;  /* Naranja terracota cálido */
+$color-brand-dark:  #D46F35;  /* Versión más profunda */
+$color-brand-light: #FBEDE3;  /* Fondo suave cálido */
+
+$color-bg:          #FFF9F5;  /* Fondo general */
+$color-bg-alt:      #FFF4EB;  /* Alternativa light */
+$color-white:       #FFFFFF;
+
+$color-text:        #3E2F25;  /* Marrón suave (no negro) */
+$color-text-light:  #7B675C;
+$color-border:      #EAD7CE;
+
+/* ---------- TIPOGRAFÍA ---------- */
+$font-display: 'DM Serif Display', serif; /* Titulares amigables */
+$font-body: 'Inter', sans-serif;           /* Cuerpo moderno y limpio */
+
+$fs-base: 16px;
+$fs-small: 14px;
+$fs-large: 20px;
+$fs-title: clamp(28px, 5vw, 48px);
+
+/* ---------- ESPACIADOS ---------- */
+$sp-1: 4px;
+$sp-2: 8px;
+$sp-3: 12px;
+$sp-4: 16px;
+$sp-5: 24px;
+$sp-6: 32px;
+$sp-7: 48px;
+$sp-8: 64px;
+
+/* ---------- RADIOS ---------- */
+$radius-small: 8px;
+$radius: 14px;
+$radius-large: 22px;
+$radius-xl: 30px;
+
+/* ---------- SOMBRAS ---------- */
+$shadow-soft: 0 4px 12px rgba(0,0,0,0.05);
+$shadow-card: 0 8px 24px rgba(0,0,0,0.10);
+$shadow-strong: 0 12px 32px rgba(0,0,0,0.15);
+
+/* ---------- TRANSICIONES ---------- */
+$transition: 0.25s ease;
+
+/* =========================================
+   🌍 RESETEO BÁSICO
+========================================= */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: $color-bg;
+  color: $color-text;
+  font-family: $font-body;
+  font-size: $fs-base;
+  line-height: 1.6;
+}
+
+/* Titulares amigables y visuales */
+h1, h2, h3, h4 {
+  font-family: $font-display;
+  color: $color-text;
+}
+
+/* Enlaces */
+a {
+  color: $color-brand-dark;
+  text-decoration: none;
+  transition: $transition;
+
+  &:hover {
+    color: $color-brand;
+  }
+}
+
+/* =========================================
+   🔘 BOTONES UNIVERSALES
+========================================= */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: $color-brand;
+  color: white;
+  padding: $sp-3 $sp-5;
+  border-radius: $radius;
+  border: none;
+  font-weight: 600;
+  transition: $transition;
+
+  &:hover {
+    background: $color-brand-dark;
+    transform: translateY(-2px);
+  }
+}
+
+.btn-outline {
+  background: transparent;
+  color: $color-brand-dark;
+  border: 2px solid $color-brand;
+  padding: $sp-3 $sp-5;
+  border-radius: $radius;
+  font-weight: 600;
+  transition: $transition;
+
+  &:hover {
+    background: $color-brand;
+    color: white;
+  }
+}
+
+/* =========================================
+   🧱 CONTENEDORES & CARDS
+========================================= */
+
+.container {
+  width: min(1200px, 92%);
+  margin: auto;
+}
+
+.card {
+  background: $color-white;
+  padding: $sp-5;
+  border-radius: $radius-large;
+  box-shadow: $shadow-card;
+}
+
+/* =========================================
+   📱 UTILIDADES RESPONSIVE
+========================================= */
+
+.hide-mobile {
+  @media (max-width: 900px) {
+    display: none !important;
+  }
+}
+
+.hide-desktop {
+  @media (min-width: 901px) {
+    display: none !important;
+  }
+}
+/* ============================
+   BASE DE BOTONES GLOBAL
+============================ */
+@mixin btn-base {
+  background: $color-brand;
+  color: white;
+  padding: 10px 20px;
+  border-radius: $radius-large;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: 0.25s ease;
+
+  &:hover {
+    background: $color-brand-dark;
+  }
+}

@@ -1,0 +1,358 @@
+@import './global.scss';
+
+/* ===========================
+   HERO — DogForm
+=========================== */
+
+.hero {
+  position: relative;
+  height: 90vh;
+  min-height: 600px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+
+  .hero__bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    filter: brightness(0.55);
+    z-index: 1;
+
+    /* Default mobile */
+    background-position: center center;
+  }
+
+  /* Desktop: subir la imagen para evitar cortar la cara */
+  @media (min-width: 900px) {
+    .hero__bg {
+      background-position: center top;
+    }
+  }
+
+  /* Ajuste fino en pantallas grandes */
+  @media (min-width: 1200px) {
+    .hero__bg {
+      background-position-y: 15%;
+    }
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      rgba(0,0,0,0.25),
+      rgba(0,0,0,0.55)
+    );
+    z-index: 2;
+  }
+
+  .hero__content {
+    position: relative;
+    z-index: 3;
+    text-align: center;
+    max-width: 650px;
+    padding: 0 20px;
+
+    h1 {
+      font-family: $font-display;
+      font-size: clamp(42px, 7vw, 72px);
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.1;
+      margin-bottom: $sp-4;
+    }
+
+    p {
+      font-size: clamp(18px, 2.5vw, 22px);
+      color: rgba(255,255,255,0.92);
+      margin-bottom: $sp-6;
+      line-height: 1.4;
+    }
+
+    .hero-btn {
+      background: $color-brand;
+      color: white;
+      padding: $sp-4 $sp-6;
+      font-size: 20px;
+      border-radius: $radius-xl;
+      transition: $transition;
+
+      &:hover {
+        background: $color-brand-dark;
+        transform: translateY(-3px);
+      }
+    }
+  }
+}
+
+/* ===========================
+   ABOUT
+=========================== */
+
+.about {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: $sp-7;
+  padding: $sp-7 0;
+
+  .about__text {
+    display: flex;
+    flex-direction: column;
+    gap: $sp-4;
+
+    .tag {
+      color: $color-brand-dark;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+
+    h2 {
+      font-size: clamp(28px, 4vw, 40px);
+      font-family: $font-display;
+      color: $color-text;
+    }
+
+    p {
+      font-size: 17px;
+      color: $color-text;
+      line-height: 1.6;
+    }
+
+    .about__list {
+      margin: $sp-3 0;
+      padding-left: $sp-4;
+      display: grid;
+      gap: $sp-2;
+
+      li {
+        font-size: 16px;
+        color: $color-text;
+        line-height: 1.5;
+        list-style: none;
+        position: relative;
+      }
+
+      li::before {
+        content: "•";
+        color: $color-brand;
+        font-weight: 900;
+        font-size: 22px;
+        position: absolute;
+        left: -22px;
+        top: -1px;
+      }
+    }
+
+    .link {
+      font-weight: 600;
+      color: $color-brand-dark;
+      text-decoration: underline;
+
+      &:hover {
+        color: $color-brand;
+      }
+    }
+  }
+
+  .about__img {
+    height: 380px;
+    background-size: cover;
+    background-position: center;
+    border-radius: $radius-xl;
+    box-shadow: $shadow-card;
+  }
+}
+
+/* ===========================
+   SERVICES
+=========================== */
+
+.services {
+  background: $color-brand-light;
+  padding: $sp-7 0;
+
+  .tag {
+    color: $color-brand-dark;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  h2 {
+    font-size: clamp(30px, 4vw, 42px);
+    margin: $sp-3 0 $sp-6;
+    font-family: $font-display;
+  }
+
+  .services__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: $sp-6;
+
+    .service-card {
+      border-radius: $radius-large;
+      overflow: hidden;
+      background: white;
+      box-shadow: $shadow-card;
+      transition: 0.25s ease;
+      cursor: pointer;
+
+      &:hover {
+        transform: translateY(-5px);
+        box-shadow: $shadow-strong;
+      }
+
+      .card-img {
+        height: 220px;
+        background-size: cover;
+        background-position: center;
+      }
+
+      .card-content {
+        padding: $sp-4;
+
+        h3 {
+          margin-bottom: $sp-2;
+          font-family: $font-display;
+        }
+
+        p {
+          color: $color-text-light;
+          margin-bottom: $sp-3;
+        }
+
+        .arrow {
+          font-weight: 700;
+          color: $color-brand-dark;
+
+          &:hover {
+            color: $color-brand;
+          }
+        }
+      }
+    }
+  }
+}
+
+/* ===========================
+   CTA FINAL
+=========================== */
+
+.cta {
+  padding: $sp-7 0;
+  text-align: center;
+
+  h2 {
+    font-family: $font-display;
+    font-size: clamp(28px, 4vw, 40px);
+    margin-bottom: $sp-3;
+  }
+
+  p {
+    font-size: 18px;
+    margin-bottom: $sp-5;
+  }
+
+  .cta__buttons {
+    display: flex;
+    justify-content: center;
+    gap: $sp-4;
+  }
+}
+
+/* ===========================
+   RESPONSIVE
+=========================== */
+
+@media (max-width: 900px) {
+
+  .hero {
+    height: 75vh;
+    min-height: 480px;
+
+    .hero__bg {
+      background-attachment: scroll;
+    }
+
+    .hero__content {
+      padding: 0 10px;
+
+      h1 {
+        font-size: clamp(34px, 9vw, 52px);
+      }
+
+      p {
+        font-size: 18px;
+      }
+
+      .hero-btn {
+        font-size: 18px;
+        padding: $sp-3 $sp-5;
+      }
+    }
+  }
+
+  .about {
+    grid-template-columns: 1fr;
+    text-align: center;
+
+    .about__img {
+      height: 300px;
+    }
+
+    .about__list li::before {
+      left: -14px;
+    }
+  }
+
+  .cta__buttons {
+    flex-direction: column;
+  }
+}
+
+/* ===========================
+   MENÚ MÓVIL DESDE ARRIBA
+=========================== */
+
+/* Contenedor del menú desplegado */
+.mobile-menu {
+  position: fixed;
+  top: -100%;
+  left: 0;
+  width: 100%;
+  background: #fff;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  padding: 20px;
+  z-index: 9999;
+  transition: top 0.35s ease;
+}
+
+/* Cuando está abierto */
+.mobile-menu.open {
+  top: 60px; /* Justo debajo del navbar */
+}
+
+/* Items */
+.mobile-menu ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.mobile-menu a {
+  font-size: 18px;
+  font-weight: 600;
+  color: $color-text;
+}
