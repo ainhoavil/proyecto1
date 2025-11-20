@@ -4,7 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import '../styles/servicios.scss';
 import { useAuth } from '../context/auth';
 import { http } from '../helpers/http';
+import { useState as useStateReact } from 'react';
 
+/* ==========================
+   Utilidades generales
+========================== */
 function formatEUR(value, currency = 'EUR') {
   if (value == null || value === '') return '';
   try {
@@ -33,6 +37,66 @@ function getModalitiesFromItem(item) {
   if (!set.size) set.add('presencial');
   return Array.from(set);
 }
+
+/* ==========================
+   Utilidades subida imagen
+========================== */
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Sube una imagen al backend (/files) y devuelve la URL que deberá
+ * guardarse en imageUrl del servicio.
+ *
+ * Reutiliza el mismo sistema que usamos para el avatar de perfil.
+ */
+async function uploadServiceImage(file) {
+  if (!file) throw new Error('No hay archivo');
+
+  const dataUrl = await fileToDataURL(file); // "data:image/jpeg;base64,AAAA..."
+  const [meta, b64] = String(dataUrl).split(',');
+  let mime = file.type || 'application/octet-stream';
+
+  if (meta && meta.startsWith('data:') && meta.includes(';base64')) {
+    mime = meta.substring(meta.indexOf(':') + 1, meta.indexOf(';base64'));
+  }
+
+  const payload = { mime, data: b64 };
+
+  // IMPORTANTE: ruta correcta del backend (sin /api)
+  const res = await http('/files', {
+    method: 'POST',
+    data: payload,
+    auth: true,
+  });
+
+  const fileId = res?.id || res?.fileId || res?.uid || res?.uuid;
+
+  const url =
+    res?.url ||
+    res?.path ||
+    (fileId ? `/files/${fileId}` : null) || // 👈 ahora /files, no /api/files
+    res?.imageUrl ||
+    res?.location;
+
+  if (!url) {
+    console.warn('Respuesta de /files sin URL clara', res);
+    throw new Error('El servidor no devolvió URL de imagen');
+  }
+
+  return url;
+}
+
+/* ==========================
+   Componente principal
+========================== */
 
 export default function Servicios() {
   const [items, setItems] = useState([]);
@@ -84,10 +148,8 @@ export default function Servicios() {
 
     const destino = `/contratar?${qs.toString()}`;
 
-    if (isAuthenticated)
-      navigate(destino);
-    else
-      navigate(`/login?next=${encodeURIComponent(destino)}`);
+    if (isAuthenticated) navigate(destino);
+    else navigate(`/login?next=${encodeURIComponent(destino)}`);
   };
 
   const abrir = (item) => {
@@ -118,6 +180,7 @@ export default function Servicios() {
   });
 
   const [msgNuevo, setMsgNuevo] = useState('');
+  const [subiendoNuevaImg, setSubiendoNuevaImg] = useState(false);
 
   const crearServicio = async (e) => {
     e.preventDefault();
@@ -135,7 +198,7 @@ export default function Servicios() {
         featured: !!nuevo.featured,
         order: nuevo.order === '' ? undefined : Number(nuevo.order),
         price: nuevo.price === '' ? null : Number(nuevo.price),
-        imageUrl: (nuevo.imageUrl || '').trim(),
+        imageUrl: (nuevo.imageUrl || '').trim(), // ya viene URL /files/... o nombre clásico
       };
 
       if (!body.title || !body.short) {
@@ -162,10 +225,29 @@ export default function Servicios() {
 
       await refresh();
     } catch (e) {
-      const msg = e?.data?.error || e?.data?.message || e?.message || 'No se pudo crear';
+      const msg =
+        e?.data?.error || e?.data?.message || e?.message || 'No se pudo crear';
       setMsgNuevo(`❌ ${msg}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleNuevoImageFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMsgNuevo('');
+    setSubiendoNuevaImg(true);
+    try {
+      const url = await uploadServiceImage(file);
+      setNuevo((prev) => ({ ...prev, imageUrl: url }));
+      setMsgNuevo('✅ Imagen subida. Se usará en este servicio.');
+    } catch (err) {
+      console.error('Error subiendo imagen de servicio nuevo', err);
+      setMsgNuevo('❌ No se pudo subir la imagen.');
+    } finally {
+      setSubiendoNuevaImg(false);
+      e.target.value = '';
     }
   };
 
@@ -224,8 +306,20 @@ export default function Servicios() {
 
   if (cargando) return <div className="card">Cargando…</div>;
 
+  // Imagen: soporta tanto nombres antiguos como URLs completas (/files/xxx, http, etc.)
   const getImgSrc = (imageUrl) => {
     if (!imageUrl) return '/img/servicios/default.jpg';
+
+    if (
+      imageUrl.startsWith('http://') ||
+      imageUrl.startsWith('https://') ||
+      imageUrl.startsWith('/files/') || // 👈 nuestras nuevas URLs
+      imageUrl.startsWith('/img/')
+    ) {
+      return imageUrl;
+    }
+
+    // caso clásico: sólo nombre de archivo
     return `/img/servicios/${imageUrl}`;
   };
 
@@ -280,7 +374,9 @@ export default function Servicios() {
               Moneda:
               <input
                 value={nuevo.currency}
-                onChange={(e) => setNuevo({ ...nuevo, currency: e.target.value })}
+                onChange={(e) =>
+                  setNuevo({ ...nuevo, currency: e.target.value })
+                }
               />
             </label>
 
@@ -288,7 +384,9 @@ export default function Servicios() {
               Duración:
               <input
                 value={nuevo.duration}
-                onChange={(e) => setNuevo({ ...nuevo, duration: e.target.value })}
+                onChange={(e) =>
+                  setNuevo({ ...nuevo, duration: e.target.value })
+                }
               />
             </label>
 
@@ -310,15 +408,27 @@ export default function Servicios() {
             </label>
 
             <label className="full">
-              Imagen (nombre de archivo):
+              Imagen (URL o nombre de archivo):
               <input
                 value={nuevo.imageUrl}
                 onChange={(e) =>
                   setNuevo({ ...nuevo, imageUrl: e.target.value })
                 }
-                placeholder="adiestramiento-basico.jpg"
+                placeholder="adiestramiento-basico.jpg o /files/xxx"
               />
-              <small>Sube la imagen a /public/img/servicios/</small>
+              <small>
+                Puedes seguir usando imágenes en <code>/public/img/servicios/</code>{' '}
+                o subir una nueva:
+              </small>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleNuevoImageFile}
+                disabled={subiendoNuevaImg || saving}
+              />
+              {subiendoNuevaImg && (
+                <small>Subiendo imagen… espera un momento</small>
+              )}
             </label>
 
             <label className="featured-check">
@@ -366,14 +476,19 @@ export default function Servicios() {
                 {item.duration && <div>⏱ {item.duration}</div>}
                 {item.mode && <div>📍 {item.mode}</div>}
                 {item.price != null && (
-                  <div><b>{formatEUR(item.price, item.currency)}</b></div>
+                  <div>
+                    <b>{formatEUR(item.price, item.currency)}</b>
+                  </div>
                 )}
               </div>
 
               <div className="actions">
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); abrir(item); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    abrir(item);
+                  }}
                 >
                   Ver más
                 </button>
@@ -381,14 +496,20 @@ export default function Servicios() {
                 {esAdmin ? (
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); abrir(item); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      abrir(item);
+                    }}
                   >
                     Editar
                   </button>
                 ) : (
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); contratar(item); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      contratar(item);
+                    }}
                   >
                     Contratar
                   </button>
@@ -403,7 +524,6 @@ export default function Servicios() {
       {sel && (
         <div className="modal-overlay" onClick={cerrar}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-
             <button className="close-modal" onClick={cerrar} aria-label="Cerrar">
               ✕
             </button>
@@ -422,7 +542,9 @@ export default function Servicios() {
               {sel.duration && <div>⏱ {sel.duration}</div>}
               {sel.mode && <div>📍 {sel.mode}</div>}
               {sel.price != null && (
-                <div><b>{formatEUR(sel.price, sel.currency)}</b></div>
+                <div>
+                  <b>{formatEUR(sel.price, sel.currency)}</b>
+                </div>
               )}
             </div>
 
@@ -463,6 +585,7 @@ export default function Servicios() {
                 onSave={(changes) => guardarEdicion(sel.id, changes)}
                 onDelete={() => borrarServicio(sel.id)}
                 saving={saving}
+                onUploadImage={uploadServiceImage}
               />
             )}
           </div>
@@ -472,12 +595,11 @@ export default function Servicios() {
   );
 }
 
-// ================================
-// EDITOR ADMIN
-// ================================
-import { useState as useStateReact } from 'react';
+/* ==========================
+   EDITOR ADMIN
+========================== */
 
-function ServiceEditor({ item, onSave, onDelete, saving }) {
+function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
   const [form, setForm] = useStateReact({
     title: item.title || '',
     short: item.short || '',
@@ -492,6 +614,7 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
   });
 
   const [msg, setMsg] = useStateReact('');
+  const [subiendoImg, setSubiendoImg] = useStateReact(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -501,12 +624,26 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
   };
 
   const handleChange = (field) => (e) => {
-    const value =
-      e.target.type === 'checkbox'
-        ? e.target.checked
-        : e.target.value;
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
 
-    setForm({ ...form, [field]: value });
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !onUploadImage) return;
+    setMsg('');
+    setSubiendoImg(true);
+    try {
+      const url = await onUploadImage(file);
+      setForm((prev) => ({ ...prev, imageUrl: url }));
+      setMsg('✅ Imagen subida. No olvides guardar cambios.');
+    } catch (err) {
+      console.error('Error subiendo imagen en edición de servicio', err);
+      setMsg('❌ No se pudo subir la imagen.');
+    } finally {
+      setSubiendoImg(false);
+      e.target.value = '';
+    }
   };
 
   return (
@@ -555,16 +692,30 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
 
       <label>
         Orden:
-        <input type="number" value={form.order} onChange={handleChange('order')} />
+        <input
+          type="number"
+          value={form.order}
+          onChange={handleChange('order')}
+        />
       </label>
 
       <label className="full">
-        Imagen (nombre archivo):
+        Imagen (URL o nombre archivo):
         <input
           value={form.imageUrl}
           onChange={handleChange('imageUrl')}
-          placeholder="adiestramiento-basico.jpg"
+          placeholder="adiestramiento-basico.jpg o /files/xxx"
         />
+        <small>
+          Puedes escribir el nombre del archivo clásico o subir una nueva:
+        </small>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handleFileChange}
+          disabled={subiendoImg || saving}
+        />
+        {subiendoImg && <small>Subiendo imagen…</small>}
       </label>
 
       <label className="featured-check">

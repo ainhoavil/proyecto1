@@ -46,7 +46,6 @@ function renderFecha(fecha) {
 function renderPerro(perro) {
   if (!perro) return '(sin datos)';
   if (typeof perro === 'string') {
-    // Intentamos parsear JSON, si falla mostramos el string
     try {
       const obj = JSON.parse(perro);
       return renderPerro(obj);
@@ -86,7 +85,20 @@ function statusClass(status) {
 }
 
 // ==== card de reserva ====
-function ReservaCard({ r, onCancel, onToggleNotes, onUserDecision }) {
+function ReservaCard({
+  r,
+  onCancel,
+  onToggleNotes,
+  onUserDecision,
+  // notas
+  isNotesOpen,
+  notes,
+  loadingNotes,
+  newNote,
+  onChangeNote,
+  onAddNote,
+  onDeleteNote,
+}) {
   const normalizedStatus = String(r.status || '').toLowerCase();
 
   const puedeCancelar =
@@ -96,6 +108,13 @@ function ReservaCard({ r, onCancel, onToggleNotes, onUserDecision }) {
     normalizedStatus === 'pending_user';
 
   const puedeAceptarRechazar = normalizedStatus === 'pending_user';
+
+  const countNotas =
+    typeof r.notesCount === 'number'
+      ? r.notesCount
+      : isNotesOpen && Array.isArray(notes)
+      ? notes.length
+      : null;
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -141,6 +160,7 @@ function ReservaCard({ r, onCancel, onToggleNotes, onUserDecision }) {
       <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
           📝 Notas
+          {countNotas != null ? ` (${countNotas})` : ''}
         </button>
 
         {puedeAceptarRechazar && (
@@ -166,6 +186,97 @@ function ReservaCard({ r, onCancel, onToggleNotes, onUserDecision }) {
           </button>
         )}
       </div>
+
+      {/* === Panel desplegable de notas dentro de la card === */}
+      {isNotesOpen && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: 10,
+            borderRadius: 10,
+            background: '#fafafa',
+            border: '1px solid #e4e4e4',
+          }}
+        >
+          {loadingNotes ? (
+            <p style={{ fontSize: 14 }}>Cargando notas…</p>
+          ) : !notes || notes.length === 0 ? (
+            <p style={{ fontSize: 14 }}>No hay notas todavía.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {notes.map((n) => (
+                <div
+                  key={n.id}
+                  style={{
+                    padding: 8,
+                    borderRadius: 8,
+                    background: '#ffffff',
+                    border: '1px solid #e4e4e4',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, marginBottom: 4 }}>
+                      <b>{n.author || 'Centro'}</b>{' '}
+                      {n.createdAt && (
+                        <span style={{ opacity: 0.7 }}>
+                          ·{' '}
+                          {new Date(n.createdAt).toLocaleString('es-ES', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            day: '2-digit',
+                            month: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 14 }}>{n.text || n.nota}</div>
+                  </div>
+                  {onDeleteNote && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: '4px 6px' }}
+                      onClick={() => onDeleteNote(n.id)}
+                      title="Eliminar nota"
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* zona de “chat” para añadir nueva nota */}
+          <div style={{ marginTop: 10 }}>
+            <textarea
+              rows={2}
+              style={{
+                width: '100%',
+                borderRadius: 8,
+                border: '1px solid #e4e4e4',
+                padding: 8,
+                resize: 'vertical',
+                fontSize: 14,
+              }}
+              placeholder="Escribe una nota…"
+              value={newNote}
+              onChange={(e) => onChangeNote(e.target.value)}
+            />
+            <button
+              className="btn-primary"
+              style={{ marginTop: 6, width: '100%' }}
+              onClick={onAddNote}
+              disabled={!newNote.trim()}
+            >
+              Agregar nota
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -182,7 +293,7 @@ export default function ReservasUser() {
   );
   const [selectedDate, setSelectedDate] = useState(todayYMD());
 
-  // notas
+  // notas (controladas desde el padre, pero mostradas en cada card)
   const [openNotesId, setOpenNotesId] = useState(null);
   const [notes, setNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
@@ -226,7 +337,7 @@ export default function ReservasUser() {
     return fechasConReservas.get(selectedDate) || [];
   }, [fechasConReservas, selectedDate]);
 
-  // agrupación básica por estado
+  // agrupaciones por estado
   const pendientesCentro = useMemo(
     () =>
       reservas.filter((r) => {
@@ -236,7 +347,6 @@ export default function ReservasUser() {
     [reservas]
   );
 
-  // nuevas pendientes para el usuario (pending_user)
   const pendientesUsuario = useMemo(
     () =>
       reservas.filter((r) => {
@@ -304,12 +414,12 @@ export default function ReservasUser() {
     }
   };
 
-  // notas
+  // ==== NOTAS ====
   const loadNotes = async (reserva) => {
     setLoadingNotes(true);
     try {
       const data = await http(`/api/reservas/${reserva.id}/notes`, { auth: true });
-      setNotes(Array.isArray(data) ? data : []);
+      setNotes(Array.isArray(data) ? data : data?.items || []);
     } catch (e) {
       console.error('Error cargando notas', e);
       setNotes([]);
@@ -335,14 +445,34 @@ export default function ReservasUser() {
     try {
       await http(`/api/reservas/${openNotesId}/notes`, {
         method: 'POST',
-        data: { text: newNote.trim() },
+        data: {
+          // mando varios nombres posibles para encajar con el backend
+          text: newNote.trim(),
+          nota: newNote.trim(),
+          userNote: newNote.trim(),
+        },
         auth: true,
       });
       setNewNote('');
       await loadNotes({ id: openNotesId });
     } catch (e) {
-      console.error('Error creando nota', e);
-      alert('No se pudo guardar la nota.');
+      console.error('Error guardando nota', e);
+      alert('No se pudo guardar la nota (revisa qué campo espera el backend).');
+    }
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    if (!openNotesId) return;
+    if (!window.confirm('¿Eliminar esta nota?')) return;
+    try {
+      await http(`/api/reservas/${openNotesId}/notes/${noteId}`, {
+        method: 'DELETE',
+        auth: true,
+      });
+      await loadNotes({ id: openNotesId });
+    } catch (e) {
+      console.error('Error eliminando nota', e);
+      alert('No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).');
     }
   };
 
@@ -426,10 +556,9 @@ export default function ReservasUser() {
               if (inMonth) {
                 const d = new Date(mesBase.getFullYear(), mesBase.getMonth(), dayNum);
                 f = ymd(d);
-                // en la vista de usuario no bloqueamos finde, solo mostramos
                 disabled = false;
                 isSelected = f === selectedDate;
-                hasReserva = fechasConReservas.has(f); // 👈 marcar si hay reservas ese día
+                hasReserva = fechasConReservas.has(f);
               }
 
               cells.push(
@@ -457,9 +586,7 @@ export default function ReservasUser() {
 
         {selectedDate && (
           <div style={{ marginTop: 12 }}>
-            <strong>
-              Reservas del día: {renderFecha(selectedDate)}
-            </strong>
+            <strong>Reservas del día: {renderFecha(selectedDate)}</strong>
             {reservasDelDiaSeleccionado.length === 0 ? (
               <p style={{ fontSize: 14, marginTop: 4 }}>No tienes reservas ese día.</p>
             ) : (
@@ -471,6 +598,13 @@ export default function ReservasUser() {
                     onCancel={handleCancel}
                     onToggleNotes={handleToggleNotes}
                     onUserDecision={handleUserDecision}
+                    isNotesOpen={openNotesId === r.id}
+                    notes={notes}
+                    loadingNotes={loadingNotes}
+                    newNote={newNote}
+                    onChangeNote={setNewNote}
+                    onAddNote={handleAddNote}
+                    onDeleteNote={handleDeleteNote}
                   />
                 ))}
               </div>
@@ -494,6 +628,13 @@ export default function ReservasUser() {
               onCancel={handleCancel}
               onToggleNotes={handleToggleNotes}
               onUserDecision={handleUserDecision}
+              isNotesOpen={openNotesId === r.id}
+              notes={notes}
+              loadingNotes={loadingNotes}
+              newNote={newNote}
+              onChangeNote={setNewNote}
+              onAddNote={handleAddNote}
+              onDeleteNote={handleDeleteNote}
             />
           ))
         )}
@@ -513,6 +654,13 @@ export default function ReservasUser() {
               onCancel={handleCancel}
               onToggleNotes={handleToggleNotes}
               onUserDecision={handleUserDecision}
+              isNotesOpen={openNotesId === r.id}
+              notes={notes}
+              loadingNotes={loadingNotes}
+              newNote={newNote}
+              onChangeNote={setNewNote}
+              onAddNote={handleAddNote}
+              onDeleteNote={handleDeleteNote}
             />
           ))
         )}
@@ -532,6 +680,13 @@ export default function ReservasUser() {
               onCancel={handleCancel}
               onToggleNotes={handleToggleNotes}
               onUserDecision={handleUserDecision}
+              isNotesOpen={openNotesId === r.id}
+              notes={notes}
+              loadingNotes={loadingNotes}
+              newNote={newNote}
+              onChangeNote={setNewNote}
+              onAddNote={handleAddNote}
+              onDeleteNote={handleDeleteNote}
             />
           ))
         )}
@@ -551,55 +706,17 @@ export default function ReservasUser() {
               onCancel={handleCancel}
               onToggleNotes={handleToggleNotes}
               onUserDecision={handleUserDecision}
+              isNotesOpen={openNotesId === r.id}
+              notes={notes}
+              loadingNotes={loadingNotes}
+              newNote={newNote}
+              onChangeNote={setNewNote}
+              onAddNote={handleAddNote}
+              onDeleteNote={handleDeleteNote}
             />
           ))
         )}
       </section>
-
-      {/* ==== Panel de notas (simple) ==== */}
-      {openNotesId && (
-        <section style={{ marginTop: 16 }}>
-          <h3>Notas de la reserva seleccionada</h3>
-          {loadingNotes ? (
-            <p>Cargando notas…</p>
-          ) : notes.length === 0 ? (
-            <p style={{ fontSize: 14 }}>No hay notas todavía.</p>
-          ) : (
-            <ul style={{ fontSize: 14, paddingLeft: 16 }}>
-              {notes.map((n) => (
-                <li key={n.id}>
-                  <b>{n.author}:</b> {n.text}{' '}
-                  <span style={{ opacity: 0.7 }}>
-                    ({new Date(n.createdAt).toLocaleString('es-ES')})
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-            <input
-              style={{ flex: 1 }}
-              placeholder="Escribe una nota…"
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-            />
-            <button className="btn-primary" onClick={handleAddNote} disabled={!newNote.trim()}>
-              Añadir
-            </button>
-            <button
-              className="btn-outline"
-              onClick={() => {
-                setOpenNotesId(null);
-                setNotes([]);
-                setNewNote('');
-              }}
-            >
-              Cerrar
-            </button>
-          </div>
-        </section>
-      )}
     </div>
   );
 }
