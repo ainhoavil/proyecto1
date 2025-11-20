@@ -17,28 +17,48 @@ function formatEUR(value, currency = 'EUR') {
   }
 }
 
+// === util para sacar modalidades de un servicio ===
+function getModalitiesFromItem(item) {
+  if (Array.isArray(item?.modalities) && item.modalities.length) {
+    return item.modalities;
+  }
+
+  const txt = String(item?.mode || '').toLowerCase();
+  const set = new Set();
+
+  if (txt.includes('presencial')) set.add('presencial');
+  if (txt.includes('online')) set.add('online');
+  if (txt.includes('domicilio')) set.add('a domicilio');
+
+  if (!set.size) set.add('presencial');
+  return Array.from(set);
+}
+
 export default function Servicios() {
   const [items, setItems] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [sel, setSel] = useState(null);
+  const [selModalidad, setSelModalidad] = useState(''); // modalidad elegida en el modal
   const [saving, setSaving] = useState(false);
 
   const navigate = useNavigate();
   const { isAuthenticated, role } = useAuth();
+
   const esAdmin = role === 'admin';
+  const esTrainer = role === 'trainer' || role === 'adiestrador';
+  const esUser = role === 'user';
 
   const refresh = async () => {
     setCargando(true);
     setError('');
+
     try {
       const data = await http('/api/servicios');
 
       const sorted = [...(data || [])].sort((a, b) => {
-        // Destacados primero
         if (a.featured && !b.featured) return -1;
         if (!a.featured && b.featured) return 1;
-        // Luego por "order"
         return (a.order ?? 0) - (b.order ?? 0);
       });
 
@@ -55,19 +75,31 @@ export default function Servicios() {
     refresh();
   }, []);
 
-  const contratar = (item) => {
-    const servicio = encodeURIComponent(item?.id || item?.title);
-    if (isAuthenticated) {
-      navigate(`/contratar?servicio=${servicio}`);
-    } else {
-      navigate(
-        `/login?next=${encodeURIComponent(`/contratar?servicio=${servicio}`)}`
-      );
-    }
+  // contratar: opcionalmente recibe modalidad
+  const contratar = (item, modalidad) => {
+    const servicio = item?.id || item?.title || '';
+    const qs = new URLSearchParams();
+    if (servicio) qs.set('servicio', servicio);
+    if (modalidad) qs.set('modalidad', modalidad);
+
+    const destino = `/contratar?${qs.toString()}`;
+
+    if (isAuthenticated)
+      navigate(destino);
+    else
+      navigate(`/login?next=${encodeURIComponent(destino)}`);
   };
 
-  const abrir = (item) => setSel(item);
-  const cerrar = () => setSel(null);
+  const abrir = (item) => {
+    setSel(item);
+    const mods = getModalitiesFromItem(item);
+    setSelModalidad(mods[0] || 'presencial');
+  };
+
+  const cerrar = () => {
+    setSel(null);
+    setSelModalidad('');
+  };
 
   // ---------------------------
   // CREAR SERVICIO (ADMIN)
@@ -84,6 +116,7 @@ export default function Servicios() {
     order: '',
     imageUrl: '',
   });
+
   const [msgNuevo, setMsgNuevo] = useState('');
 
   const crearServicio = async (e) => {
@@ -102,7 +135,6 @@ export default function Servicios() {
         featured: !!nuevo.featured,
         order: nuevo.order === '' ? undefined : Number(nuevo.order),
         price: nuevo.price === '' ? null : Number(nuevo.price),
-        // 🔸 ahora usamos el nombre de archivo
         imageUrl: (nuevo.imageUrl || '').trim(),
       };
 
@@ -130,8 +162,7 @@ export default function Servicios() {
 
       await refresh();
     } catch (e) {
-      const msg =
-        e?.data?.error || e?.data?.message || e?.message || 'No se pudo crear';
+      const msg = e?.data?.error || e?.data?.message || e?.message || 'No se pudo crear';
       setMsgNuevo(`❌ ${msg}`);
     } finally {
       setSaving(false);
@@ -143,6 +174,7 @@ export default function Servicios() {
   // ---------------------------
   const guardarEdicion = async (id, data) => {
     setSaving(true);
+
     try {
       const payload = {
         ...data,
@@ -150,9 +182,8 @@ export default function Servicios() {
       };
 
       if (payload.price === '') payload.price = null;
-      if (payload.order !== '' && payload.order != null) {
+      if (payload.order !== '' && payload.order != null)
         payload.order = Number(payload.order);
-      }
 
       await http(`/api/servicios/${id}`, {
         method: 'PATCH',
@@ -161,6 +192,7 @@ export default function Servicios() {
       });
 
       await refresh();
+
       setSel((prev) =>
         prev && prev.id === id ? { ...prev, ...payload } : prev
       );
@@ -174,11 +206,13 @@ export default function Servicios() {
   const borrarServicio = async (id) => {
     if (!window.confirm('¿Borrar este servicio?')) return;
     setSaving(true);
+
     try {
       await http(`/api/servicios/${id}`, {
         method: 'DELETE',
         auth: true,
       });
+
       cerrar();
       await refresh();
     } catch (e) {
@@ -190,7 +224,6 @@ export default function Servicios() {
 
   if (cargando) return <div className="card">Cargando…</div>;
 
-  // Para imagen: si hay imageUrl, usamos /img/servicios/{imageUrl}
   const getImgSrc = (imageUrl) => {
     if (!imageUrl) return '/img/servicios/default.jpg';
     return `/img/servicios/${imageUrl}`;
@@ -210,9 +243,7 @@ export default function Servicios() {
               Título:
               <input
                 value={nuevo.title}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, title: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, title: e.target.value })}
                 required
               />
             </label>
@@ -221,9 +252,7 @@ export default function Servicios() {
               Resumen:
               <input
                 value={nuevo.short}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, short: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, short: e.target.value })}
                 required
               />
             </label>
@@ -233,9 +262,7 @@ export default function Servicios() {
               <textarea
                 rows={3}
                 value={nuevo.long}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, long: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, long: e.target.value })}
               />
             </label>
 
@@ -245,9 +272,7 @@ export default function Servicios() {
                 type="number"
                 step="0.01"
                 value={nuevo.price}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, price: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, price: e.target.value })}
               />
             </label>
 
@@ -255,9 +280,7 @@ export default function Servicios() {
               Moneda:
               <input
                 value={nuevo.currency}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, currency: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, currency: e.target.value })}
               />
             </label>
 
@@ -265,9 +288,7 @@ export default function Servicios() {
               Duración:
               <input
                 value={nuevo.duration}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, duration: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, duration: e.target.value })}
               />
             </label>
 
@@ -275,9 +296,7 @@ export default function Servicios() {
               Modalidad:
               <input
                 value={nuevo.mode}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, mode: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, mode: e.target.value })}
               />
             </label>
 
@@ -286,9 +305,7 @@ export default function Servicios() {
               <input
                 type="number"
                 value={nuevo.order}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, order: e.target.value })
-                }
+                onChange={(e) => setNuevo({ ...nuevo, order: e.target.value })}
               />
             </label>
 
@@ -301,7 +318,7 @@ export default function Servicios() {
                 }
                 placeholder="adiestramiento-basico.jpg"
               />
-              <small>Sube la imagen a /public/img/servicios/ y pon aquí solo el nombre.</small>
+              <small>Sube la imagen a /public/img/servicios/</small>
             </label>
 
             <label className="featured-check">
@@ -349,19 +366,14 @@ export default function Servicios() {
                 {item.duration && <div>⏱ {item.duration}</div>}
                 {item.mode && <div>📍 {item.mode}</div>}
                 {item.price != null && (
-                  <div>
-                    <b>{formatEUR(item.price, item.currency)}</b>
-                  </div>
+                  <div><b>{formatEUR(item.price, item.currency)}</b></div>
                 )}
               </div>
 
               <div className="actions">
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    abrir(item);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); abrir(item); }}
                 >
                   Ver más
                 </button>
@@ -369,20 +381,14 @@ export default function Servicios() {
                 {esAdmin ? (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      abrir(item);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); abrir(item); }}
                   >
                     Editar
                   </button>
                 ) : (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      contratar(item);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); contratar(item); }}
                   >
                     Contratar
                   </button>
@@ -397,11 +403,8 @@ export default function Servicios() {
       {sel && (
         <div className="modal-overlay" onClick={cerrar}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="close-modal"
-              onClick={cerrar}
-              aria-label="Cerrar"
-            >
+
+            <button className="close-modal" onClick={cerrar} aria-label="Cerrar">
               ✕
             </button>
 
@@ -419,17 +422,35 @@ export default function Servicios() {
               {sel.duration && <div>⏱ {sel.duration}</div>}
               {sel.mode && <div>📍 {sel.mode}</div>}
               {sel.price != null && (
-                <div>
-                  <b>{formatEUR(sel.price, sel.currency)}</b>
-                </div>
+                <div><b>{formatEUR(sel.price, sel.currency)}</b></div>
               )}
             </div>
+
+            {/* Desplegable de modalidad para el cliente */}
+            {!esAdmin && (
+              <div style={{ marginTop: 12, marginBottom: 12 }}>
+                <label>
+                  Modalidad:
+                  <select
+                    style={{ marginLeft: 8 }}
+                    value={selModalidad}
+                    onChange={(e) => setSelModalidad(e.target.value)}
+                  >
+                    {getModalitiesFromItem(sel).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
 
             {!esAdmin && (
               <button
                 className="modal-btn"
                 type="button"
-                onClick={() => contratar(sel)}
+                onClick={() => contratar(sel, selModalidad)}
               >
                 Reservar este servicio
               </button>
@@ -480,7 +501,12 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
   };
 
   const handleChange = (field) => (e) => {
-    setForm({ ...form, [field]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+    const value =
+      e.target.type === 'checkbox'
+        ? e.target.checked
+        : e.target.value;
+
+    setForm({ ...form, [field]: value });
   };
 
   return (
@@ -499,11 +525,7 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
 
       <label className="full">
         Descripción:
-        <textarea
-          rows={3}
-          value={form.long}
-          onChange={handleChange('long')}
-        />
+        <textarea rows={3} value={form.long} onChange={handleChange('long')} />
       </label>
 
       <label>
@@ -533,11 +555,7 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
 
       <label>
         Orden:
-        <input
-          type="number"
-          value={form.order}
-          onChange={handleChange('order')}
-        />
+        <input type="number" value={form.order} onChange={handleChange('order')} />
       </label>
 
       <label className="full">
@@ -562,13 +580,11 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
         <button type="submit" disabled={saving}>
           {saving ? 'Guardando…' : 'Guardar cambios'}
         </button>
-        <button
-          type="button"
-          className="delete-btn"
-          onClick={onDelete}
-        >
+
+        <button type="button" className="delete-btn" onClick={onDelete}>
           Borrar
         </button>
+
         {msg && <span className="msg-inline">{msg}</span>}
       </div>
     </form>

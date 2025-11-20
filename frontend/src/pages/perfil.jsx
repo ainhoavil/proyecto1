@@ -150,13 +150,33 @@ export default function PerfilPage() {
   async function uploadImage(file) {
     const form = new FormData();
     form.append("file", file);
-    const res = await http("/upload-db", {
+
+    // el token lo cogemos igual que en el helper http
+    const token = localStorage.getItem("token");
+
+    const res = await fetch(`${API_BASE}/api/upload-db`, {
       method: "POST",
-      data: form,
-      auth: true,
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {},
+      body: form,
     });
-    const url = res?.url || res?.Location || res?.secure_url;
-    if (!url) throw new Error("No URL");
+
+    if (!res.ok) {
+      let err;
+      try {
+        err = await res.json();
+      } catch {
+        err = {};
+      }
+      throw new Error(err.error || "No se pudo subir la imagen");
+    }
+
+    const data = await res.json(); // { id, url, mime }
+    const url = data?.url;
+    if (!url) throw new Error("No se recibió URL de imagen");
     return absUrl(url);
   }
 
@@ -467,7 +487,14 @@ export default function PerfilPage() {
 
       {/* PERROS */}
       <section className="card" style={{ padding: "1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <h2 style={{ margin: 0 }}>Mis perros</h2>
           {!creatingDog && (
             <button className="btn-primary" onClick={startCreateDog}>
@@ -518,7 +545,12 @@ export default function PerfilPage() {
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                   <label className="btn-ghost">
                     Cambiar foto
-                    <input type="file" accept="image/*" onChange={handlePickDog} style={{ display: "none" }} />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePickDog}
+                      style={{ display: "none" }}
+                    />
                   </label>
                   {dogForm.avatarURL && (
                     <button className="btn-danger" onClick={onDeleteDogPhoto}>
@@ -564,7 +596,9 @@ export default function PerfilPage() {
                   <input
                     type="checkbox"
                     checked={!!dogForm.castrado}
-                    onChange={(e) => setDogForm((f) => ({ ...f, castrado: e.target.checked }))}
+                    onChange={(e) =>
+                      setDogForm((f) => ({ ...f, castrado: e.target.checked }))
+                    }
                   />
                   Castrado/esterilizado (opcional)
                 </label>
@@ -586,7 +620,9 @@ export default function PerfilPage() {
               <button
                 className="btn-primary"
                 onClick={saveDog}
-                disabled={savingDog || !dogForm.nombre?.trim() || !dogForm.raza?.trim() || !dogForm.nacimiento}
+                disabled={
+                  savingDog || !dogForm.nombre?.trim() || !dogForm.raza?.trim() || !dogForm.nacimiento
+                }
               >
                 {savingDog ? "Guardando…" : editingDogId ? "Guardar cambios" : "Añadir perro"}
               </button>
@@ -652,7 +688,14 @@ export default function PerfilPage() {
         >
           <div
             className="card"
-            style={{ background: "#fff", padding: 20, borderRadius: 12, width: "90%", maxWidth: 420, textAlign: "center" }}
+            style={{
+              background: "#fff",
+              padding: 20,
+              borderRadius: 12,
+              width: "90%",
+              maxWidth: 420,
+              textAlign: "center",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {!modal.success ? (
@@ -661,19 +704,39 @@ export default function PerfilPage() {
                   ¿Seguro que quieres eliminar a <b>{modal.dog?.nombre}</b>?
                 </p>
                 {modal.error && <p style={{ color: "crimson", marginTop: 6 }}>{modal.error}</p>}
-                <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 10 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    justifyContent: "center",
+                    marginTop: 10,
+                  }}
+                >
                   <button className="btn-secondary" onClick={closeModal} disabled={modal.loading}>
                     Cancelar
                   </button>
-                  <button className="btn-danger" onClick={confirmDeleteDog} disabled={modal.loading}>
+                  <button
+                    className="btn-danger"
+                    onClick={confirmDeleteDog}
+                    disabled={modal.loading}
+                  >
                     {modal.loading ? "Eliminando…" : "Confirmar"}
                   </button>
                 </div>
               </>
             ) : (
               <>
-                <p>✅ <b>Perro eliminado con éxito</b></p>
-                <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 10 }}>
+                <p>
+                  ✅ <b>Perro eliminado con éxito</b>
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    justifyContent: "center",
+                    marginTop: 10,
+                  }}
+                >
                   <button className="btn-primary" onClick={closeModal}>
                     Cerrar
                   </button>

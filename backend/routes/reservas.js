@@ -2,7 +2,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../db.js';
-import { verifyToken, requireAdmin } from '../middleware/auth.js';
+import { verifyToken, requireAdmin, requireTrainerOrAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -20,8 +20,10 @@ const toMin = (hhmm) => {
 const fromMin = (t) =>
   `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 const overlaps = (aStart, aDur, bStart, bDur) => {
-  const a1 = toMin(aStart), a2 = a1 + Number(aDur || 60);
-  const b1 = toMin(bStart), b2 = b1 + Number(bDur || 60);
+  const a1 = toMin(aStart),
+    a2 = a1 + Number(aDur || 60);
+  const b1 = toMin(bStart),
+    b2 = b1 + Number(bDur || 60);
   return a1 < b2 && b1 < a2;
 };
 const parseJSONSafe = (v, fb = {}) => {
@@ -84,19 +86,28 @@ async function tx(run) {
 
 /* ===================== Permisos notas hilo ===================== */
 async function canSeeReservation(req, reservaId) {
-  const r = (await query(
-    `SELECT id, uid, email FROM reservas WHERE id=? LIMIT 1`,
-    [reservaId]
-  ))[0];
+  const r = (
+    await query(
+      `SELECT id, uid, email
+         FROM reservas
+        WHERE id = ?
+        LIMIT 1`,
+      [reservaId]
+    )
+  )[0];
 
   if (!r) return { ok: false };
 
-  const isAdmin = !!req.user?.isAdmin;
+  const rol = req.user?.rol || req.user?.role || "user";
+
+  const isAdmin   = !!req.user?.isAdmin || rol === "admin";
+  const isTrainer = rol === "trainer";
   const isOwner =
     (r.uid && req.user?.uid && r.uid === req.user.uid) ||
     (r.email && req.user?.email && r.email === req.user.email);
 
-  return { ok: isAdmin || isOwner };
+  // Ahora pueden ver notas: admin, trainer y dueño de la reserva
+  return { ok: isAdmin || isTrainer || isOwner };
 }
 
 /* ===================== Disponibilidad ===================== */
@@ -145,10 +156,22 @@ router.get('/disponibilidad', async (req, res) => {
 router.post('/', verifyToken, async (req, res) => {
   try {
     const {
-      email, fecha, hora, durationMin = 60,
-      servicioId, servicioTitulo, modalidad, duration,
-      price, currency, perro, telefono, direccion, pricing,
-      paqueteId, userNote = null,
+      email,
+      fecha,
+      hora,
+      durationMin = 60,
+      servicioId,
+      servicioTitulo,
+      modalidad,
+      duration,
+      price,
+      currency,
+      perro,
+      telefono,
+      direccion,
+      pricing,
+      paqueteId,
+      userNote = null,
     } = req.body;
 
     const uid = req.user?.uid || null;
@@ -322,10 +345,24 @@ router.post('/', verifyToken, async (req, res) => {
 router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
   try {
     const {
-      email, fecha, hora, durationMin = 60,
-      servicioId, servicioTitulo, modalidad, duration,
-      price, currency, perro, telefono, direccion, pricing,
-      paqueteId, status: statusBody, adminNote = null, userNote = null,
+      email,
+      fecha,
+      hora,
+      durationMin = 60,
+      servicioId,
+      servicioTitulo,
+      modalidad,
+      duration,
+      price,
+      currency,
+      perro,
+      telefono,
+      direccion,
+      pricing,
+      paqueteId,
+      status: statusBody,
+      adminNote = null,
+      userNote = null,
     } = req.body;
 
     const emailNorm = String(email || '').trim();
@@ -499,6 +536,51 @@ router.get('/', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+/* ===================== Listado adiestrador ===================== */
+// GET /api/reservas/trainer?status=...&limit=...
+router.get('/trainer', verifyToken, requireTrainerOrAdmin, async (req, res) => {
+  try {
+    const { status = 'all', limit = 300 } = req.query;
+    const where = [];
+    const params = [];
+
+    if (status && status !== 'all') {
+      where.push('status = ?');
+      params.push(String(status));
+    }
+
+    // De momento: el adiestrador ve todas las reservas (igual que admin).
+    // Más adelante filtraremos por columna trainer_id / trainer_email.
+    const sql = `
+      SELECT id, uid, email, fecha, hora, duration_min AS durationMin,
+             servicio_id AS servicioId, servicio_titulo AS servicioTitulo,
+             modalidad, duration,
+             price, currency, perro, telefono, direccion, pricing, paquete_id AS paqueteId,
+             status, origin, user_note AS userNote, admin_note AS adminNote,
+             cancel_reason AS cancelReason,
+             created_at AS createdAt, updated_at AS updatedAt
+        FROM reservas
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY fecha DESC, hora DESC
+       LIMIT ?`;
+    params.push(Math.min(Number(limit || 300), 1000));
+
+    const rows = await query(sql, params);
+
+    await autoExpireIfPast(rows);
+
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        pricing: parseJSONSafe(r.pricing, null),
+      }))
+    );
+  } catch (e) {
+    console.error('GET /reservas/trainer', e);
+    res.status(500).json({ error: 'No se pudo obtener reservas (trainer)' });
+  }
+});
+
 /* ===================== NOTAS TIPO HILO ===================== */
 
 // GET /api/reservas/:id/notes
@@ -533,7 +615,15 @@ router.post('/:id/notes', verifyToken, async (req, res) => {
     const perm = await canSeeReservation(req, id);
     if (!perm.ok) return res.status(403).json({ error: 'Sin permisos' });
 
-    const author = req.user?.isAdmin ? 'admin' : 'user';
+    const rol = req.user?.rol || req.user?.role || 'user';
+
+    let author = 'user';
+    if (rol === 'trainer') {
+      author = 'trainer';
+    } else if (req.user?.isAdmin || rol === 'admin') {
+      author = 'admin';
+    }
+
     const nid = uuidv4();
     const ts = nowISO();
 
@@ -589,8 +679,8 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
 
 /* ===================== Acciones directas ===================== */
 
-// PATCH /api/reservas/:id/confirm (admin)
-router.patch('/:id/confirm', verifyToken, requireAdmin, async (req, res) => {
+// PATCH /api/reservas/:id/confirm (admin o trainer)
+router.patch('/:id/confirm', verifyToken, requireTrainerOrAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { note = '' } = req.body || {};
@@ -609,8 +699,8 @@ router.patch('/:id/confirm', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/reservas/:id/reject (admin)
-router.patch('/:id/reject', verifyToken, requireAdmin, async (req, res) => {
+// PATCH /api/reservas/:id/reject (admin o trainer)
+router.patch('/:id/reject', verifyToken, requireTrainerOrAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { note = '' } = req.body || {};
@@ -731,7 +821,7 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /api/reservas/:id (solo admin)
+// DELETE /api/reservas/:id (solo admin, borra definitivamente canceladas/rechazadas)
 router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -741,36 +831,32 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!rRows.length) {
+      return res.status(404).json({ error: 'Reserva no encontrada' });
+    }
     const r = rRows[0];
 
-    // Mantengo la lógica existente: marcar como rejected + ajuste de paquete
-    const note = 'Eliminada por admin';
-    await query(
-      `UPDATE reservas
-          SET status='rejected',
-              admin_note=COALESCE(?,admin_note),
-              updated_at=?
-       WHERE id=?`,
-      [note, nowISO(), id]
-    );
+    const st = String(r.status || '').toLowerCase();
+    const puedeBorrar =
+      st === 'cancelled' ||
+      st === 'cancelada' ||
+      st === 'rejected' ||
+      st === 'rechazada' ||
+      st === 'deleted' ||
+      st === 'eliminada';
 
-    if (r.paqueteId && ['pending', 'confirmed'].includes(r.status)) {
-      const pRows = await query(
-        `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-        [r.paqueteId]
-      );
-      if (pRows.length) {
-        const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-        saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-        await query(
-          `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-          [JSON.stringify(saldo), nowISO(), r.paqueteId]
-        );
-      }
+    if (!puedeBorrar) {
+      return res.status(400).json({
+        error: 'Solo se pueden borrar reservas canceladas o rechazadas',
+      });
     }
 
-    res.json({ ok: true });
+    // En tu flujo actual, al cancelar/rechazar ya ajustas el saldo del paquete,
+    // así que aquí no tocamos paquetes de nuevo.
+
+    await query(`DELETE FROM reservas WHERE id=?`, [id]);
+
+    res.json({ ok: true, id });
   } catch (e) {
     console.error('DELETE /reservas/:id', e);
     res.status(500).json({ error: 'No se pudo eliminar' });
@@ -782,8 +868,12 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
 router.patch('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, adminNote = null, adminNoteAppend = false, cancelReason = null } =
-      req.body || {};
+    const {
+      status,
+      adminNote = null,
+      adminNoteAppend = false,
+      cancelReason = null,
+    } = req.body || {};
     if (!status && adminNote === null) {
       return res.status(400).json({ error: 'Nada que actualizar' });
     }

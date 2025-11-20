@@ -1,878 +1,604 @@
 // frontend/src/pages/reservas/reservasUser.jsx
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { http } from '../../helpers/http';
 import { useAuth } from '../../context/auth';
-import '../../styles/contratar.scss';
+import '../../styles/contratar.scss'; // reutilizamos estilos de botones / card
 
-import {
-  first,
-  normList,
-  HOURS,
-  parseDisponibilidad,
-  humanDate,
-} from '../../helpers/reservas';
-
-// Función auxiliar para obtener el ID de la reserva venga como venga
-const getReservaId = (r) =>
-  r?.id ?? r?.reservaId ?? r?.reserva_id ?? r?.uuid ?? null;
-
-/* ===== helpers de fechas (alineados con backend) ===== */
-const MS_24H = 24 * 60 * 60 * 1000;
-
-function buildDateFromFechaHora(fecha, hora) {
-  if (!fecha) return null;
-  const [Y, M, D] = String(fecha).split('-').map(Number);
-  const [h, m = 0] = String(hora || '00:00').split(':').map(Number);
-  if (!Y || !M || !D) return null;
-  return new Date(Y, (M || 1) - 1, D, h || 0, m || 0);
+// ==== utilidades básicas ====
+function formatEUR(value, currency = 'EUR') {
+  if (value == null) return 'A consultar';
+  try {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(value);
+  } catch {
+    return `${value} ${currency}`;
+  }
 }
 
-function isFuture(fecha, hora) {
-  const d = buildDateFromFechaHora(fecha, hora);
-  if (!d) return false;
-  return d.getTime() > Date.now();
+function ymd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
-function canCancel24h(fecha, hora) {
-  const d = buildDateFromFechaHora(fecha, hora);
-  if (!d) return false;
-  return d.getTime() - Date.now() > MS_24H;
+function todayYMD() {
+  return ymd(new Date());
 }
 
-export default function ReservasUser() {
-  const navigate = useNavigate();
-  const { isAuthenticated, user } = useAuth();
-
-  const [notice, setNotice] = useState({ type: '', text: '' });
-  const [trace, setTrace] = useState(null);
-  const showSuccess = (t) => setNotice({ type: 'success', text: t });
-  const showError = (t) => setNotice({ type: 'error', text: t });
-  const setTraceErr = (obj) =>
-    setTrace({ time: new Date().toISOString(), ...obj });
-
-  /* ===== Servicios ===== */
-  const [servicios, setServicios] = useState([]);
-  const [servicioId, setServicioId] = useState('');
-  const [durationMin, setDurationMin] = useState(60);
-
-  const servicioSel = useMemo(
-    () =>
-      servicios.find((s) => {
-        const sid = first(s.id, s._id, s.uuid);
-        return String(sid) === String(servicioId);
-      }) || null,
-    [servicios, servicioId]
-  );
-
-  const servicioTituloSel = useMemo(
-    () =>
-      first(
-        servicioSel?.title,
-        servicioSel?.titulo,
-        servicioSel?.name,
-        'Servicio'
-      ),
-    [servicioSel]
-  );
-
-  // Fallback de servicio en reservas (cuando backend no trae título)
-  const getServicioTitulo = (sid) => {
-    if (!sid) return null;
-    const s = servicios.find((x) => {
-      const xid = first(x.id, x._id, x.uuid);
-      return String(xid) === String(sid);
-    });
-    return s ? first(s.title, s.titulo, s.name, null) : null;
-  };
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const list = await http('/api/servicios');
-        const arr = Array.isArray(list) ? list : list?.items || list?.data || [];
-        setServicios(arr || []);
-        if ((arr || []).length && !servicioId) {
-          const fid = first(arr[0]?.id, arr[0]?._id, arr[0]?.uuid);
-          if (fid) setServicioId(fid);
-        }
-      } catch (e) {
-        setServicios([]);
-        setTraceErr({
-          action: 'GET /api/servicios',
-          error: String(e?.message || e),
-        });
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!servicioSel) return;
-    if (servicioSel?.durationMin)
-      setDurationMin(Number(servicioSel.durationMin) || 60);
-    else {
-      const txt = first(servicioSel?.duration, servicioSel?.duracion, '');
-      const m = String(txt).match(/(\d+)\s*min/i);
-      setDurationMin(m ? Number(m[1]) : 60);
-    }
-  }, [servicioSel]);
-
-  /* ===== Paquetes ===== */
-  const [paquetes, setPaquetes] = useState([]);
-  const [paqueteId, setPaqueteId] = useState('');
-
-  async function cargarMisPaquetes() {
-    if (!isAuthenticated) {
-      setPaquetes([]);
-      setPaqueteId('');
-      return;
-    }
-    try {
-      const list = await http('/api/paquetes/mios', { auth: true });
-      const arr = Array.isArray(list) ? list : list?.items || list?.data || [];
-      const activos = arr.filter(
-        (p) => String(p.status).toLowerCase() === 'active'
-      );
-      setPaquetes(activos);
-      if (activos.length === 1)
-        setPaqueteId(first(activos[0].id, activos[0]._id, activos[0].uuid));
-    } catch (e) {
-      setPaquetes([]);
-      setPaqueteId('');
-      setTraceErr({
-        action: 'GET /api/paquetes/mios',
-        error: String(e?.message || e),
+function renderFecha(fecha) {
+  if (!fecha) return '';
+  try {
+    const d = new Date(fecha);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString('es-ES', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
       });
+    }
+  } catch {
+    // ignore
+  }
+  return fecha;
+}
+
+function renderPerro(perro) {
+  if (!perro) return '(sin datos)';
+  if (typeof perro === 'string') {
+    // Intentamos parsear JSON, si falla mostramos el string
+    try {
+      const obj = JSON.parse(perro);
+      return renderPerro(obj);
+    } catch {
+      return perro;
     }
   }
-
-  /* ===== Disponibilidad ===== */
-  const [mesBase, setMesBase] = useState(
-    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-  );
-  const [fecha, setFecha] = useState('');
-  const [hora, setHora] = useState('');
-  const [loadingHoras, setLoadingHoras] = useState(false);
-  const [unavailable, setUnavailable] = useState([]);
-
-  const cargarDisponibilidad = async (f) => {
-    if (!f || !servicioId) return;
-    setLoadingHoras(true);
-    try {
-      const qs = new URLSearchParams({
-        fecha: f,
-        durationMin: String(durationMin),
-        servicioId: String(servicioId || ''),
-      });
-      const data = await http(`/api/reservas/disponibilidad?${qs.toString()}`);
-      const { ocup } = parseDisponibilidad(data || {});
-      setUnavailable(ocup);
-    } catch (e) {
-      setUnavailable([]);
-      setTraceErr({
-        action: 'GET /api/reservas/disponibilidad',
-        error: String(e?.message || e),
-      });
-    } finally {
-      setLoadingHoras(false);
-    }
-  };
-
-  useEffect(() => {
-    if (fecha) cargarDisponibilidad(fecha);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fecha, durationMin, servicioId]);
-
-  /* ===== Confirmación ===== */
-  const allowedModalities = useMemo(() => {
-    if (!servicioSel) return ['presencial', 'online', 'a domicilio'];
-    if (
-      Array.isArray(servicioSel.modalities) &&
-      servicioSel.modalities.length
-    )
-      return servicioSel.modalities;
-    const fromMode = String(
-      first(servicioSel.mode, servicioSel.modo, '')
-    ).toLowerCase();
-    const set = new Set(['presencial']);
-    if (fromMode.includes('online')) set.add('online');
-    if (fromMode.includes('domicilio')) set.add('a domicilio');
-    return Array.from(set);
-  }, [servicioSel]);
-
-  const [confirmBox, setConfirmBox] = useState({
-    open: false,
-    fecha: '',
-    hora: '',
-    servicioTitulo: '',
-    modalidad: '',
-  });
-
-  const abrirConfirmacion = (f, h) => {
-    if (!isAuthenticated) {
-      navigate(`/login?next=${encodeURIComponent('/reservas')}`, {
-        replace: true,
-      });
-      return;
-    }
-    setConfirmBox({
-      open: true,
-      fecha: f,
-      hora: h,
-      servicioTitulo: servicioTituloSel,
-      modalidad: allowedModalities[0] || 'presencial',
-    });
-    setFecha('');
-    setHora('');
-  };
-
-  const cerrarConfirmacion = () =>
-    setConfirmBox((p) => ({ ...p, open: false }));
-
-  /* ===== Crear reserva ===== */
-  const reservarConfirmado = async () => {
-    const { fecha: f, hora: h, modalidad } = confirmBox;
-    if (!servicioSel || !f || !h) {
-      showError('Falta servicio, fecha u hora.');
-      return;
-    }
-
-    const userEmail = user?.email || '';
-    const servicio =
-      first(servicioSel?.id, servicioSel?._id, servicioSel?.uuid, servicioId) ||
-      '';
-
-    const minimal = {
-      email: userEmail,
-      fecha: f,
-      hora: h,
-      servicioId: servicio,
-      servicioTitulo: servicioTituloSel,
-      modalidad,
-      status: 'pending',
-      paqueteId,
-    };
-
-    try {
-      await http('/api/reservas', {
-        method: 'POST',
-        data: minimal,
-        auth: true,
-      });
-
-      showSuccess('Reserva creada.');
-      cerrarConfirmacion();
-      await Promise.all([
-        cargarMias(),
-        cargarMisPaquetes(),
-        f ? cargarDisponibilidad(f) : Promise.resolve(),
-      ]);
-    } catch (e) {
-      showError(
-        e?.data?.error ||
-          e?.responseData?.error ||
-          e?.message ||
-          'No se pudo crear la reserva.'
-      );
-      setTrace({
-        time: new Date().toISOString(),
-        action: 'POST /api/reservas (json)',
-        payload_preview: minimal,
-        error: e?.data || e?.responseData || String(e?.message || e),
-      });
-    }
-  };
-
-  /* ===== MIS RESERVAS ===== */
-  const [mias, setMias] = useState([]);
-
-  async function cargarMias() {
-    if (!isAuthenticated) {
-      setMias([]);
-      return;
-    }
-    try {
-      const j = await http('/api/reservas/mias', { auth: true });
-      const arr = j?.items || j?.reservas || j || [];
-      setMias(normList(arr));
-    } catch (e) {
-      setMias([]);
-      setTraceErr({
-        action: 'GET /api/reservas/mias',
-        error: String(e?.message || e),
-      });
-    }
+  if (typeof perro === 'object') {
+    const nombre = perro.nombre || perro.name;
+    const raza = perro.razaTamaño || perro.raza || '';
+    const edad = perro.edad ? `${perro.edad} años` : '';
+    const castrado = perro.castrado ? 'castrado' : '';
+    const parts = [nombre, raza, edad, castrado].filter(Boolean);
+    return parts.length ? parts.join(' · ') : '(sin datos)';
   }
+  return String(perro);
+}
 
-  /* ===== NOTAS TIPO HILO ===== */
-  const [notesByRes, setNotesByRes] = useState({});
-  const [noteDraftByRes, setNoteDraftByRes] = useState({});
-  const [notesOpen, setNotesOpen] = useState({});
+function statusLabel(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'pending' || s === 'pendiente') return 'Pending';
+  if (s === 'confirmed' || s === 'confirmada') return 'Confirmed';
+  if (s === 'cancelled' || s === 'cancelada') return 'Cancelled';
+  if (s === 'rejected' || s === 'rechazada') return 'Rejected';
+  if (s === 'pending_user') return 'Pendiente (tu aceptación)';
+  return s || 'Estado';
+}
 
-  const loadNotes = async (id) => {
-    try {
-      const rows = await http(`/api/reservas/${id}/notes`, { auth: true });
-      setNotesByRes((p) => ({
-        ...p,
-        [id]: Array.isArray(rows) ? rows : [],
-      }));
-    } catch (e) {
-      setNotesByRes((p) => ({ ...p, [id]: [] }));
-    }
-  };
+function statusClass(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'pending' || s === 'pendiente') return 'badge badge-pending';
+  if (s === 'confirmed' || s === 'confirmada') return 'badge badge-confirmed';
+  if (s === 'cancelled' || s === 'cancelada') return 'badge badge-cancelled';
+  if (s === 'rejected' || s === 'rechazada') return 'badge badge-rejected';
+  if (s === 'pending_user') return 'badge badge-pending';
+  return 'badge';
+}
 
-  const addNote = async (id) => {
-    const txt = (noteDraftByRes[id] || '').trim();
-    if (!txt) return;
-    try {
-      const n = await http(`/api/reservas/${id}/notes`, {
-        method: 'POST',
-        data: { text: txt },
-        auth: true,
-      });
-      setNoteDraftByRes((p) => ({ ...p, [id]: '' }));
-      setNotesByRes((p) => ({ ...p, [id]: [n, ...(p[id] || [])] }));
-    } catch (e) {
-      showError('No se pudo añadir la nota');
-    }
-  };
+// ==== card de reserva ====
+function ReservaCard({ r, onCancel, onToggleNotes, onUserDecision }) {
+  const normalizedStatus = String(r.status || '').toLowerCase();
 
-  const deleteNote = async (id, noteId) => {
-    try {
-      await http(`/api/reservas/${id}/notes/${noteId}`, {
-        method: 'DELETE',
-        auth: true,
-      });
-      setNotesByRes((p) => ({
-        ...p,
-        [id]: (p[id] || []).filter((n) => n.id !== noteId),
-      }));
-    } catch (e) {
-      showError('No se pudo borrar la nota');
-    }
-  };
+  const puedeCancelar =
+    normalizedStatus === 'pending' ||
+    normalizedStatus === 'confirmada' ||
+    normalizedStatus === 'confirmed' ||
+    normalizedStatus === 'pending_user';
 
-  /* ===== CANCELAR ===== */
-  const [cancelModal, setCancelModal] = useState({
-    open: false,
-    id: '',
-    reason: '',
-  });
+  const puedeAceptarRechazar = normalizedStatus === 'pending_user';
 
-  const abrirCancelModal = (rawId) => {
-    const id = rawId || '';
-    setCancelModal({ open: true, id, reason: '' });
-  };
-
-  const cerrarCancelModal = () =>
-    setCancelModal({ open: false, id: '', reason: '' });
-
-  // Usa PATCH /api/reservas/:id/cancel (el backend ya aplica la regla de 24h)
-  const confirmarCancelModal = async () => {
-    const bid = cancelModal.id;
-    const reason = (cancelModal.reason || '').trim();
-
-    if (!bid) {
-      showError('No se ha encontrado el ID de la reserva.');
-      return;
-    }
-
-    try {
-      await http(`/api/reservas/${bid}/cancel`, {
-        method: 'PATCH',
-        data: { reason },
-        auth: true,
-      });
-
-      showSuccess('Reserva cancelada.');
-      cerrarCancelModal();
-      await Promise.all([
-        cargarMias(),
-        fecha ? cargarDisponibilidad(fecha) : Promise.resolve(),
-      ]);
-    } catch (e) {
-      showError(
-        e?.data?.error ||
-          e?.responseData?.error ||
-          e?.message ||
-          'No se pudo cancelar.'
-      );
-      setTraceErr({
-        action: 'PATCH /api/reservas/:id/cancel',
-        id: bid,
-        error: e?.data || e?.responseData || String(e?.message || e),
-      });
-    }
-  };
-
-  useEffect(() => {
-    cargarMias();
-    cargarMisPaquetes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
-
-  /* ===== Agrupación por estado + tiempo ===== */
-  const grouped = useMemo(() => {
-    const g = {
-      pendingUser: [],        // pendientes pedidas por el usuario (futuras)
-      pendingAdmin: [],       // pendientes creadas por admin (futuras)
-      confirmedUpcoming: [],  // confirmadas futuras
-      confirmedPast: [],      // confirmadas pasadas (historial)
-      done: [],               // hechas / completadas
-      cancelledRejected: [],  // canceladas / rechazadas / eliminadas
-      other: [],
-    };
-
-    for (const r of mias) {
-      const s = String(r.status || '').toLowerCase();
-      const origin = String(r.origin || '').toLowerCase();
-      const future = isFuture(r.fecha, r.hora);
-
-      if (s === 'pending' || s === 'pendiente') {
-        if (origin === 'admin') g.pendingAdmin.push(r);
-        else g.pendingUser.push(r);
-      } else if (s === 'confirmed' || s === 'confirmada' || s === 'approved') {
-        if (future) g.confirmedUpcoming.push(r);
-        else g.confirmedPast.push(r);
-      } else if (s === 'done' || s === 'hecha') {
-        g.done.push(r);
-      } else if (
-        ['cancelled', 'cancelada', 'deleted', 'eliminada', 'rejected', 'rechazada'].includes(s)
-      ) {
-        g.cancelledRejected.push(r);
-      } else {
-        g.other.push(r);
-      }
-    }
-
-    return g;
-  }, [mias]);
-
-  const statusColor = (s) => {
-    const st = String(s || '').toLowerCase();
-    if (st === 'pending' || st === 'pendiente') return 'yellow';
-    if (st === 'confirmed' || st === 'confirmada' || st === 'approved')
-      return 'green';
-    if (st === 'done' || st === 'hecha') return 'blue';
-    if (['cancelled', 'cancelada', 'deleted', 'eliminada'].includes(st))
-      return 'gray';
-    if (st === 'rejected' || st === 'rechazada') return 'red';
-    return 'gray';
-  };
-
-  const renderCard = (r) => {
-    const id = getReservaId(r);
-    const tituloSrv = first(
-      r.servicioTitulo,
-      getServicioTitulo(r.servicioId),
-      'Servicio'
-    );
-
-    const st = String(r.status || '').toLowerCase();
-
-    const canCancelStatus = ['pending', 'pendiente', 'confirmed', 'confirmada'].includes(
-      st
-    );
-    const canCancelTime = canCancel24h(r.fecha, r.hora);
-    const showCancel = canCancelStatus && canCancelTime;
-
-    return (
-      <div key={id || Math.random()} className="reserva-card">
-        <div className="reserva-header">
-          <h3>{tituloSrv}</h3>
-          <span className={`status ${statusColor(r.status)}`}>
-            {r.status}
-          </span>
-        </div>
-
-        <div className="reserva-body">
-          <p>
-            <b>Fecha:</b> {humanDate(r.fecha)}
-          </p>
-          <p>
-            <b>Hora:</b> {r.hora}
-          </p>
-          {r.modalidad && (
-            <p>
-              <b>Modalidad:</b> {r.modalidad}
-            </p>
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <div>
+          <div style={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
+            {r.servicioTitulo || r.servicioId || 'Reserva'}
+          </div>
+          <div style={{ fontSize: 14, marginTop: 4 }}>
+            <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{' '}
+            {r.modalidad && (
+              <>
+                · <i>{r.modalidad}</i>
+              </>
+            )}
+          </div>
+          {r.perro && (
+            <div style={{ fontSize: 14, marginTop: 2 }}>
+              <b>Perro:</b> {renderPerro(r.perro)}
+            </div>
+          )}
+          {r.price != null && (
+            <div style={{ fontSize: 14, marginTop: 2 }}>
+              <b>Precio:</b> {formatEUR(r.price, r.currency || 'EUR')}
+            </div>
+          )}
+          {r.adminNote && (
+            <div style={{ fontSize: 12, marginTop: 4 }}>
+              <b>Nota centro:</b> {r.adminNote}
+            </div>
           )}
           {r.cancelReason && (
-            <p>
-              <b>Motivo:</b> {r.cancelReason}
-            </p>
-          )}
-        </div>
-
-        {/* Notas tipo hilo */}
-        <div className="notes-thread">
-          <button
-            className="btn-ghost"
-            onClick={async () => {
-              if (!id) return;
-              setNotesOpen((o) => ({ ...o, [id]: !o[id] }));
-              if (!notesByRes[id]) await loadNotes(id);
-            }}
-          >
-            📝 Notas
-          </button>
-
-          {id && notesOpen[id] && (
-            <div className="notes-box">
-              <div className="notes-list">
-                {(notesByRes[id] || []).length === 0 ? (
-                  <div className="empty">Sin notas aún.</div>
-                ) : (
-                  (notesByRes[id] || []).map((n) => (
-                    <div key={n.id} className="note-item">
-                      <div className="note-meta">
-                        <b>
-                          {n.author === 'admin' ? 'Adiestrador' : 'Tú'}
-                        </b>{' '}
-                        · {new Date(n.createdAt).toLocaleString()}
-                      </div>
-
-                      <div className="note-text">{n.text}</div>
-
-                      <div className="note-actions">
-                        <button
-                          className="btn-ghost"
-                          onClick={() => deleteNote(id, n.id)}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Escribir nueva nota */}
-              <div className="note-compose">
-                <textarea
-                  rows={2}
-                  placeholder="Escribe una nota…"
-                  value={noteDraftByRes[id] || ''}
-                  onChange={(e) =>
-                    setNoteDraftByRes((p) => ({
-                      ...p,
-                      [id]: e.target.value,
-                    }))
-                  }
-                />
-                <button
-                  className="btn-primary"
-                  onClick={() => addNote(id)}
-                >
-                  Agregar nota
-                </button>
-              </div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>
+              <b>Motivo cancelación:</b> {r.cancelReason}
             </div>
           )}
         </div>
+        <div style={{ textAlign: 'right' }}>
+          <span className={statusClass(r.status)}>{statusLabel(r.status)}</span>
+        </div>
+      </div>
 
-        {/* Cancelar (solo si futura y >24h) */}
-        {showCancel && id && (
-          <button
-            className="btn-ghost cancel-btn"
-            onClick={() => abrirCancelModal(id)}
-          >
+      <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
+          📝 Notas
+        </button>
+
+        {puedeAceptarRechazar && (
+          <>
+            <button
+              className="btn-primary"
+              onClick={() => onUserDecision?.(r, 'confirm')}
+            >
+              Aceptar
+            </button>
+            <button
+              className="btn-outline"
+              onClick={() => onUserDecision?.(r, 'reject')}
+            >
+              Rechazar
+            </button>
+          </>
+        )}
+
+        {puedeCancelar && (
+          <button className="btn-outline" onClick={() => onCancel(r)}>
             Cancelar reserva
           </button>
         )}
       </div>
-    );
+    </div>
+  );
+}
+
+// ==== componente principal ====
+export default function ReservasUser() {
+  const { isAuthenticated } = useAuth();
+  const [reservas, setReservas] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // calendario
+  const [mesBase, setMesBase] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  );
+  const [selectedDate, setSelectedDate] = useState(todayYMD());
+
+  // notas
+  const [openNotesId, setOpenNotesId] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [newNote, setNewNote] = useState('');
+
+  const cargarReservas = async () => {
+    if (!isAuthenticated) return;
+    setLoading(true);
+    try {
+      const data = await http('/api/reservas/mias', { auth: true });
+      const arr = Array.isArray(data) ? data : data?.items || [];
+      setReservas(arr);
+    } catch (e) {
+      console.error('Error cargando reservas', e);
+      setReservas([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const renderGroup = (title, items, emptyText) => (
-    <section className="mis-reservas-group">
-      <h3>{title}</h3>
-      {items.length === 0 ? (
-        <p className="empty">{emptyText}</p>
-      ) : (
-        <div className="mis-reservas-list">{items.map(renderCard)}</div>
-      )}
-    </section>
+  useEffect(() => {
+    cargarReservas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // mapa de días con reservas (YYYY-MM-DD)
+  const fechasConReservas = useMemo(() => {
+    const map = new Map();
+    for (const r of reservas) {
+      if (!r.fecha) continue;
+      const f = String(r.fecha).slice(0, 10);
+      const list = map.get(f) || [];
+      list.push(r);
+      map.set(f, list);
+    }
+    return map;
+  }, [reservas]);
+
+  const reservasDelDiaSeleccionado = useMemo(() => {
+    if (!selectedDate) return [];
+    return fechasConReservas.get(selectedDate) || [];
+  }, [fechasConReservas, selectedDate]);
+
+  // agrupación básica por estado
+  const pendientesCentro = useMemo(
+    () =>
+      reservas.filter((r) => {
+        const s = String(r.status || '').toLowerCase();
+        return s === 'pending' || s === 'pendiente';
+      }),
+    [reservas]
   );
 
-  /* ===== RENDER ===== */
-  return (
-    <div className="reservas-page">
-      {/* Avisos */}
-      {notice.text && (
-        <div className={`notice ${notice.type}`}>
-          {notice.text}
-          <button onClick={() => setNotice({ type: '', text: '' })}>
-            ×
-          </button>
-        </div>
-      )}
+  // nuevas pendientes para el usuario (pending_user)
+  const pendientesUsuario = useMemo(
+    () =>
+      reservas.filter((r) => {
+        const s = String(r.status || '').toLowerCase();
+        return s === 'pending_user';
+      }),
+    [reservas]
+  );
 
-      {/* Traza debug */}
-      {trace && (
-        <pre className="debug-trace">
-          {JSON.stringify(trace, null, 2)}
-        </pre>
-      )}
+  const confirmadas = useMemo(
+    () =>
+      reservas.filter((r) => {
+        const s = String(r.status || '').toLowerCase();
+        return s === 'confirmed' || s === 'confirmada';
+      }),
+    [reservas]
+  );
 
-      {/* Selección de servicio */}
-      <div className="servicios-box">
-        <label>Servicio:</label>
-        <select
-          value={servicioId}
-          onChange={(e) => setServicioId(e.target.value)}
-        >
-          {servicios.map((s) => {
-            const id = first(s.id, s._id, s.uuid);
-            const t = first(s.title, s.titulo, s.name, 'Servicio');
-            return (
-              <option key={id} value={id}>
-                {t}
-              </option>
-            );
-          })}
-        </select>
+  const canceladasRechazadas = useMemo(
+    () =>
+      reservas.filter((r) => {
+        const s = String(r.status || '').toLowerCase();
+        return (
+          s === 'cancelled' ||
+          s === 'cancelada' ||
+          s === 'rejected' ||
+          s === 'rechazada'
+        );
+      }),
+    [reservas]
+  );
 
-        {/* selector de paquete si quieres usarlo */}
-        {paquetes.length > 0 && (
-          <div className="paquetes-box">
-            <label>Usar paquete:</label>
-            <select
-              value={paqueteId}
-              onChange={(e) => setPaqueteId(e.target.value)}
-            >
-              <option value="">(Sin paquete)</option>
-              {paquetes.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || p.titulo || `Paquete ${p.id}`}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+  // cancelar reserva
+  const handleCancel = async (r) => {
+    if (!window.confirm(`¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`)) return;
+    try {
+      await http(`/api/reservas/${r.id}/cancel`, {
+        method: 'PATCH',
+        data: { reason: 'Cancelada por el cliente' },
+        auth: true,
+      });
+      await cargarReservas();
+    } catch (e) {
+      console.error('Error cancelando reserva', e);
+      alert('No se pudo cancelar la reserva.');
+    }
+  };
+
+  // aceptar / rechazar cuando está en pending_user
+  const handleUserDecision = async (r, action) => {
+    const verb = action === 'confirm' ? 'aceptar' : 'rechazar';
+    if (!window.confirm(`¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`)) {
+      return;
+    }
+    try {
+      await http(`/api/reservas/${r.id}/user-confirm`, {
+        method: 'PATCH',
+        data: { action },
+        auth: true,
+      });
+      await cargarReservas();
+    } catch (e) {
+      console.error('Error actualizando reserva (user-confirm)', e);
+      alert('No se pudo actualizar la reserva.');
+    }
+  };
+
+  // notas
+  const loadNotes = async (reserva) => {
+    setLoadingNotes(true);
+    try {
+      const data = await http(`/api/reservas/${reserva.id}/notes`, { auth: true });
+      setNotes(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Error cargando notas', e);
+      setNotes([]);
+    } finally {
+      setLoadingNotes(false);
+    }
+  };
+
+  const handleToggleNotes = (r) => {
+    if (openNotesId === r.id) {
+      setOpenNotesId(null);
+      setNotes([]);
+      setNewNote('');
+      return;
+    }
+    setOpenNotesId(r.id);
+    setNewNote('');
+    loadNotes(r);
+  };
+
+  const handleAddNote = async () => {
+    if (!openNotesId || !newNote.trim()) return;
+    try {
+      await http(`/api/reservas/${openNotesId}/notes`, {
+        method: 'POST',
+        data: { text: newNote.trim() },
+        auth: true,
+      });
+      setNewNote('');
+      await loadNotes({ id: openNotesId });
+    } catch (e) {
+      console.error('Error creando nota', e);
+      alert('No se pudo guardar la nota.');
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="card contratar-page">
+        <h1>Mis reservas</h1>
+        <p>Necesitas iniciar sesión para ver tus reservas.</p>
       </div>
+    );
+  }
 
-      {/* Calendario */}
-      <div className="calendar-box">
-        <div className="calendar-header">
+  if (loading) {
+    return (
+      <div className="card contratar-page">
+        <h1>Mis reservas</h1>
+        <p>Cargando…</p>
+      </div>
+    );
+  }
+
+  // ==== render ====
+  return (
+    <div className="card contratar-page">
+      <h1>Mis reservas</h1>
+      <p style={{ marginBottom: 24 }}>
+        Recuerda: puedes cancelar sin coste hasta 24 horas antes de la cita.
+      </p>
+
+      {/* ==== Calendario resumen ==== */}
+      <section className="month-scheduler" style={{ marginBottom: 32 }}>
+        <div className="month-header">
           <button
-            type="button"
+            className="btn-ghost"
             onClick={() =>
-              setMesBase(
-                (d) =>
-                  new Date(d.getFullYear(), d.getMonth() - 1, 1)
-              )
+              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
             }
           >
-            «
+            ‹
           </button>
-          <h2>
+          <div className="month-label">
             {mesBase.toLocaleString('es-ES', {
               month: 'long',
               year: 'numeric',
             })}
-          </h2>
+          </div>
           <button
-            type="button"
+            className="btn-ghost"
             onClick={() =>
-              setMesBase(
-                (d) =>
-                  new Date(d.getFullYear(), d.getMonth() + 1, 1)
-              )
+              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
             }
           >
-            »
+            ›
           </button>
         </div>
 
-        <div className="calendar-grid">
+        <div className="weekdays">
           {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => (
-            <div key={d} className="cal-header">
-              {d}
-            </div>
+            <div key={d}>{d}</div>
           ))}
-
-          {Array.from({ length: 42 }).map((_, i) => {
-            const d = new Date(mesBase);
-            const startDay = (mesBase.getDay() + 6) % 7;
-            d.setDate(1 + (i - startDay));
-            const isCurrentMonth = d.getMonth() === mesBase.getMonth();
-            const yyyyMMdd = d.toISOString().slice(0, 10);
-
-            return (
-              <button
-                key={i}
-                className={`cal-cell ${
-                  isCurrentMonth ? '' : 'other-month'
-                }`}
-                onClick={() => {
-                  setFecha(yyyyMMdd);
-                  setHora('');
-                }}
-              >
-                {d.getDate()}
-              </button>
-            );
-          })}
         </div>
-      </div>
 
-      {/* Horas disponibles */}
-      {fecha && (
-        <div className="horas-box">
-          <h3>Horas disponibles – {humanDate(fecha)}</h3>
+        <div className="month-grid">
+          {(() => {
+            const first = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
+            const startOffset = (first.getDay() + 6) % 7; // lunes = 0
+            const lastDay = new Date(
+              mesBase.getFullYear(),
+              mesBase.getMonth() + 1,
+              0
+            ).getDate();
+            const cells = [];
+            for (let i = 0; i < 42; i++) {
+              const dayNum = i - startOffset + 1;
+              const inMonth = dayNum >= 1 && dayNum <= lastDay;
+              let f = '';
+              let disabled = true;
+              let isSelected = false;
+              let hasReserva = false;
 
-          {loadingHoras ? (
-            <p>Cargando…</p>
-          ) : (
-            <div className="horas-grid">
-              {HOURS.map((h) => {
-                const t =
-                  typeof h === 'number'
-                    ? `${String(h).padStart(2, '0')}:00`
-                    : String(h);
-                const disabled = unavailable.includes(t);
-                return (
-                  <button
-                    key={t}
-                    disabled={disabled}
-                    className={disabled ? 'hora-disabled' : 'hora'}
-                    onClick={() => abrirConfirmacion(fecha, t)}
-                  >
-                    {t}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Confirmación */}
-      {confirmBox.open && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Confirmar reserva</h3>
-            <p>
-              <b>Servicio:</b> {servicioTituloSel}
-            </p>
-            <p>
-              <b>Fecha:</b> {humanDate(confirmBox.fecha)}
-            </p>
-            <p>
-              <b>Hora:</b> {confirmBox.hora}
-            </p>
-
-            <label>Modalidad:</label>
-            <select
-              value={confirmBox.modalidad}
-              onChange={(e) =>
-                setConfirmBox((p) => ({
-                  ...p,
-                  modalidad: e.target.value,
-                }))
+              if (inMonth) {
+                const d = new Date(mesBase.getFullYear(), mesBase.getMonth(), dayNum);
+                f = ymd(d);
+                // en la vista de usuario no bloqueamos finde, solo mostramos
+                disabled = false;
+                isSelected = f === selectedDate;
+                hasReserva = fechasConReservas.has(f); // 👈 marcar si hay reservas ese día
               }
-            >
-              {allowedModalities.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
 
-            <div className="modal-actions">
-              <button
-                onClick={reservarConfirmado}
-                className="btn-primary"
-              >
-                Reservar
-              </button>
-              <button
-                onClick={cerrarConfirmacion}
-                className="btn-ghost"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
+              cells.push(
+                <button
+                  key={i}
+                  type="button"
+                  className={`daycell ${inMonth ? '' : 'out'} ${
+                    disabled ? 'disabled' : ''
+                  } ${isSelected ? 'selected' : ''} ${
+                    hasReserva ? 'has-reserva' : ''
+                  }`}
+                  onClick={() => {
+                    if (!inMonth || disabled) return;
+                    setSelectedDate(f === selectedDate ? '' : f);
+                  }}
+                  disabled={!inMonth || disabled}
+                >
+                  {inMonth ? dayNum : ''}
+                </button>
+              );
+            }
+            return cells;
+          })()}
         </div>
-      )}
 
-      {/* Lista de reservas agrupadas */}
-      <h2 className="mis-reservas-title">Mis reservas</h2>
-
-      {mias.length === 0 ? (
-        <p className="empty">No tienes reservas todavía.</p>
-      ) : (
-        <>
-          {renderGroup(
-            'Pendientes (pedidas por ti, esperando confirmación)',
-            grouped.pendingUser,
-            'No tienes reservas pendientes en espera de confirmación.'
-          )}
-          {renderGroup(
-            'Pendientes (creadas por el admin, a la espera de tu decisión)',
-            grouped.pendingAdmin,
-            'No tienes reservas pendientes creadas por el admin.'
-          )}
-          {renderGroup(
-            'Próximas confirmadas',
-            grouped.confirmedUpcoming,
-            'No tienes reservas próximas confirmadas.'
-          )}
-          {renderGroup(
-            'Historial (reservas pasadas)',
-            [...grouped.confirmedPast, ...grouped.done],
-            'Todavía no hay reservas en el historial.'
-          )}
-          {renderGroup(
-            'Canceladas / Rechazadas',
-            grouped.cancelledRejected,
-            'No hay reservas canceladas o rechazadas.'
-          )}
-          {grouped.other.length > 0 &&
-            renderGroup(
-              'Otros estados',
-              grouped.other,
-              'Sin reservas en otros estados.'
+        {selectedDate && (
+          <div style={{ marginTop: 12 }}>
+            <strong>
+              Reservas del día: {renderFecha(selectedDate)}
+            </strong>
+            {reservasDelDiaSeleccionado.length === 0 ? (
+              <p style={{ fontSize: 14, marginTop: 4 }}>No tienes reservas ese día.</p>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                {reservasDelDiaSeleccionado.map((r) => (
+                  <ReservaCard
+                    key={r.id}
+                    r={r}
+                    onCancel={handleCancel}
+                    onToggleNotes={handleToggleNotes}
+                    onUserDecision={handleUserDecision}
+                  />
+                ))}
+              </div>
             )}
-        </>
-      )}
-
-      {/* Modal cancelar */}
-      {cancelModal.open && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Cancelar reserva</h3>
-
-            <textarea
-              placeholder="Motivo (opcional)"
-              value={cancelModal.reason}
-              onChange={(e) =>
-                setCancelModal((p) => ({
-                  ...p,
-                  reason: e.target.value,
-                }))
-              }
-            />
-
-            <div className="modal-actions">
-              <button
-                className="btn-primary"
-                onClick={confirmarCancelModal}
-              >
-                Confirmar
-              </button>
-              <button
-                className="btn-ghost"
-                onClick={cerrarCancelModal}
-              >
-                Cerrar
-              </button>
-            </div>
           </div>
-        </div>
+        )}
+      </section>
+
+      {/* ==== Listas por estado ==== */}
+      <section style={{ marginBottom: 32 }}>
+        <h2>Pendientes (confirmación del centro)</h2>
+        {pendientesCentro.length === 0 ? (
+          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
+            Sin registros.
+          </div>
+        ) : (
+          pendientesCentro.map((r) => (
+            <ReservaCard
+              key={r.id}
+              r={r}
+              onCancel={handleCancel}
+              onToggleNotes={handleToggleNotes}
+              onUserDecision={handleUserDecision}
+            />
+          ))
+        )}
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2>Pendientes (tu aceptación)</h2>
+        {pendientesUsuario.length === 0 ? (
+          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
+            Sin registros.
+          </div>
+        ) : (
+          pendientesUsuario.map((r) => (
+            <ReservaCard
+              key={r.id}
+              r={r}
+              onCancel={handleCancel}
+              onToggleNotes={handleToggleNotes}
+              onUserDecision={handleUserDecision}
+            />
+          ))
+        )}
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2>Confirmadas</h2>
+        {confirmadas.length === 0 ? (
+          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
+            Sin registros.
+          </div>
+        ) : (
+          confirmadas.map((r) => (
+            <ReservaCard
+              key={r.id}
+              r={r}
+              onCancel={handleCancel}
+              onToggleNotes={handleToggleNotes}
+              onUserDecision={handleUserDecision}
+            />
+          ))
+        )}
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2>Canceladas / Rechazadas</h2>
+        {canceladasRechazadas.length === 0 ? (
+          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
+            Sin registros.
+          </div>
+        ) : (
+          canceladasRechazadas.map((r) => (
+            <ReservaCard
+              key={r.id}
+              r={r}
+              onCancel={handleCancel}
+              onToggleNotes={handleToggleNotes}
+              onUserDecision={handleUserDecision}
+            />
+          ))
+        )}
+      </section>
+
+      {/* ==== Panel de notas (simple) ==== */}
+      {openNotesId && (
+        <section style={{ marginTop: 16 }}>
+          <h3>Notas de la reserva seleccionada</h3>
+          {loadingNotes ? (
+            <p>Cargando notas…</p>
+          ) : notes.length === 0 ? (
+            <p style={{ fontSize: 14 }}>No hay notas todavía.</p>
+          ) : (
+            <ul style={{ fontSize: 14, paddingLeft: 16 }}>
+              {notes.map((n) => (
+                <li key={n.id}>
+                  <b>{n.author}:</b> {n.text}{' '}
+                  <span style={{ opacity: 0.7 }}>
+                    ({new Date(n.createdAt).toLocaleString('es-ES')})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+            <input
+              style={{ flex: 1 }}
+              placeholder="Escribe una nota…"
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+            />
+            <button className="btn-primary" onClick={handleAddNote} disabled={!newNote.trim()}>
+              Añadir
+            </button>
+            <button
+              className="btn-outline"
+              onClick={() => {
+                setOpenNotesId(null);
+                setNotes([]);
+                setNewNote('');
+              }}
+            >
+              Cerrar
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );

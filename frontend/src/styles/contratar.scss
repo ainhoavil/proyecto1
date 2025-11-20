@@ -200,6 +200,35 @@ $border: #e4e4e4;
           font-weight: 600;
         }
 
+        /* 🔹 DÍAS QUE TIENEN ALGUNA RESERVA (usado en ReservasUser) */
+        &.has-reserva {
+          position: relative;
+          border-color: lighten($brand, 25%);
+          background: $brand-100;
+          color: $brand-700;
+          font-weight: 600;
+          box-shadow: 0 0 0 1px rgba($brand, .25);
+
+          &::after {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: $brand-700;
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+          }
+        }
+
+        /* cuando además está seleccionado → más fuerte */
+        &.selected.has-reserva {
+          background: lighten($brand, 30%);
+          border-color: $brand;
+          color: #0f2f27;
+        }
+
         /* POP-OVER de horas dentro del día */
         .popover {
           position: absolute;
@@ -396,11 +425,6 @@ $border: #e4e4e4;
   overflow: visible;
 }
 
-/* --- (Opcional) Regla de diagnóstico si algo aún recorta el popover ---
-main, .container, .content, .page, .layout {
-  overflow: visible !important;
-}
-*/
 /* ===== Caja de confirmación de reserva ===== */
 .confirm-box {
   margin: 0 0 12px;

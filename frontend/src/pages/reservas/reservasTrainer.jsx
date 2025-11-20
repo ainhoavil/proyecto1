@@ -1,12 +1,12 @@
-// frontend/src/pages/reservas/reservasAdmin.jsx
+// frontend/src/pages/reservas/reservasTrainer.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { http } from '../../helpers/http';
+import { useAuth } from '../../context/auth';
 import '../../styles/contratar.scss';
 
 import {
   first,
   normList,
-  HOURS,
   serverErrMsg,
   serializeErr,
 } from '../../helpers/reservas';
@@ -40,15 +40,9 @@ function relativeTime(iso) {
   return `hace ${y} años`;
 }
 
-/* ===================== Componente ===================== */
-
-export default function ReservasAdmin() {
-  const [servicios, setServicios] = useState([]);
-  const [servicioId, setServicioId] = useState('');
-
-  const [adminList, setAdminList] = useState([]);
-  const [adminFilterEmail, setAdminFilterEmail] = useState('');
-  const [adminLimit, setAdminLimit] = useState(300);
+export default function ReservasTrainer() {
+  const { user, role } = useAuth();
+  const [list, setList] = useState([]);
 
   const [notice, setNotice] = useState({ type: '', text: '' });
   const [trace, setTrace] = useState(null);
@@ -137,43 +131,26 @@ export default function ReservasAdmin() {
     }
   };
 
-  /* ===== Servicios ===== */
-  const loadServicios = async () => {
-    try {
-      const list = await http('/api/servicios');
-      const arr = Array.isArray(list) ? list : list?.items || list?.data || [];
-      setServicios(arr);
-      if (arr.length && !servicioId) {
-        setServicioId(first(arr[0].id, arr[0]._id, arr[0].uuid));
-      }
-    } catch (e) {
-      setServicios([]);
-      setTraceErr({ action: 'GET /api/servicios', error: serializeErr(e) });
-    }
-  };
-
-  /* ===== Listado admin ===== */
-  const cargarAdminList = async () => {
+  /* ===== Listado adiestrador ===== */
+  const loadTrainerList = async () => {
     try {
       clearNotice();
-      const qs = new URLSearchParams({
-        limit: String(adminLimit || 300),
-        ...(adminFilterEmail ? { email: adminFilterEmail.trim() } : {}),
+      const data = await http('/api/reservas/trainer?limit=300', {
+        auth: true,
       });
-      const data = await http(`/api/reservas?${qs.toString()}`, { auth: true });
-      const list = normList(data?.items || data?.reservas || data || []);
-      setAdminList(list);
+      const listNorm = normList(data?.items || data?.reservas || data || []);
+      setList(listNorm);
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo obtener reservas'));
       setTraceErr({
-        action: 'GET admin list',
-        url: '/api/reservas',
+        action: 'GET trainer list',
+        url: '/api/reservas/trainer',
         error: serializeErr(e),
       });
     }
   };
 
-  /* ===== Acciones admin sobre reservas ===== */
+  /* ===== Acciones trainer sobre reservas ===== */
   const confirmar = async (id) => {
     try {
       await http(`/api/reservas/${id}/confirm`, {
@@ -181,7 +158,7 @@ export default function ReservasAdmin() {
         auth: true,
       });
       showSuccess('Reserva confirmada');
-      await cargarAdminList();
+      await loadTrainerList();
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo confirmar'));
       setTraceErr({ action: 'PATCH confirm', id, error: serializeErr(e) });
@@ -195,106 +172,23 @@ export default function ReservasAdmin() {
         auth: true,
       });
       showSuccess('Reserva rechazada');
-      await cargarAdminList();
+      await loadTrainerList();
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo rechazar'));
       setTraceErr({ action: 'PATCH reject', id, error: serializeErr(e) });
     }
   };
 
-  const eliminar = async (id) => {
-    try {
-      await http(`/api/reservas/${id}`, { method: 'DELETE', auth: true });
-      showSuccess('Reserva eliminada');
-      await cargarAdminList();
-    } catch (e) {
-      showError(serverErrMsg(e, 'No se pudo eliminar'));
-      setTraceErr({ action: 'DELETE reserva', id, error: serializeErr(e) });
-    }
-  };
-
-  /* ===== Bloquear hora / crear para email ===== */
-
-  const [quickFecha, setQuickFecha] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
-
-  // quickHora robusto: soporta HOURS numérico o string
-  const [quickHora, setQuickHora] = useState(() => {
-    const firstH = HOURS?.[0];
-    if (typeof firstH === 'number') {
-      return `${String(firstH).padStart(2, '0')}:00`;
-    }
-    if (typeof firstH === 'string') {
-      return firstH;
-    }
-    return '09:00';
-  });
-
-  const [quickEmail, setQuickEmail] = useState('');
-  const [quickMod, setQuickMod] = useState('presencial');
-
-  const bloquear = async () => {
-    try {
-      await http('/api/reservas/bloqueos', {
-        method: 'POST',
-        data: {
-          fecha: quickFecha,
-          hora: quickHora,
-          motivo: 'Bloqueo manual',
-          servicioId,
-        },
-        auth: true,
-      });
-      showSuccess('Hora bloqueada');
-      await cargarAdminList();
-    } catch (e) {
-      showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
-      setTraceErr({ action: 'POST bloquear', error: serializeErr(e) });
-    }
-  };
-
-  const reservarParaEmail = async () => {
-    if (!/\S+@\S+\.\S+/.test(quickEmail)) {
-      showError('Email inválido');
-      return;
-    }
-    try {
-      await http('/api/reservas/admin', {
-        method: 'POST',
-        data: {
-          email: quickEmail.trim(),
-          fecha: quickFecha,
-          hora: quickHora,
-          servicioId,
-          modalidad: quickMod,
-          status: 'pending',
-        },
-        auth: true,
-      });
-      showSuccess(`Reserva creada para ${quickEmail.trim()}`);
-      setQuickEmail('');
-      await cargarAdminList();
-    } catch (e) {
-      showError(serverErrMsg(e, 'No se pudo crear la reserva'));
-      setTraceErr({ action: 'POST crear para email', error: serializeErr(e) });
-    }
-  };
-
   /* ===== Buckets UI ===== */
-  const adminBuckets = useMemo(() => {
-    const pendingAdminConfirm = [];
-    const pendingUserAccept = [];
+  const trainerBuckets = useMemo(() => {
+    const pending = [];
     const confirmed = [];
     const cancelled = [];
 
-    for (const r of adminList) {
+    for (const r of list) {
       const s = String(r.status || '').toLowerCase();
-      const origin = String(r.origin || '').toLowerCase();
-
       if (s === 'pending' || s === 'pendiente') {
-        if (origin === 'admin') pendingUserAccept.push(r);
-        else pendingAdminConfirm.push(r);
+        pending.push(r);
       } else if (s === 'confirmed' || s === 'confirmada') {
         confirmed.push(r);
       } else if (
@@ -312,21 +206,25 @@ export default function ReservasAdmin() {
       );
 
     return {
-      pendingAdminConfirm: sortByDT(pendingAdminConfirm),
-      pendingUserAccept: sortByDT(pendingUserAccept),
+      pending: sortByDT(pending),
       confirmed: sortByDT(confirmed),
       cancelled: sortByDT(cancelled),
     };
-  }, [adminList]);
+  }, [list]);
 
   useEffect(() => {
-    loadServicios();
-    cargarAdminList();
+    loadTrainerList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ===== Render ===== */
   return (
-    <div className="reservas-admin">
+    <div className="reservas-trainer">
+      <h2>Reservas (Adiestrador)</h2>
+      <p style={{ marginBottom: 12, opacity: 0.8 }}>
+        {user?.email} · rol: {role}
+      </p>
+
       {notice.text && (
         <div className={`notice ${notice.type}`}>{notice.text}</div>
       )}
@@ -338,162 +236,33 @@ export default function ReservasAdmin() {
         </details>
       )}
 
-      {/* Herramientas rápidas */}
-      <section className="admin-tools" style={{ marginTop: 16 }}>
-        <h2>Acciones rápidas (admin)</h2>
-        <div
-          className="admin-grid"
-          style={{
-            display: 'grid',
-            gap: 10,
-            gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
-          }}
-        >
-          <label>
-            Fecha
-            <input
-              type="date"
-              value={quickFecha}
-              onChange={(e) => setQuickFecha(e.target.value)}
-            />
-          </label>
-          <label>
-            Hora
-            <select
-              value={quickHora}
-              onChange={(e) => setQuickHora(e.target.value)}
-            >
-              {HOURS.map((h) => {
-                const t =
-                  typeof h === 'number'
-                    ? `${String(h).padStart(2, '0')}:00`
-                    : String(h);
-                return (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          <label>
-            Servicio
-            <select
-              value={servicioId}
-              onChange={(e) => setServicioId(e.target.value)}
-            >
-              {servicios.map((s) => {
-                const sid = first(s.id, s._id, s.uuid);
-                const title = first(s.title, s.titulo, s.name, 'Servicio');
-                return (
-                  <option key={sid} value={sid}>
-                    {title}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          <label>
-            Modalidad
-            <select
-              value={quickMod}
-              onChange={(e) => setQuickMod(e.target.value)}
-            >
-              <option value="presencial">Presencial</option>
-              <option value="online">Online</option>
-              <option value="a domicilio">A domicilio</option>
-            </select>
-          </label>
-          <div
-            style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
-          >
-            <button className="btn-danger" onClick={bloquear}>
-              Bloquear hora
-            </button>
-          </div>
-          <label>
-            Email (reservar para…)
-            <input
-              type="email"
-              placeholder="cliente@ejemplo.com"
-              value={quickEmail}
-              onChange={(e) => setQuickEmail(e.target.value)}
-            />
-          </label>
-          <div
-            style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
-          >
-            <button className="btn-primary" onClick={reservarParaEmail}>
-              Crear reserva
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Listas por estado */}
       <section style={{ marginTop: 24 }}>
-        <div
-          style={{
-            display: 'flex',
-            gap: 10,
-            alignItems: 'center',
-            marginBottom: 10,
-            flexWrap: 'wrap',
-          }}
-        >
-          <label>
-            Email
-            <input
-              type="email"
-              value={adminFilterEmail}
-              onChange={(e) => setAdminFilterEmail(e.target.value)}
-              placeholder="(opcional)"
-            />
-          </label>
-          <label>
-            Límite
-            <input
-              type="number"
-              min={50}
-              max={1000}
-              value={adminLimit}
-              onChange={(e) =>
-                setAdminLimit(Number(e.target.value || 300))
-              }
-              style={{ width: 100 }}
-            />
-          </label>
-          <button className="btn-ghost" onClick={cargarAdminList}>
-            Actualizar
-          </button>
-        </div>
+        <button className="btn-ghost" onClick={loadTrainerList}>
+          Actualizar listado
+        </button>
 
         <div
           style={{
             display: 'grid',
             gap: 16,
+            marginTop: 16,
             gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))',
           }}
         >
           {[
             {
-              title: 'Pendientes (confirmación del admin)',
-              items: adminBuckets.pendingAdminConfirm,
+              title: 'Pendientes de gestionar',
+              items: trainerBuckets.pending,
               actions: true,
             },
             {
-              title: 'Pendientes (aceptación del usuario)',
-              items: adminBuckets.pendingUserAccept,
-              actions: false,
-            },
-            {
               title: 'Confirmadas',
-              items: adminBuckets.confirmed,
-              actions: true, // aquí el admin puede rechazar
+              items: trainerBuckets.confirmed,
+              actions: true,
             },
             {
               title: 'Canceladas / Rechazadas',
-              items: adminBuckets.cancelled,
+              items: trainerBuckets.cancelled,
               actions: false,
             },
           ].map((group) => (
@@ -509,20 +278,15 @@ export default function ReservasAdmin() {
 
                     const rawStatus = String(r.status || '').toLowerCase();
                     const canConfirm =
-                      rawStatus === 'pending' || rawStatus === 'pendiente';
+                      (rawStatus === 'pending' || rawStatus === 'pendiente') &&
+                      !['cancelled', 'cancelada', 'rejected', 'rechazada'].includes(
+                        rawStatus
+                      );
                     const canReject =
                       rawStatus === 'pending' ||
                       rawStatus === 'pendiente' ||
                       rawStatus === 'confirmed' ||
                       rawStatus === 'confirmada';
-                    const canDelete = [
-                      'cancelled',
-                      'cancelada',
-                      'rejected',
-                      'rechazada',
-                      'deleted',
-                      'eliminada',
-                    ].includes(rawStatus);
 
                     return (
                       <li key={r.id} className="reserva-item">
@@ -531,7 +295,7 @@ export default function ReservasAdmin() {
                             {r.servicioTitulo || 'Servicio'}
                           </div>
                           <div className="meta">
-                            <b>De:</b> {r.email} · {r.fecha} · {r.hora} ·{' '}
+                            <b>Cliente:</b> {r.email} · {r.fecha} · {r.hora} ·{' '}
                             <i>{r.modalidad}</i>
                           </div>
                         </div>
@@ -586,61 +350,67 @@ export default function ReservasAdmin() {
                                   Sin notas aún.
                                 </div>
                               ) : (
-                                notes.map((n) => (
-                                  <div
-                                    key={n.id}
-                                    className="note-item"
-                                    style={{
-                                      background: '#fff',
-                                      border: '1px solid #e5e7eb',
-                                      borderRadius: 8,
-                                      padding: 8,
-                                      display: 'grid',
-                                      gridTemplateColumns: '1fr auto',
-                                      gap: 6,
-                                    }}
-                                  >
+                                notes.map((n) => {
+                                  const label =
+                                    n.author === 'admin'
+                                      ? 'Admin'
+                                      : n.author === 'trainer'
+                                      ? 'Adiestrador'
+                                      : 'Usuario';
+
+                                  return (
                                     <div
-                                      className="note-meta"
+                                      key={n.id}
+                                      className="note-item"
                                       style={{
-                                        fontSize: 12,
-                                        color: '#6b7280',
-                                        gridColumn: '1 / span 2',
-                                      }}
-                                    >
-                                      <b>
-                                        {n.author === 'admin'
-                                          ? 'Adiestrador'
-                                          : 'Usuario'}
-                                      </b>{' '}
-                                      · {relativeTime(n.createdAt)}
-                                    </div>
-                                    <div
-                                      className="note-text"
-                                      style={{ whiteSpace: 'pre-wrap' }}
-                                    >
-                                      {n.text}
-                                    </div>
-                                    <div
-                                      className="note-actions"
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'flex-start',
+                                        background: '#fff',
+                                        border: '1px solid #e5e7eb',
+                                        borderRadius: 8,
+                                        padding: 8,
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr auto',
                                         gap: 6,
                                       }}
                                     >
-                                      <button
-                                        className="btn-ghost"
-                                        onClick={() =>
-                                          deleteNote(r.id, n.id)
-                                        }
-                                        title="Borrar nota"
+                                      <div
+                                        className="note-meta"
+                                        style={{
+                                          fontSize: 12,
+                                          color: '#6b7280',
+                                          gridColumn: '1 / span 2',
+                                        }}
                                       >
-                                        🗑️
-                                      </button>
+                                        <b>{label}</b> ·{' '}
+                                        {relativeTime(n.createdAt)}
+                                      </div>
+                                      <div
+                                        className="note-text"
+                                        style={{ whiteSpace: 'pre-wrap' }}
+                                      >
+                                        {n.text}
+                                      </div>
+                                      <div
+                                        className="note-actions"
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'flex-start',
+                                          gap: 6,
+                                        }}
+                                      >
+                                        {/* Trainer puede borrar sus notas */}
+                                        <button
+                                          className="btn-ghost"
+                                          onClick={() =>
+                                            deleteNote(r.id, n.id)
+                                          }
+                                          title="Borrar nota"
+                                        >
+                                          🗑️
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
-                                ))
+                                  );
+                                })
                               )}
                             </div>
 
@@ -681,7 +451,7 @@ export default function ReservasAdmin() {
                         )}
 
                         <div
-                          className="admin-actions"
+                          className="trainer-actions"
                           style={{
                             gridColumn: '1 / -1',
                             display: 'flex',
@@ -691,8 +461,7 @@ export default function ReservasAdmin() {
                             marginTop: 8,
                           }}
                         >
-                          {/* Confirmar / Rechazar solo en grupos con actions=true */}
-                          {group.actions && canConfirm && !canDelete && (
+                          {group.actions && canConfirm && (
                             <button
                               className="btn-primary"
                               onClick={() => confirmar(r.id)}
@@ -701,22 +470,12 @@ export default function ReservasAdmin() {
                             </button>
                           )}
 
-                          {group.actions && canReject && !canDelete && (
+                          {group.actions && canReject && (
                             <button
                               className="btn-danger"
                               onClick={() => rechazar(r.id)}
                             >
                               Rechazar
-                            </button>
-                          )}
-
-                          {/* Eliminar solo para canceladas / rechazadas / eliminadas */}
-                          {canDelete && (
-                            <button
-                              className="btn-ghost"
-                              onClick={() => eliminar(r.id)}
-                            >
-                              Eliminar
                             </button>
                           )}
                         </div>

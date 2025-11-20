@@ -30,12 +30,26 @@ router.post("/upload-db", auth, upload.single("file"), async (req, res) => {
 
     const MAX = 5 * 1024 * 1024; // 5MB; ajusta a tu gusto
     if (req.file.size > MAX) {
-      return res.status(413).json({ error: "Archivo demasiado grande (máx 5MB)" });
+      return res
+        .status(413)
+        .json({ error: "Archivo demasiado grande (máx 5MB)" });
     }
 
-    // Validación simple MIME
-    const allowed = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-    const mime = req.file.mimetype || "application/octet-stream";
+    // Validación MIME (ampliada)
+    const allowed = new Set([
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+      "image/svg+xml",
+      "image/avif",
+      "image/x-icon",
+    ]);
+
+    const mime = (req.file.mimetype || "application/octet-stream").toLowerCase();
+    console.log("🖼 MIME recibido en /upload-db:", mime);
+
     if (!allowed.has(mime)) {
       return res.status(415).json({ error: "Tipo no permitido" });
     }
@@ -87,11 +101,11 @@ router.delete("/files/:id", auth, async (req, res) => {
     const id = req.params.id;
 
     // Borra solo si es del dueño
-    const result = await query(
+    await query(
       `DELETE FROM files WHERE id = ? AND owner_uid = ?`,
       [id, req.user.sub]
     );
-    // libsql devuelve { success: true } o cambios; si necesitas filas afectadas, ajusta según tu helper
+
     res.json({ ok: true, id });
   } catch (err) {
     console.error("DELETE /api/files/:id error:", err);

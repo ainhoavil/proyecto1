@@ -22,41 +22,67 @@ function getBearerToken(req) {
 }
 
 /* ============================================================
+   Lee usuario completo desde la BD (tabla `usuarios`)
+   Devuelve { id, email, rol } o null
+============================================================ */
+async function getUserFromDB(uid, email) {
+  if (!uid && !email) return null;
+
+  let rows = [];
+  if (uid) {
+    rows = await query(
+      "SELECT id, email, rol FROM usuarios WHERE id = ? LIMIT 1",
+      [uid]
+    );
+  }
+  if (!rows.length && email) {
+    rows = await query(
+      "SELECT id, email, rol FROM usuarios WHERE email = ? LIMIT 1",
+      [email]
+    );
+  }
+  return rows[0] || null;
+}
+
+/* ============================================================
    Lee rol admin desde la BD (tabla `usuarios`)
 ============================================================ */
 async function isAdminInDB(uid, email) {
-  if (uid) {
-    const r1 = await query("SELECT rol FROM usuarios WHERE id = ? LIMIT 1", [uid]);
-    if (r1.length) return r1[0].rol === "admin";
-  }
-  if (email) {
-    const r2 = await query("SELECT rol FROM usuarios WHERE email = ? LIMIT 1", [email]);
-    if (r2.length) return r2[0].rol === "admin";
-  }
-  return false;
+  const u = await getUserFromDB(uid, email);
+  return u ? u.rol === "admin" : false;
 }
 
 /* ============================================================
    Intenta completar user desde BD si faltan datos del token
+   y sincroniza el rol actual (user/admin/trainer)
 ============================================================ */
 async function hydrateUserFromDB(partialUser) {
   const u = { ...partialUser };
 
-  // Completar email si hay uid pero no email
-  if (u.uid && !u.email) {
-    const r = await query("SELECT email FROM usuarios WHERE id = ? LIMIT 1", [u.uid]);
-    if (r.length && r[0].email) u.email = r[0].email;
+  const dbUser = await getUserFromDB(u.uid, u.email);
+
+  if (!dbUser) {
+    // No hay nada en BD, pero al menos normalizamos flags
+    const rolNorm = u.rol || u.role || (u.isAdmin ? "admin" : "user");
+    u.rol = rolNorm;
+    u.role = rolNorm;
+    u.isAdmin = rolNorm === "admin" || !!u.isAdmin;
+    u.isTrainer = rolNorm === "trainer" || !!u.isTrainer;
+    return u;
   }
 
-  // Si aún no sabemos si es admin, consulta BD
-  if (!u.isAdmin) {
-    const okAdmin = await isAdminInDB(u.uid, u.email);
-    if (okAdmin) {
-      u.isAdmin = true;
-      u.rol = "admin";
-      u.role = "admin";
-    }
+  // Completar email si faltaba
+  if (!u.email && dbUser.email) {
+    u.email = dbUser.email;
   }
+
+  // Rol final: el de BD manda
+  const rolDb = dbUser.rol || u.rol || u.role || "user";
+
+  u.rol = rolDb;
+  u.role = rolDb;
+  u.isAdmin = rolDb === "admin";
+  u.isTrainer = rolDb === "trainer";
 
   return u;
 }
@@ -68,7 +94,9 @@ export async function verifyToken(req, res, next) {
   try {
     const token = getBearerToken(req);
     if (!token) {
-      return res.status(401).json({ error: "Falta Authorization: Bearer <token>" });
+      return res
+        .status(401)
+        .json({ error: "Falta Authorization: Bearer <token>" });
     }
 
     let decoded;
@@ -85,16 +113,9 @@ export async function verifyToken(req, res, next) {
     }
 
     // uid/email/rol desde token (acepta sub/uid/id)
-    const uid =
-      decoded.uid ||
-      decoded.id ||
-      decoded.sub ||
-      null;
+    const uid = decoded.uid || decoded.id || decoded.sub || null;
 
-    const email =
-      decoded.email ||
-      (decoded.user && decoded.user.email) ||
-      null;
+    const email = decoded.email || (decoded.user && decoded.user.email) || null;
 
     const rolFromToken =
       decoded.rol ||
@@ -102,17 +123,22 @@ export async function verifyToken(req, res, next) {
       (decoded.isAdmin ? "admin" : "user") ||
       "user";
 
+    const isAdminToken = !!decoded.isAdmin || rolFromToken === "admin";
+    const isTrainerToken =
+      !!decoded.isTrainer || rolFromToken === "trainer";
+
     let user = {
       uid,
       email,
       rol: rolFromToken,
-      role: rolFromToken,                 // compat
-      isAdmin: !!decoded.isAdmin || rolFromToken === "admin",
+      role: rolFromToken, // compat
+      isAdmin: isAdminToken,
+      isTrainer: isTrainerToken,
       iat: decoded.iat,
       exp: decoded.exp,
     };
 
-    // Completar datos con BD si faltan o el rol puede haber cambiado
+    // Completar datos con BD y sincronizar rol actual
     user = await hydrateUserFromDB(user);
 
     req.user = user;
@@ -142,20 +168,98 @@ export async function requireAdmin(req, res, next) {
 }
 
 /* ============================================================
-   Middleware: permite varios roles
+   Middleware: solo adiestrador (trainer)
+============================================================ */
+export async function requireTrainer(req, res, next) {
+  try {
+    if (req.user?.isTrainer || req.user?.rol === "trainer") {
+      return next();
+    }
+
+    // En caso de que el token vaya desactualizado, miramos BD
+    const dbUser = await getUserFromDB(req.user?.uid, req.user?.email);
+    if (dbUser && dbUser.rol === "trainer") {
+      req.user.rol = "trainer";
+      req.user.role = "trainer";
+      req.user.isTrainer = true;
+      req.user.isAdmin = dbUser.rol === "admin";
+      return next();
+    }
+
+    return res.status(403).json({ error: "Solo para adiestradores" });
+  } catch (err) {
+    console.error("requireTrainer error:", err.message);
+    return res.status(500).json({ error: "Error de autorización" });
+  }
+}
+
+/* ============================================================
+   Middleware: adiestrador O admin
+============================================================ */
+export async function requireTrainerOrAdmin(req, res, next) {
+  try {
+    if (
+      req.user?.isAdmin ||
+      req.user?.rol === "admin" ||
+      req.user?.isTrainer ||
+      req.user?.rol === "trainer"
+    ) {
+      return next();
+    }
+
+    // Consultar BD por si el rol ha cambiado
+    const dbUser = await getUserFromDB(req.user?.uid, req.user?.email);
+    if (dbUser && (dbUser.rol === "admin" || dbUser.rol === "trainer")) {
+      req.user.rol = dbUser.rol;
+      req.user.role = dbUser.rol;
+      req.user.isAdmin = dbUser.rol === "admin";
+      req.user.isTrainer = dbUser.rol === "trainer";
+      return next();
+    }
+
+    return res
+      .status(403)
+      .json({ error: "Solo adiestradores o administradores" });
+  } catch (err) {
+    console.error("requireTrainerOrAdmin error:", err.message);
+    return res.status(500).json({ error: "Error de autorización" });
+  }
+}
+
+/* ============================================================
+   Middleware genérico: permite varios roles
+   Ej: allowRoles(['admin', 'trainer'])
 ============================================================ */
 export function allowRoles(roles = []) {
   const set = new Set(roles);
   return async (req, res, next) => {
     try {
-      if (!req.user) return res.status(401).json({ error: "No autenticado" });
+      if (!req.user)
+        return res.status(401).json({ error: "No autenticado" });
 
       const rolToken = req.user.rol || "user";
+
+      // Si el rol del token ya está permitido → OK
       if (set.has(rolToken)) return next();
 
-      // Si el rol del token no encaja, pero el usuario es admin en BD y se permite admin:
-      const okAdmin = await isAdminInDB(req.user.uid, req.user.email);
-      if (okAdmin && set.has("admin")) return next();
+      // Miramos BD por si el rol ha cambiado
+      const dbUser = await getUserFromDB(req.user.uid, req.user.email);
+      if (dbUser && set.has(dbUser.rol)) {
+        req.user.rol = dbUser.rol;
+        req.user.role = dbUser.rol;
+        req.user.isAdmin = dbUser.rol === "admin";
+        req.user.isTrainer = dbUser.rol === "trainer";
+        return next();
+      }
+
+      // Caso especial: permitir admin aunque no esté en el token
+      if (set.has("admin")) {
+        const okAdmin = await isAdminInDB(
+          req.user.uid,
+          req.user.email
+        );
+        if (okAdmin) return next();
+      }
 
       return res.status(403).json({ error: "Permisos insuficientes" });
     } catch (err) {
