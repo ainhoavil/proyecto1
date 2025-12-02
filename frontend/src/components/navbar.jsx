@@ -8,10 +8,9 @@ export default function Navbar() {
   const { isAuthenticated, user, role, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Roles
-  const esAdmin = role === 'admin';
-  const esTrainer = role === 'trainer' || role === 'adiestrador'; // compatible
-  const esUser = role === 'user';
+  // Roles normalizados
+  const esAdmin = role === 'admin' || user?.isAdmin;
+  const esTrainer = role === 'adiestrador'; // Coincide con la BD
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -25,28 +24,29 @@ export default function Navbar() {
 
   return (
     <nav className={`navbar ${menuOpen ? 'open' : ''}`}>
-      
+
       {/* LEFT: Logo + Desktop */}
       <div className="navbar__left">
-
         <Link to="/" className="navbar__logo" onClick={closeMenu}>
           <span className="paw">🐾</span> Dogform
         </Link>
 
         <ul className="navbar__links">
           <li><Link to="/servicios">Servicios</Link></li>
-
-          {isAuthenticated && (
+          
+          {/* Enlace genérico de Reservas (visible para usuarios y admins) */}
+          {isAuthenticated && !esTrainer && (
             <li><Link to="/reservas">Reservas</Link></li>
           )}
 
           <li><Link to="/contacto">Contacto</Link></li>
 
-          {/* Opciones por rol */}
+          {/* Si es adiestrador, le mostramos "Agenda" (que va a /reservas donde está su vista) */}
           {esTrainer && (
-            <li><Link to="/trainer-agenda">Agenda</Link></li>
+            <li><Link to="/reservas">Agenda</Link></li>
           )}
 
+          {/* Si es Admin, mostramos el Panel */}
           {esAdmin && (
             <li><Link to="/admin">Panel admin</Link></li>
           )}
@@ -85,22 +85,22 @@ export default function Navbar() {
 
       {/* MOBILE MENU */}
       <div className="navbar__mobile">
-        
+
         <button className="close-mobile" onClick={closeMenu} aria-label="Cerrar menú">
           ✕
         </button>
 
         <ul>
           <li><Link to="/servicios" onClick={closeMenu}>Servicios</Link></li>
-
-          {isAuthenticated && (
+          
+          {isAuthenticated && !esTrainer && (
             <li><Link to="/reservas" onClick={closeMenu}>Reservas</Link></li>
           )}
 
           <li><Link to="/contacto" onClick={closeMenu}>Contacto</Link></li>
 
           {esTrainer && (
-            <li><Link to="/trainer-agenda" onClick={closeMenu}>Agenda</Link></li>
+            <li><Link to="/reservas" onClick={closeMenu}>Agenda</Link></li>
           )}
 
           {esAdmin && (
@@ -112,7 +112,9 @@ export default function Navbar() {
           {isAuthenticated ? (
             <>
               <li><Link to="/perfil" onClick={closeMenu}>{user?.email || 'Mi perfil'}</Link></li>
-              <li><button className="logout-btn" onClick={handleLogout}>Salir</button></li>
+              <li>
+                <button className="logout-btn" onClick={handleLogout}>Salir</button>
+              </li>
             </>
           ) : (
             <>
@@ -123,6 +125,7 @@ export default function Navbar() {
         </ul>
 
       </div>
+
     </nav>
   );
 }

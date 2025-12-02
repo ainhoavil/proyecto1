@@ -73,6 +73,72 @@ export default function PerfilPage() {
   const [dogForm, setDogForm] = useState(emptyDog);
   const [editingDogId, setEditingDogId] = useState("");
 
+  // ======== CAMBIO DE CONTRASEÑA =========
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [repeatNewPassword, setRepeatNewPassword] = useState("");
+  const [passMsg, setPassMsg] = useState("");
+  const [passError, setPassError] = useState("");
+  const [changingPass, setChangingPass] = useState(false);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (changingPass) return;
+
+    setPassMsg("");
+    setPassError("");
+
+    if (!currentPassword || !newPassword || !repeatNewPassword) {
+      setPassError("Rellena todos los campos.");
+      return;
+    }
+
+    if (newPassword !== repeatNewPassword) {
+      setPassError("Las contraseñas nuevas no coinciden.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPassError("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    setChangingPass(true);
+    try {
+      await http("/api/auth/password", {
+        method: "PATCH",
+        data: {
+          currentPassword,
+          newPassword,
+        },
+        auth: true,
+      });
+
+      setPassMsg("Contraseña actualizada correctamente.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setRepeatNewPassword("");
+    } catch (err) {
+      const status = err?.status || err?.response?.status;
+      const backendMsg =
+        err?.data?.error ||
+        err?.response?.data?.error ||
+        "";
+
+      if (status === 400) {
+        setPassError(backendMsg);
+      } else if (status === 401) {
+        setPassError("Tu sesión ha expirado. Inicia sesión otra vez.");
+      } else if (status === 404) {
+        setPassError("Usuario no encontrado.");
+      } else {
+        setPassError("No se pudo actualizar la contraseña.");
+      }
+    } finally {
+      setChangingPass(false);
+    }
+  };
+
   // ===== cargar datos =====
   const loadProfile = async () => {
     try {
@@ -97,8 +163,10 @@ export default function PerfilPage() {
       const list = await http("/perros", { auth: true });
       const arr = Array.isArray(list?.items) ? list.items : list || [];
       arr.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
-      // normaliza URLs de imagen
-      const norm = arr.map((d) => ({ ...d, avatarURL: absUrl(d.avatarURL || d.foto || "") }));
+      const norm = arr.map((d) => ({
+        ...d,
+        avatarURL: absUrl(d.avatarURL || d.foto || ""),
+      }));
       setPerros(norm);
       setCreatingDog(norm.length === 0);
     } catch {
@@ -120,7 +188,9 @@ export default function PerfilPage() {
     setPMsg("");
     setSavingProfile(true);
     try {
-      const cleanPrefix = (perfil.prefix || "+34").replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+      const cleanPrefix = (perfil.prefix || "+34")
+        .replace(/[^\d+]/g, "")
+        .replace(/(?!^)\+/g, "");
       const cleanPhone = String(perfil.phone || "").replace(/\D/g, "");
 
       await http("/perfil", {
@@ -133,10 +203,11 @@ export default function PerfilPage() {
           avatarURL: perfil.avatarURL ? absUrl(perfil.avatarURL) : "",
           notes: (perfil.notes || "").trim(),
           updatedAt: nowIso(),
-          email, // opcional
+          email,
         },
         auth: true,
       });
+
       setPerfil((p) => ({ ...p, prefix: cleanPrefix, phone: cleanPhone }));
       setPMsg("✅ Perfil guardado");
     } catch {
@@ -146,20 +217,17 @@ export default function PerfilPage() {
     }
   };
 
-  // ===== subida de archivos (perfil y perros) =====
+  // ===== subida de archivos =====
   async function uploadImage(file) {
     const form = new FormData();
     form.append("file", file);
 
-    // el token lo cogemos igual que en el helper http
     const token = localStorage.getItem("token");
 
     const res = await fetch(`${API_BASE}/api/upload-db`, {
       method: "POST",
       headers: token
-        ? {
-            Authorization: `Bearer ${token}`,
-          }
+        ? { Authorization: `Bearer ${token}` }
         : {},
       body: form,
     });
@@ -174,7 +242,7 @@ export default function PerfilPage() {
       throw new Error(err.error || "No se pudo subir la imagen");
     }
 
-    const data = await res.json(); // { id, url, mime }
+    const data = await res.json();
     const url = data?.url;
     if (!url) throw new Error("No se recibió URL de imagen");
     return absUrl(url);
@@ -216,7 +284,7 @@ export default function PerfilPage() {
     }
   };
 
-  // ===== crear / actualizar perro =====
+  // ===== crear / editar perro =====
   const startCreateDog = () => {
     setEditingDogId("");
     setDogForm(emptyDog);
@@ -278,7 +346,7 @@ export default function PerfilPage() {
           data: base,
           auth: true,
         });
-        await loadDogs(); // fuerza lectura real de BD
+        await loadDogs();
         setDMsg("✅ Perro guardado");
       } else {
         await http(`/perros/${editingDogId}`, {
@@ -286,7 +354,7 @@ export default function PerfilPage() {
           data: base,
           auth: true,
         });
-        await loadDogs(); // fuerza lectura real de BD
+        await loadDogs();
         setDMsg("✅ Perro guardado");
       }
 
@@ -301,7 +369,7 @@ export default function PerfilPage() {
     }
   };
 
-  // ===== foto de perro =====
+  // ===== foto perro =====
   const handlePickDog = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -335,10 +403,9 @@ export default function PerfilPage() {
     }
   };
 
-  // ===== eliminar perro con modal =====
-  const askDeleteDog = (dog) => {
+  // ===== eliminar perro =====
+  const askDeleteDog = (dog) =>
     setModal({ open: true, dog, success: false, loading: false, error: "" });
-  };
 
   const confirmDeleteDog = async () => {
     if (!modal.dog || modal.loading) return;
@@ -419,7 +486,9 @@ export default function PerfilPage() {
               <input
                 required
                 value={perfil.displayName}
-                onChange={(e) => setPerfil((p) => ({ ...p, displayName: e.target.value }))}
+                onChange={(e) =>
+                  setPerfil((p) => ({ ...p, displayName: e.target.value }))
+                }
                 placeholder="Tu nombre"
               />
             </label>
@@ -432,7 +501,9 @@ export default function PerfilPage() {
                 onChange={(e) =>
                   setPerfil((p) => ({
                     ...p,
-                    prefix: e.target.value.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, ""),
+                    prefix: e.target.value
+                      .replace(/[^\d+]/g, "")
+                      .replace(/(?!^)\+/g, ""),
                   }))
                 }
                 placeholder="+34"
@@ -466,7 +537,9 @@ export default function PerfilPage() {
               <textarea
                 rows={3}
                 value={perfil.notes}
-                onChange={(e) => setPerfil((p) => ({ ...p, notes: e.target.value }))}
+                onChange={(e) =>
+                  setPerfil((p) => ({ ...p, notes: e.target.value }))
+                }
                 placeholder="Preferencias, horarios, etc."
               />
             </label>
@@ -475,7 +548,11 @@ export default function PerfilPage() {
               <button
                 className="btn-primary"
                 onClick={saveProfile}
-                disabled={!perfil.displayName?.trim() || !perfil.phone?.trim() || savingProfile}
+                disabled={
+                  !perfil.displayName?.trim() ||
+                  !perfil.phone?.trim() ||
+                  savingProfile
+                }
               >
                 {savingProfile ? "Guardando…" : "Guardar perfil"}
               </button>
@@ -483,6 +560,59 @@ export default function PerfilPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ======== CAMBIAR CONTRASEÑA ======== */}
+      <section className="card" style={{ padding: "1rem", marginBottom: 16 }}>
+        <h2>Cambiar contraseña</h2>
+
+        <form onSubmit={handleChangePassword} className="perfil-form">
+          <div className="campo">
+            <label>Contraseña actual</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+
+          <div className="campo">
+            <label>Nueva contraseña</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+
+          <div className="campo">
+            <label>Repetir nueva contraseña</label>
+            <input
+              type="password"
+              value={repeatNewPassword}
+              onChange={(e) => setRepeatNewPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+
+          {passError && (
+            <p style={{ color: "crimson", marginTop: 8 }}>{passError}</p>
+          )}
+          {passMsg && (
+            <p style={{ color: "green", marginTop: 8 }}>{passMsg}</p>
+          )}
+
+          <button
+            className="btn-primary"
+            type="submit"
+            disabled={changingPass}
+            style={{ marginTop: 12 }}
+          >
+            {changingPass ? "Guardando…" : "Actualizar contraseña"}
+          </button>
+        </form>
       </section>
 
       {/* PERROS */}
@@ -504,10 +634,16 @@ export default function PerfilPage() {
         </div>
 
         {(creatingDog || perros.length === 0) && (
-          <div className="card" style={{ padding: "0.8rem", margin: "12px 0 16px" }}>
-            <h3 style={{ marginTop: 0 }}>{editingDogId ? "Editar perro" : "Añadir perro"}</h3>
+          <div
+            className="card"
+            style={{ padding: "0.8rem", margin: "12px 0 16px" }}
+          >
+            <h3 style={{ marginTop: 0 }}>
+              {editingDogId ? "Editar perro" : "Añadir perro"}
+            </h3>
             <p style={{ marginTop: 0, color: "#666" }}>
-              * La <b>fecha de nacimiento</b> puede ser <b>(aproximada)</b> si es rescatado.
+              * La <b>fecha de nacimiento</b> puede ser{" "}
+              <b>(aproximada)</b> si es rescatado.
             </p>
 
             <div
@@ -536,13 +672,26 @@ export default function PerfilPage() {
                     <img
                       src={absUrl(dogForm.avatarURL)}
                       alt="perro"
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
                     />
                   ) : (
-                    <span style={{ fontSize: 12, color: "#777" }}>Sin foto</span>
+                    <span style={{ fontSize: 12, color: "#777" }}>
+                      Sin foto
+                    </span>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    marginTop: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
                   <label className="btn-ghost">
                     Cambiar foto
                     <input
@@ -567,7 +716,12 @@ export default function PerfilPage() {
                   <input
                     required
                     value={dogForm.nombre}
-                    onChange={(e) => setDogForm((f) => ({ ...f, nombre: e.target.value }))}
+                    onChange={(e) =>
+                      setDogForm((f) => ({
+                        ...f,
+                        nombre: e.target.value,
+                      }))
+                    }
                     placeholder="Nombre del perro"
                   />
                 </label>
@@ -576,7 +730,12 @@ export default function PerfilPage() {
                   <input
                     required
                     value={dogForm.raza}
-                    onChange={(e) => setDogForm((f) => ({ ...f, raza: e.target.value }))}
+                    onChange={(e) =>
+                      setDogForm((f) => ({
+                        ...f,
+                        raza: e.target.value,
+                      }))
+                    }
                     placeholder="Ej.: mestizo mediano, pastor alemán…"
                   />
                 </label>
@@ -589,15 +748,29 @@ export default function PerfilPage() {
                     required
                     type="date"
                     value={dogForm.nacimiento}
-                    onChange={(e) => setDogForm((f) => ({ ...f, nacimiento: e.target.value }))}
+                    onChange={(e) =>
+                      setDogForm((f) => ({
+                        ...f,
+                        nacimiento: e.target.value,
+                      }))
+                    }
                   />
                 </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
                   <input
                     type="checkbox"
                     checked={!!dogForm.castrado}
                     onChange={(e) =>
-                      setDogForm((f) => ({ ...f, castrado: e.target.checked }))
+                      setDogForm((f) => ({
+                        ...f,
+                        castrado: e.target.checked,
+                      }))
                     }
                   />
                   Castrado/esterilizado (opcional)
@@ -606,7 +779,9 @@ export default function PerfilPage() {
                   Observaciones (opcional)
                   <input
                     value={dogForm.notas}
-                    onChange={(e) => setDogForm((f) => ({ ...f, notas: e.target.value }))}
+                    onChange={(e) =>
+                      setDogForm((f) => ({ ...f, notas: e.target.value }))
+                    }
                     placeholder="Miedos, reactividad, alergias…"
                   />
                 </label>
@@ -621,10 +796,17 @@ export default function PerfilPage() {
                 className="btn-primary"
                 onClick={saveDog}
                 disabled={
-                  savingDog || !dogForm.nombre?.trim() || !dogForm.raza?.trim() || !dogForm.nacimiento
+                  savingDog ||
+                  !dogForm.nombre?.trim() ||
+                  !dogForm.raza?.trim() ||
+                  !dogForm.nacimiento
                 }
               >
-                {savingDog ? "Guardando…" : editingDogId ? "Guardar cambios" : "Añadir perro"}
+                {savingDog
+                  ? "Guardando…"
+                  : editingDogId
+                  ? "Guardar cambios"
+                  : "Añadir perro"}
               </button>
               {dMsg && <span style={{ marginLeft: 8 }}>{dMsg}</span>}
             </div>
@@ -641,7 +823,9 @@ export default function PerfilPage() {
                     {p.nombre} {p.raza ? `· ${p.raza}` : ""}
                   </div>
                   <div className="meta">
-                    {p.nacimiento ? `Nac.: ${String(p.nacimiento).slice(0, 10)} · ` : ""}
+                    {p.nacimiento
+                      ? `Nac.: ${String(p.nacimiento).slice(0, 10)} · `
+                      : ""}
                     {p.castrado ? "Castrado · " : ""}
                     {p.notas || ""}
                   </div>
@@ -659,7 +843,12 @@ export default function PerfilPage() {
                     <img
                       src={absUrl(p.avatarURL)}
                       alt={p.nombre}
-                      style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 12 }}
+                      style={{
+                        width: 120,
+                        height: 120,
+                        objectFit: "cover",
+                        borderRadius: 12,
+                      }}
                     />
                   </div>
                 )}
@@ -703,7 +892,11 @@ export default function PerfilPage() {
                 <p>
                   ¿Seguro que quieres eliminar a <b>{modal.dog?.nombre}</b>?
                 </p>
-                {modal.error && <p style={{ color: "crimson", marginTop: 6 }}>{modal.error}</p>}
+                {modal.error && (
+                  <p style={{ color: "crimson", marginTop: 6 }}>
+                    {modal.error}
+                  </p>
+                )}
                 <div
                   style={{
                     display: "flex",
@@ -712,7 +905,11 @@ export default function PerfilPage() {
                     marginTop: 10,
                   }}
                 >
-                  <button className="btn-secondary" onClick={closeModal} disabled={modal.loading}>
+                  <button
+                    className="btn-secondary"
+                    onClick={closeModal}
+                    disabled={modal.loading}
+                  >
                     Cancelar
                   </button>
                   <button

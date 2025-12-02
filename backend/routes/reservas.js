@@ -1,8 +1,9 @@
-// backend/routes/reservas.js  (ESM)
+// backend/routes/reservas.js
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../db.js';
-import { verifyToken, requireAdmin, requireTrainerOrAdmin } from '../middleware/auth.js';
+// Importamos allowRoles para gestionar permisos múltiples
+import { verifyToken, requireAdmin, allowRoles } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -101,12 +102,12 @@ async function canSeeReservation(req, reservaId) {
   const rol = req.user?.rol || req.user?.role || "user";
 
   const isAdmin   = !!req.user?.isAdmin || rol === "admin";
-  const isTrainer = rol === "trainer";
+  const isTrainer = rol === "adiestrador"; // Corrección: usar 'adiestrador'
   const isOwner =
     (r.uid && req.user?.uid && r.uid === req.user.uid) ||
     (r.email && req.user?.email && r.email === req.user.email);
 
-  // Ahora pueden ver notas: admin, trainer y dueño de la reserva
+  // Admin, Adiestrador y Dueño pueden ver las notas
   return { ok: isAdmin || isTrainer || isOwner };
 }
 
@@ -490,9 +491,10 @@ router.get('/mias', verifyToken, async (req, res) => {
   }
 });
 
-/* ===================== Listado admin ===================== */
+/* ===================== Listado ADMIN / ADIESTRADOR ===================== */
 // GET /api/reservas?status=...&email=...&limit=...
-router.get('/', verifyToken, requireAdmin, async (req, res) => {
+// Permite a admin y adiestrador ver el listado global.
+router.get('/', verifyToken, allowRoles(['admin', 'adiestrador']), async (req, res) => {
   try {
     const { status = 'all', email = '', limit = 300 } = req.query;
     const where = [];
@@ -536,51 +538,6 @@ router.get('/', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
-/* ===================== Listado adiestrador ===================== */
-// GET /api/reservas/trainer?status=...&limit=...
-router.get('/trainer', verifyToken, requireTrainerOrAdmin, async (req, res) => {
-  try {
-    const { status = 'all', limit = 300 } = req.query;
-    const where = [];
-    const params = [];
-
-    if (status && status !== 'all') {
-      where.push('status = ?');
-      params.push(String(status));
-    }
-
-    // De momento: el adiestrador ve todas las reservas (igual que admin).
-    // Más adelante filtraremos por columna trainer_id / trainer_email.
-    const sql = `
-      SELECT id, uid, email, fecha, hora, duration_min AS durationMin,
-             servicio_id AS servicioId, servicio_titulo AS servicioTitulo,
-             modalidad, duration,
-             price, currency, perro, telefono, direccion, pricing, paquete_id AS paqueteId,
-             status, origin, user_note AS userNote, admin_note AS adminNote,
-             cancel_reason AS cancelReason,
-             created_at AS createdAt, updated_at AS updatedAt
-        FROM reservas
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-       ORDER BY fecha DESC, hora DESC
-       LIMIT ?`;
-    params.push(Math.min(Number(limit || 300), 1000));
-
-    const rows = await query(sql, params);
-
-    await autoExpireIfPast(rows);
-
-    res.json(
-      rows.map((r) => ({
-        ...r,
-        pricing: parseJSONSafe(r.pricing, null),
-      }))
-    );
-  } catch (e) {
-    console.error('GET /reservas/trainer', e);
-    res.status(500).json({ error: 'No se pudo obtener reservas (trainer)' });
-  }
-});
-
 /* ===================== NOTAS TIPO HILO ===================== */
 
 // GET /api/reservas/:id/notes
@@ -618,8 +575,9 @@ router.post('/:id/notes', verifyToken, async (req, res) => {
     const rol = req.user?.rol || req.user?.role || 'user';
 
     let author = 'user';
-    if (rol === 'trainer') {
-      author = 'trainer';
+    // Corrección: el rol en DB es 'adiestrador'
+    if (rol === 'adiestrador') {
+      author = 'admin'; // Para efectos de UI, el adiestrador cuenta como "admin" o staff
     } else if (req.user?.isAdmin || rol === 'admin') {
       author = 'admin';
     }
@@ -665,7 +623,11 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
 
     if (!row) return res.status(404).json({ error: 'Nota no encontrada' });
 
-    if (!(req.user?.isAdmin || row.author === 'user'))
+    // Admin o adiestrador pueden borrar, o el dueño de la nota
+    const rol = req.user?.rol || req.user?.role || 'user';
+    const isStaff = req.user?.isAdmin || rol === 'admin' || rol === 'adiestrador';
+
+    if (!(isStaff || row.author === 'user'))
       return res.status(403).json({ error: 'No puedes borrar esta nota' });
 
     await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [nowISO(), noteId]);
@@ -677,10 +639,10 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
   }
 });
 
-/* ===================== Acciones directas ===================== */
+/* ===================== Acciones directas (Admin / Adiestrador) ===================== */
 
-// PATCH /api/reservas/:id/confirm (admin o trainer)
-router.patch('/:id/confirm', verifyToken, requireTrainerOrAdmin, async (req, res) => {
+// PATCH /api/reservas/:id/confirm
+router.patch('/:id/confirm', verifyToken, allowRoles(['admin', 'adiestrador']), async (req, res) => {
   try {
     const { id } = req.params;
     const { note = '' } = req.body || {};
@@ -699,8 +661,8 @@ router.patch('/:id/confirm', verifyToken, requireTrainerOrAdmin, async (req, res
   }
 });
 
-// PATCH /api/reservas/:id/reject (admin o trainer)
-router.patch('/:id/reject', verifyToken, requireTrainerOrAdmin, async (req, res) => {
+// PATCH /api/reservas/:id/reject
+router.patch('/:id/reject', verifyToken, allowRoles(['admin', 'adiestrador']), async (req, res) => {
   try {
     const { id } = req.params;
     const { note = '' } = req.body || {};
@@ -755,7 +717,7 @@ router.patch('/:id/reject', verifyToken, requireTrainerOrAdmin, async (req, res)
   }
 });
 
-// PATCH /api/reservas/:id/cancel (owner o admin)
+// PATCH /api/reservas/:id/cancel (owner o admin) - Los adiestradores usan reject normalmente
 router.patch('/:id/cancel', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -773,6 +735,9 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
     const isOwner =
       (r.uid && req.user?.uid && r.uid === req.user.uid) ||
       (r.email && req.user?.email && r.email === req.user.email);
+    
+    // Aquí podríamos permitir también al adiestrador cancelar, pero el flujo habitual es rechazar.
+    // Si quieres permitirlo, añade `|| req.user?.rol === 'adiestrador'`
     if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
 
     if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
@@ -821,7 +786,7 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /api/reservas/:id (solo admin, borra definitivamente canceladas/rechazadas)
+// DELETE /api/reservas/:id (solo admin)
 router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -851,9 +816,6 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
       });
     }
 
-    // En tu flujo actual, al cancelar/rechazar ya ajustas el saldo del paquete,
-    // así que aquí no tocamos paquetes de nuevo.
-
     await query(`DELETE FROM reservas WHERE id=?`, [id]);
 
     res.json({ ok: true, id });
@@ -864,7 +826,6 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
 });
 
 /* ===== PATCH genérico (para notas/admin desde el front) ===== */
-// PATCH /api/reservas/:id
 router.patch('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -878,8 +839,12 @@ router.patch('/:id', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Nada que actualizar' });
     }
 
+    const isAdmin = req.user?.isAdmin;
+    const isTrainer = (req.user?.rol || req.user?.role) === 'adiestrador';
+    const isStaff = isAdmin || isTrainer;
+
     // Confirmar / rechazar / cancelar igual que en los handlers directos
-    if (status === 'confirmed' && req.user?.isAdmin) {
+    if (status === 'confirmed' && isStaff) {
       await query(
         `UPDATE reservas
             SET status='confirmed',
@@ -891,7 +856,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
       return res.json({ ok: true });
     }
 
-    if (status === 'rejected' && req.user?.isAdmin) {
+    if (status === 'rejected' && isStaff) {
       const rRows = await query(
         `SELECT id, paquete_id AS paqueteId, status
            FROM reservas WHERE id=? LIMIT 1`,
@@ -937,6 +902,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
       return res.json({ ok: true });
     }
 
+    // Cancelar (igual lógica que handler directo)
     if (status === 'cancelled') {
       const rRows = await query(
         `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
@@ -946,7 +912,6 @@ router.patch('/:id', verifyToken, async (req, res) => {
       if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
       const r = rRows[0];
 
-      const isAdmin = !!req.user?.isAdmin;
       const isOwner =
         (r.uid && req.user?.uid && r.uid === req.user.uid) ||
         (r.email && req.user?.email && r.email === req.user.email);
@@ -995,7 +960,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
     }
 
     // Solo actualizar nota admin (sin cambiar estado)
-    if (req.user?.isAdmin && adminNote !== null) {
+    if (isStaff && adminNote !== null) {
       if (adminNoteAppend) {
         await query(
           `UPDATE reservas

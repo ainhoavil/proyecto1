@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { http } from '../../helpers/http';
-import { useAuth } from '../../context/auth';
-import '../../styles/contratar.scss';
+// CORRECCIÓN: Rutas con un solo ".." porque el archivo está en src/pages/
+import { http } from '../helpers/http';
+import { useAuth } from '../context/auth';
+import '../styles/contratar.scss';
 
 import {
   first,
@@ -12,9 +13,9 @@ import {
   humanDate,
   todayYMD,
   addMinutes,
-} from '../../helpers/reservas';
+} from '../helpers/reservas';
 
-export default function ReservasUser() {
+export default function TrainerAgenda() {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
 
@@ -268,8 +269,9 @@ export default function ReservasUser() {
     const bid = cancelModal.id;
     if (!bid) return;
     try {
-      await http(`/api/reservas/${bid}`, {
-        method: 'DELETE',
+      // Usamos PATCH para cancelar
+      await http(`/api/reservas/${bid}/cancel`, {
+        method: 'PATCH',
         auth: true
       });
       showSuccess('Reserva cancelada.');
@@ -378,15 +380,21 @@ export default function ReservasUser() {
           ) : (
             <div className="horas-grid">
               {HOURS.map((h) => {
-                const disabled = unavailable.includes(h);
+                // Formateo seguro para HH:MM
+                const t = typeof h === 'number'
+                  ? `${String(h).padStart(2, '0')}:00`
+                  : String(h);
+                
+                const disabled = unavailable.includes(t);
+                
                 return (
                   <button
-                    key={h}
+                    key={t}
                     disabled={disabled}
                     className={disabled ? 'hora-disabled' : 'hora'}
-                    onClick={() => abrirConfirmacion(fecha, h)}
+                    onClick={() => abrirConfirmacion(fecha, t)}
                   >
-                    {h}
+                    {t}
                   </button>
                 );
               })}

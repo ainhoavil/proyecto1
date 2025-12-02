@@ -2,20 +2,18 @@
 import { useAuth } from '../context/auth';
 import ReservasAdmin from './reservas/reservasAdmin';
 import ReservasUser from './reservas/reservasUser';
-import ReservasTrainer from './reservas/reservasTrainer'; // 👈 nuevo import
+import TrainerAgenda from './trainerAgenda'; // Importamos la agenda del adiestrador
 
 export default function Reservas() {
   const { loading, role, user } = useAuth();
 
-  // Normalizamos rol
-  const rolBase =
-    role ||
-    user?.rol ||
-    user?.role ||
-    (user?.isAdmin ? 'admin' : 'user');
+  // Normalizamos rol asegurando compatibilidad
+  // En tu auth.js, getRole() ya debería devolver 'admin', 'adiestrador' o 'user'
+  const rolBase = role || user?.rol || user?.role || (user?.isAdmin ? 'admin' : 'user');
 
   const esAdmin = rolBase === 'admin';
-  const esTrainer = rolBase === 'trainer';
+  // IMPORTANTE: Usamos 'adiestrador' que es el valor real en tu BBDD
+  const esAdiestrador = rolBase === 'adiestrador'; 
 
   if (loading) {
     return (
@@ -26,16 +24,24 @@ export default function Reservas() {
     );
   }
 
-  // Admin → panel admin
-  if (esAdmin) {
-    return <ReservasAdmin />;
-  }
+  return (
+    <div className="card contratar-page">
+      <h1>
+        {esAdmin 
+          ? 'Panel de Reservas (Admin)' 
+          : esAdiestrador 
+            ? 'Agenda del Adiestrador' 
+            : 'Mis Reservas'}
+      </h1>
 
-  // Adiestrador → panel trainer
-  if (esTrainer) {
-    return <ReservasTrainer />;
-  }
-
-  // Resto → panel usuario
-  return <ReservasUser />;
+      {/* Renderizado condicional según el rol */}
+      {esAdmin ? (
+        <ReservasAdmin />
+      ) : esAdiestrador ? (
+        <TrainerAgenda />
+      ) : (
+        <ReservasUser />
+      )}
+    </div>
+  );
 }
