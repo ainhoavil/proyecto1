@@ -1,358 +1,971 @@
-@import './global.scss';
+/* ===== BASE ===== */
 
-/* ===========================
-   HERO — DogForm
-=========================== */
+.home {
+  background-color: #f6efe8; // beige principal
+  color: #2c2723;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+}
+
+/* Contenedor genérico (ahora más ancho) */
+.container {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding-inline: 24px;
+}
+
+/* Botones genéricos */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn--primary {
+  background-color: #f37f3b;
+  color: #fff;
+  box-shadow: 0 18px 50px rgba(243, 127, 59, 0.55);
+
+  &:hover {
+    background-color: #e56f28;
+    box-shadow: 0 22px 60px rgba(243, 127, 59, 0.7);
+  }
+}
+
+.btn--ghost {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(10px);
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.8);
+  }
+}
+
+.btn--light {
+  background-color: #ffffff;
+  color: #2c2723;
+
+  &:hover {
+    background-color: #fcefe6;
+  }
+}
+
+.btn--small {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.btn--light-on {
+  box-shadow: none;
+}
+
+/* =====================================
+   HERO
+===================================== */
 
 .hero {
+  padding: 32px 0 80px;
+}
+
+/* Hero usa un contenedor aún más ancho */
+.hero .container {
+  max-width: 1400px;
+}
+
+.hero__banner {
   position: relative;
-  height: 90vh;
-  min-height: 600px;
   width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  margin: 0 auto;
+  border-radius: 32px;
   overflow: hidden;
-
-  .hero__bg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-attachment: fixed;
-    filter: brightness(0.55);
-    z-index: 1;
-
-    /* Default mobile */
-    background-position: center center;
-  }
-
-  /* Desktop: subir la imagen para evitar cortar la cara */
-  @media (min-width: 900px) {
-    .hero__bg {
-      background-position: center top;
-    }
-  }
-
-  /* Ajuste fino en pantallas grandes */
-  @media (min-width: 1200px) {
-    .hero__bg {
-      background-position-y: 15%;
-    }
-  }
-
-  &::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to bottom,
-      rgba(0,0,0,0.25),
-      rgba(0,0,0,0.55)
-    );
-    z-index: 2;
-  }
-
-  .hero__content {
-    position: relative;
-    z-index: 3;
-    text-align: center;
-    max-width: 650px;
-    padding: 0 20px;
-
-    h1 {
-      font-family: $font-display;
-      font-size: clamp(42px, 7vw, 72px);
-      font-weight: 700;
-      color: #fff;
-      line-height: 1.1;
-      margin-bottom: $sp-4;
-    }
-
-    p {
-      font-size: clamp(18px, 2.5vw, 22px);
-      color: rgba(255,255,255,0.92);
-      margin-bottom: $sp-6;
-      line-height: 1.4;
-    }
-
-    .hero-btn {
-      background: $color-brand;
-      color: white;
-      padding: $sp-4 $sp-6;
-      font-size: 20px;
-      border-radius: $radius-xl;
-      transition: $transition;
-
-      &:hover {
-        background: $color-brand-dark;
-        transform: translateY(-3px);
-      }
-    }
-  }
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  background: #000;
+  min-height: 360px;
 }
 
-/* ===========================
-   ABOUT
-=========================== */
+.hero__bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+}
 
-.about {
+/* Overlay más oscurito para que el texto se lea bien */
+.hero__banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.8) 0%,
+    rgba(0, 0, 0, 0.55) 35%,
+    rgba(0, 0, 0, 0.25) 100%
+  );
+}
+
+.hero__content {
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+  padding: 60px 72px 68px;
+  color: #ffffff;
+}
+
+.hero__eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  opacity: 0.9;
+}
+
+.hero__title {
+  font-size: 38px;
+  line-height: 1.05;
+  margin: 0 0 16px;
+  font-weight: 700;
+}
+
+.hero__subtitle {
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+  opacity: 0.96;
+}
+
+.hero__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(246, 239, 232, 0.85);
+  background-color: rgba(246, 239, 232, 0.18);
+  font-size: 13px;
+  margin-bottom: 24px;
+  backdrop-filter: blur(12px);
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.hero__note {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* =====================================
+   SECCIONES GENÉRICAS
+===================================== */
+
+.section {
+  padding: 64px 0;
+}
+
+.section__eyebrow {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #b39a82;
+  margin-bottom: 8px;
+}
+
+.section__title {
+  font-size: 26px;
+  margin: 0 0 12px;
+}
+
+.section__lead {
+  font-size: 14px;
+  color: #5c5148;
+  max-width: 620px;
+  margin-bottom: 28px;
+}
+
+/* =====================================
+   BENEFICIOS (fondo blanco)
+===================================== */
+
+.section--benefits {
+  background-color: #ffffff;
+  box-shadow: 0 -12px 26px rgba(0, 0, 0, 0.02);
+}
+
+.section--benefits .container {
+  position: relative;
+}
+
+/* sombra decorativa suave arriba */
+.section--benefits .container::before {
+  content: "";
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40%;
+  height: 22px;
+  border-radius: 999px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.12),
+    transparent 70%
+  );
+  opacity: 0.25;
+}
+
+.benefits__grid {
+  margin-top: 12px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: $sp-7;
-  padding: $sp-7 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
 
-  .about__text {
-    display: flex;
-    flex-direction: column;
-    gap: $sp-4;
+.benefit-card {
+  background-color: #fff;
+  border-radius: 18px;
+  padding: 18px 18px 20px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
-    .tag {
-      color: $color-brand-dark;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      font-size: 14px;
-    }
+.benefit-card__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fbe0c6, #fcd6be);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
 
-    h2 {
-      font-size: clamp(28px, 4vw, 40px);
-      font-family: $font-display;
-      color: $color-text;
-    }
+.benefit-card h3 {
+  font-size: 14px;
+  margin: 0;
+}
 
-    p {
-      font-size: 17px;
-      color: $color-text;
-      line-height: 1.6;
-    }
+.benefit-card p {
+  margin: 0;
+  font-size: 13px;
+  color: #5c5148;
+}
 
-    .about__list {
-      margin: $sp-3 0;
-      padding-left: $sp-4;
-      display: grid;
-      gap: $sp-2;
+/* =====================================
+   SERVICIOS DESTACADOS (fondo melocotón)
+===================================== */
 
-      li {
-        font-size: 16px;
-        color: $color-text;
-        line-height: 1.5;
-        list-style: none;
-        position: relative;
-      }
+.section--services {
+  background-color: #f9e7d9;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.05) inset;
+}
 
-      li::before {
-        content: "•";
-        color: $color-brand;
-        font-weight: 900;
-        font-size: 22px;
-        position: absolute;
-        left: -22px;
-        top: -1px;
-      }
-    }
+.section--services .container {
+  padding-block: 40px;
+}
 
-    .link {
-      font-weight: 600;
-      color: $color-brand-dark;
-      text-decoration: underline;
+.section--services .section__eyebrow {
+  color: #c77b3f;
+}
 
-      &:hover {
-        color: $color-brand;
-      }
-    }
-  }
+.services__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
 
-  .about__img {
-    height: 380px;
-    background-size: cover;
-    background-position: center;
-    border-radius: $radius-xl;
-    box-shadow: $shadow-card;
+.service-card {
+  background-color: #fff;
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.06);
+}
+
+.service-card__image {
+  width: 100%;
+  padding-top: 55%;
+  background-size: cover;
+  background-position: center;
+}
+
+.service-card__body {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.service-card__text h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.service-card__text p {
+  margin: 0;
+  font-size: 13px;
+  color: #5c5148;
+}
+
+.service-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-card__price {
+  margin: 0;
+  font-size: 13px;
+  color: #c35a26;
+}
+
+/* =====================================
+   PASOS (fondo blanco)
+===================================== */
+
+.section--steps {
+  background-color: #ffffff;
+}
+
+.section--steps .steps__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.steps__intro h2 {
+  margin: 0 0 10px;
+  font-size: 22px;
+}
+
+.steps__intro p {
+  margin: 0;
+  font-size: 14px;
+  color: #5c5148;
+}
+
+.steps__eyebrow {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #c77b3f;
+  border: 1px solid rgba(199, 123, 63, 0.5);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+
+.steps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.step-card {
+  background-color: #fff;
+  border-radius: 18px;
+  padding: 16px 16px 18px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.step-card__number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background-color: #fce3cf;
+  color: #c35a26;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.step-card h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.step-card p {
+  margin: 0;
+  font-size: 13px;
+  color: #5c5148;
+}
+
+/* =====================================
+   TESTIMONIOS (beige)
+===================================== */
+
+.section--testimonials {
+  background-color: #f6efe8;
+}
+
+.section--testimonials .section__title {
+  margin-bottom: 4px;
+}
+
+.testimonials__grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.testimonial-card {
+  background-color: #fff;
+  border-radius: 18px;
+  padding: 16px 16px 18px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.testimonial-card h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.testimonial-card__tag {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #b39a82;
+}
+
+.testimonial-card p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #5c5148;
+}
+
+.testimonial-card__rating {
+  font-size: 13px;
+  color: #f39b3b;
+}
+
+/* =====================================
+   CTA FINAL (naranja)
+===================================== */
+
+.section--cta {
+  background-color: #f6efe8;
+  padding-bottom: 80px;
+}
+
+.cta-box {
+  background-color: #f37f3b;
+  border-radius: 26px;
+  padding: 28px 32px;
+  color: #fff;
+  box-shadow: 0 26px 60px rgba(243, 127, 59, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  position: relative;
+}
+
+/* sombra decorativa debajo */
+.cta-box::after {
+  content: "";
+  position: absolute;
+  inset-inline: 10%;
+  bottom: -18px;
+  height: 28px;
+  border-radius: 999px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.35),
+    transparent 70%
+  );
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.cta-box__text h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.cta-box__text p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.cta-box__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Botones en la CTA (para que no se pierdan con el fondo naranja) */
+.section--cta .btn--primary {
+  background-color: #ffffff;
+  color: #c35a26;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  border-color: transparent;
+
+  &:hover {
+    background-color: #fbe0c6;
   }
 }
 
-/* ===========================
-   SERVICES
-=========================== */
+.section--cta .btn--ghost {
+  background-color: transparent;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: none;
 
-.services {
-  background: $color-brand-light;
-  padding: $sp-7 0;
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+  }
+}
 
-  .tag {
-    color: $color-brand-dark;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
+/* =====================================
+   RESPONSIVE
+===================================== */
+
+@media (max-width: 992px) {
+  .hero__content {
+    padding: 44px 40px 48px;
   }
 
-  h2 {
-    font-size: clamp(30px, 4vw, 42px);
-    margin: $sp-3 0 $sp-6;
-    font-family: $font-display;
+  .hero__title {
+    font-size: 32px;
+  }
+
+  .benefits__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .services__grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: $sp-6;
-
-    .service-card {
-      border-radius: $radius-large;
-      overflow: hidden;
-      background: white;
-      box-shadow: $shadow-card;
-      transition: 0.25s ease;
-      cursor: pointer;
-
-      &:hover {
-        transform: translateY(-5px);
-        box-shadow: $shadow-strong;
-      }
-
-      .card-img {
-        height: 220px;
-        background-size: cover;
-        background-position: center;
-      }
-
-      .card-content {
-        padding: $sp-4;
-
-        h3 {
-          margin-bottom: $sp-2;
-          font-family: $font-display;
-        }
-
-        p {
-          color: $color-text-light;
-          margin-bottom: $sp-3;
-        }
-
-        .arrow {
-          font-weight: 700;
-          color: $color-brand-dark;
-
-          &:hover {
-            color: $color-brand;
-          }
-        }
-      }
-    }
-  }
-}
-
-/* ===========================
-   CTA FINAL
-=========================== */
-
-.cta {
-  padding: $sp-7 0;
-  text-align: center;
-
-  h2 {
-    font-family: $font-display;
-    font-size: clamp(28px, 4vw, 40px);
-    margin-bottom: $sp-3;
-  }
-
-  p {
-    font-size: 18px;
-    margin-bottom: $sp-5;
-  }
-
-  .cta__buttons {
-    display: flex;
-    justify-content: center;
-    gap: $sp-4;
-  }
-}
-
-/* ===========================
-   RESPONSIVE
-=========================== */
-
-@media (max-width: 900px) {
-
-  .hero {
-    height: 75vh;
-    min-height: 480px;
-
-    .hero__bg {
-      background-attachment: scroll;
-    }
-
-    .hero__content {
-      padding: 0 10px;
-
-      h1 {
-        font-size: clamp(34px, 9vw, 52px);
-      }
-
-      p {
-        font-size: 18px;
-      }
-
-      .hero-btn {
-        font-size: 18px;
-        padding: $sp-3 $sp-5;
-      }
-    }
-  }
-
-  .about {
     grid-template-columns: 1fr;
-    text-align: center;
-
-    .about__img {
-      height: 300px;
-    }
-
-    .about__list li::before {
-      left: -14px;
-    }
   }
 
-  .cta__buttons {
+  .section--steps .steps__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .steps__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .testimonials__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cta-box {
     flex-direction: column;
+    align-items: flex-start;
   }
 }
 
-/* ===========================
-   MENÚ MÓVIL DESDE ARRIBA
-=========================== */
+@media (max-width: 640px) {
+  .hero {
+    padding-top: 24px;
+  }
 
-/* Contenedor del menú desplegado */
-.mobile-menu {
-  position: fixed;
-  top: -100%;
-  left: 0;
+  .hero .container {
+    max-width: none;
+    padding-inline: 0;
+  }
+
+  .hero__banner {
+    border-radius: 0; /* ocupa todo el ancho en mobile */
+  }
+
+  .hero__content {
+    padding: 32px 20px 36px;
+    max-width: none;
+  }
+
+  .hero__title {
+    font-size: 24px;
+  }
+
+  .hero__subtitle {
+    font-size: 14px;
+  }
+
+  .section {
+    padding: 40px 0;
+  }
+
+  .benefits__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .steps__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .testimonials__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cta-box {
+    border-radius: 20px;
+    padding: 24px 20px;
+  }
+}
+/* =========================================================
+   BASE GENERAL
+========================================================= */
+
+.home {
+  background-color: #f6efe8;
+  color: #2c2723;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+}
+
+/* ===== CONTENEDOR GLOBAL (MÁS ANCHO) ===== */
+
+.container {
+  max-width: 1600px !important; /* MAS ANCHO */
+  margin: 0 auto;
+  padding-inline: 16px !important; /* MENOS BORDE A LOS LADOS */
+}
+
+/* HERO incluso más ancho */
+.hero .container {
+  max-width: 1680px !important;
+  padding-inline: 0 !important;
+}
+
+/* =========================================================
+   BOTONES
+========================================================= */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn--primary {
+  background-color: #f37f3b;
+  color: #fff;
+  box-shadow: 0 18px 50px rgba(243, 127, 59, 0.55);
+
+  &:hover {
+    background-color: #e56f28;
+    box-shadow: 0 22px 60px rgba(243, 127, 59, 0.7);
+  }
+}
+
+.btn--ghost {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.btn--light {
+  background-color: #ffffff;
+  color: #2c2723;
+}
+
+/* =========================================================
+   HERO (COMPLETO)
+========================================================= */
+
+.hero {
+  padding: 32px 0 80px;
+}
+
+.hero__banner {
+  position: relative;
   width: 100%;
-  background: #fff;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-  padding: 20px;
-  z-index: 9999;
-  transition: top 0.35s ease;
+  border-radius: 32px;
+  overflow: hidden;
+  min-height: 380px;
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
-/* Cuando está abierto */
-.mobile-menu.open {
-  top: 60px; /* Justo debajo del navbar */
+.hero__bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
 }
 
-/* Items */
-.mobile-menu ul {
-  list-style: none;
+.hero__banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    140deg,
+    rgba(0, 0, 0, 0.85),
+    rgba(0, 0, 0, 0.45) 45%,
+    rgba(0, 0, 0, 0.2)
+  );
+}
+
+.hero__content {
+  position: relative;
+  z-index: 2;
+  max-width: 540px;
+  padding: 64px 72px;
+  color: white;
+}
+
+.hero__eyebrow {
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  opacity: 0.9;
+  margin-bottom: 12px;
+}
+
+.hero__title {
+  font-size: 40px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.hero__subtitle {
+  opacity: 0.9;
+  font-size: 16px;
+  margin-bottom: 20px;
+}
+
+.hero__badge {
+  display: inline-flex;
+  padding: 8px 18px;
+  background: rgba(246, 239, 232, 0.25);
+  border-radius: 999px;
+  border: 1px solid rgba(246, 239, 232, 0.7);
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+
+.hero__actions {
   display: flex;
-  flex-direction: column;
-  gap: 15px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.mobile-menu a {
-  font-size: 18px;
-  font-weight: 600;
-  color: $color-text;
+/* =========================================================
+   SECCIONES GENERALES
+========================================================= */
+
+.section {
+  padding: 72px 0;
+}
+
+.section__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  color: #b39a82;
+}
+
+.section__title {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.section__lead {
+  font-size: 15px;
+  opacity: 0.8;
+  max-width: 620px;
+  margin-bottom: 28px;
+}
+
+/* =========================================================
+   BENEFICIOS
+========================================================= */
+
+.section--benefits {
+  background: #ffffff;
+}
+
+.benefits__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.benefit-card {
+  background: white;
+  border-radius: 18px;
+  padding: 20px;
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow: 0 14px 30px rgba(0,0,0,0.05);
+}
+
+/* =========================================================
+   SERVICIOS DESTACADOS (fondo melocotón)
+========================================================= */
+
+.section--services {
+  background: #f9e7d9;
+}
+
+.services__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 22px;
+}
+
+.service-card {
+  background: #fff;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.06);
+}
+
+.service-card__image {
+  width: 100%;
+  padding-top: 58%;
+  background-position: center;
+  background-size: cover;
+}
+
+.service-card__body {
+  padding: 18px;
+}
+
+/* =========================================================
+   PASOS
+========================================================= */
+
+.section--steps {
+  background: #ffffff;
+}
+
+.steps__layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+.steps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+/* =========================================================
+   TESTIMONIOS
+========================================================= */
+
+.section--testimonials {
+  background: #f6efe8;
+}
+
+.testimonials__grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.testimonial-card {
+  background: white;
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.06);
+}
+
+/* =========================================================
+   CTA FINAL – AMBOS BOTONES BLANCOS
+========================================================= */
+
+.section--cta {
+  background: #f6efe8;
+  padding-bottom: 80px;
+}
+
+.cta-box {
+  background: #f37f3b;
+  border-radius: 26px;
+  padding: 32px;
+  color: white;
+  box-shadow: 0 26px 60px rgba(243, 127, 59, 0.5);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+/* ✔️ los dos botones blancos */
+.section--cta .btn--primary,
+.section--cta .btn--ghost {
+  background-color: #ffffff !important;
+  color: #c35a26 !important;
+  border: none !important;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.2);
+}
+
+.section--cta .btn--primary:hover,
+.section--cta .btn--ghost:hover {
+  background-color: #fde8d7 !important;
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 992px) {
+  .benefits__grid { grid-template-columns: repeat(2, 1fr); }
+  .services__grid { grid-template-columns: 1fr; }
+  .steps__grid { grid-template-columns: 1fr; }
+  .testimonials__grid { grid-template-columns: 2, 1fr; }
+  .cta-box { flex-direction: column; align-items: flex-start; }
+}
+
+@media (max-width: 640px) {
+  .hero__banner { border-radius: 0; }
+  .benefits__grid,
+  .testimonials__grid { grid-template-columns: 1fr; }
 }

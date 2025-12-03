@@ -82,7 +82,7 @@ async function uploadServiceImage(file) {
   const url =
     res?.url ||
     res?.path ||
-    (fileId ? `/files/${fileId}` : null) || // 👈 ahora /files, no /api/files
+    (fileId ? `/files/${fileId}` : null) ||
     res?.imageUrl ||
     res?.location;
 
@@ -198,7 +198,7 @@ export default function Servicios() {
         featured: !!nuevo.featured,
         order: nuevo.order === '' ? undefined : Number(nuevo.order),
         price: nuevo.price === '' ? null : Number(nuevo.price),
-        imageUrl: (nuevo.imageUrl || '').trim(), // ya viene URL /files/... o nombre clásico
+        imageUrl: (nuevo.imageUrl || '').trim(),
       };
 
       if (!body.title || !body.short) {
@@ -304,7 +304,13 @@ export default function Servicios() {
     }
   };
 
-  if (cargando) return <div className="card">Cargando…</div>;
+  if (cargando) {
+    return (
+      <div className="servicios page-wrapper">
+        <div className="servicios__loading card">Cargando…</div>
+      </div>
+    );
+  }
 
   // Imagen: soporta tanto nombres antiguos como URLs completas (/files/xxx, http, etc.)
   const getImgSrc = (imageUrl) => {
@@ -313,7 +319,7 @@ export default function Servicios() {
     if (
       imageUrl.startsWith('http://') ||
       imageUrl.startsWith('https://') ||
-      imageUrl.startsWith('/files/') || // 👈 nuestras nuevas URLs
+      imageUrl.startsWith('/files/') ||
       imageUrl.startsWith('/img/')
     ) {
       return imageUrl;
@@ -325,135 +331,178 @@ export default function Servicios() {
 
   return (
     <div className="servicios page-wrapper">
-      <h1>Servicios de Adiestramiento</h1>
+      {/* ===== HEADER DE PÁGINA ===== */}
+      <header className="servicios__header">
+        <p className="servicios__eyebrow">Sesión iniciada</p>
+        <h1 className="servicios__title">Servicios de Adiestramiento</h1>
+        <p className="servicios__subtitle">
+          Elige el tipo de servicio que mejor encaja con tu perro y contrátalo
+          directamente desde tu cuenta.
+        </p>
+      </header>
+
       {error && <p className="error-msg">{error}</p>}
 
       {/* CREAR SERVICIO - SOLO ADMIN */}
       {esAdmin && (
-        <div className="card admin-create">
-          <h2>Crear servicio</h2>
+        <section className="admin-create card">
+          <div className="admin-create__header">
+            <span className="admin-create__breadcrumb">SERVICIOS</span>
+            <h2 className="admin-create__title">Crear nuevo servicio</h2>
+            <p className="admin-create__subtitle">
+              Define los detalles del servicio que ofrecerás a tus clientes: descripción,
+              precio, modalidad y visibilidad en la web.
+            </p>
+          </div>
+
           <form onSubmit={crearServicio} className="admin-form">
-            <label className="full">
-              Título:
-              <input
-                value={nuevo.title}
-                onChange={(e) => setNuevo({ ...nuevo, title: e.target.value })}
-                required
-              />
-            </label>
+            <div className="admin-form__group">
+              <h3 className="admin-form__group-title">Datos del servicio</h3>
 
-            <label className="full">
-              Resumen:
-              <input
-                value={nuevo.short}
-                onChange={(e) => setNuevo({ ...nuevo, short: e.target.value })}
-                required
-              />
-            </label>
+              <label className="full">
+                Título del servicio (obligatorio)
+                <input
+                  value={nuevo.title}
+                  onChange={(e) =>
+                    setNuevo({ ...nuevo, title: e.target.value })
+                  }
+                  required
+                />
+              </label>
 
-            <label className="full">
-              Descripción:
-              <textarea
-                rows={3}
-                value={nuevo.long}
-                onChange={(e) => setNuevo({ ...nuevo, long: e.target.value })}
-              />
-            </label>
+              <label className="full">
+                Resumen corto (obligatorio)
+                <input
+                  value={nuevo.short}
+                  onChange={(e) =>
+                    setNuevo({ ...nuevo, short: e.target.value })
+                  }
+                  required
+                />
+                <small>Máx. 140 caracteres. Aparece en la tarjeta del servicio.</small>
+              </label>
 
-            <label>
-              Precio (€):
-              <input
-                type="number"
-                step="0.01"
-                value={nuevo.price}
-                onChange={(e) => setNuevo({ ...nuevo, price: e.target.value })}
-              />
-            </label>
+              <label className="full">
+                Descripción detallada (opcional)
+                <textarea
+                  rows={3}
+                  value={nuevo.long}
+                  onChange={(e) =>
+                    setNuevo({ ...nuevo, long: e.target.value })
+                  }
+                />
+              </label>
 
-            <label>
-              Moneda:
-              <input
-                value={nuevo.currency}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, currency: e.target.value })
-                }
-              />
-            </label>
+              <div className="admin-form__row">
+                <label>
+                  Precio (€) (obligatorio)
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={nuevo.price}
+                    onChange={(e) =>
+                      setNuevo({ ...nuevo, price: e.target.value })
+                    }
+                  />
+                </label>
 
-            <label>
-              Duración:
-              <input
-                value={nuevo.duration}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, duration: e.target.value })
-                }
-              />
-            </label>
+                <label>
+                  Moneda
+                  <input
+                    value={nuevo.currency}
+                    onChange={(e) =>
+                      setNuevo({ ...nuevo, currency: e.target.value })
+                    }
+                  />
+                </label>
+              </div>
 
-            <label>
-              Modalidad:
-              <input
-                value={nuevo.mode}
-                onChange={(e) => setNuevo({ ...nuevo, mode: e.target.value })}
-              />
-            </label>
+              <div className="admin-form__row">
+                <label>
+                  Duración del servicio
+                  <input
+                    value={nuevo.duration}
+                    onChange={(e) =>
+                      setNuevo({ ...nuevo, duration: e.target.value })
+                    }
+                  />
+                </label>
 
-            <label>
-              Orden:
-              <input
-                type="number"
-                value={nuevo.order}
-                onChange={(e) => setNuevo({ ...nuevo, order: e.target.value })}
-              />
-            </label>
+                <label>
+                  Modalidad
+                  <input
+                    value={nuevo.mode}
+                    onChange={(e) =>
+                      setNuevo({ ...nuevo, mode: e.target.value })
+                    }
+                  />
+                </label>
+              </div>
 
-            <label className="full">
-              Imagen (URL o nombre de archivo):
-              <input
-                value={nuevo.imageUrl}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, imageUrl: e.target.value })
-                }
-                placeholder="adiestramiento-basico.jpg o /files/xxx"
-              />
-              <small>
-                Puedes seguir usando imágenes en <code>/public/img/servicios/</code>{' '}
-                o subir una nueva:
-              </small>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleNuevoImageFile}
-                disabled={subiendoNuevaImg || saving}
-              />
-              {subiendoNuevaImg && (
-                <small>Subiendo imagen… espera un momento</small>
-              )}
-            </label>
+              <div className="admin-form__row">
+                <label>
+                  Orden en el listado
+                  <input
+                    type="number"
+                    value={nuevo.order}
+                    onChange={(e) =>
+                      setNuevo({ ...nuevo, order: e.target.value })
+                    }
+                  />
+                </label>
 
-            <label className="featured-check">
-              <input
-                type="checkbox"
-                checked={nuevo.featured}
-                onChange={(e) =>
-                  setNuevo({ ...nuevo, featured: e.target.checked })
-                }
-              />
-              Destacado
-            </label>
+                <label>
+                  Imagen (URL o nombre de archivo)
+                  <input
+                    value={nuevo.imageUrl}
+                    onChange={(e) =>
+                      setNuevo({ ...nuevo, imageUrl: e.target.value })
+                    }
+                    placeholder="adiestramiento-basico.jpg o /files/xxx"
+                  />
+                </label>
+              </div>
+
+              <label className="full">
+                Subir imagen destacada
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleNuevoImageFile}
+                  disabled={subiendoNuevaImg || saving}
+                />
+                {subiendoNuevaImg && (
+                  <small>Subiendo imagen… espera un momento</small>
+                )}
+              </label>
+
+              <label className="featured-check">
+                <input
+                  type="checkbox"
+                  checked={nuevo.featured}
+                  onChange={(e) =>
+                    setNuevo({ ...nuevo, featured: e.target.checked })
+                  }
+                />
+                Mostrar como servicio destacado en la página principal
+              </label>
+            </div>
 
             <div className="form-actions">
-              <button type="submit" disabled={saving}>
-                {saving ? 'Guardando…' : 'Crear'}
+              <button type="button" className="btn-secondary" disabled={saving}>
+                Descartar
+              </button>
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving ? 'Guardando…' : 'Guardar servicio'}
               </button>
               {msgNuevo && <span className="msg-inline">{msgNuevo}</span>}
             </div>
           </form>
-        </div>
+        </section>
       )}
 
       {/* GRID DE SERVICIOS */}
-      <div className="servicios-grid">
+      <section className="servicios-grid">
         {items.map((item) => (
           <article
             key={item.id}
@@ -468,23 +517,33 @@ export default function Servicios() {
             )}
 
             <div className="card-content">
-              {item.featured && <span className="badge">Destacado</span>}
-              <h3>{item.title}</h3>
+              <header className="card-header">
+                <h3>{item.title}</h3>
+                {item.featured && (
+                  <span className="badge badge--featured">Destacado</span>
+                )}
+              </header>
+
               <p className="short">{item.short}</p>
 
               <div className="details">
-                {item.duration && <div>⏱ {item.duration}</div>}
-                {item.mode && <div>📍 {item.mode}</div>}
+                {item.duration && (
+                  <span className="chip chip--soft">{item.duration}</span>
+                )}
+                {item.mode && (
+                  <span className="chip chip--soft">{item.mode}</span>
+                )}
                 {item.price != null && (
-                  <div>
-                    <b>{formatEUR(item.price, item.currency)}</b>
-                  </div>
+                  <span className="chip chip--strong">
+                    {formatEUR(item.price, item.currency)}
+                  </span>
                 )}
               </div>
 
               <div className="actions">
                 <button
                   type="button"
+                  className="btn-outline"
                   onClick={(e) => {
                     e.stopPropagation();
                     abrir(item);
@@ -496,6 +555,7 @@ export default function Servicios() {
                 {esAdmin ? (
                   <button
                     type="button"
+                    className="btn-primary"
                     onClick={(e) => {
                       e.stopPropagation();
                       abrir(item);
@@ -506,6 +566,7 @@ export default function Servicios() {
                 ) : (
                   <button
                     type="button"
+                    className="btn-primary"
                     onClick={(e) => {
                       e.stopPropagation();
                       contratar(item);
@@ -518,13 +579,18 @@ export default function Servicios() {
             </div>
           </article>
         ))}
-      </div>
+      </section>
 
       {/* MODAL DETALLE */}
       {sel && (
         <div className="modal-overlay" onClick={cerrar}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <button className="close-modal" onClick={cerrar} aria-label="Cerrar">
+            <button
+              className="close-modal"
+              onClick={cerrar}
+              aria-label="Cerrar"
+              type="button"
+            >
               ✕
             </button>
 
@@ -535,47 +601,47 @@ export default function Servicios() {
               />
             )}
 
-            <h3>{sel.title}</h3>
+            <h3 className="modal-title">{sel.title}</h3>
             <p className="modal-description">{sel.long || sel.short}</p>
 
             <div className="modal-details">
-              {sel.duration && <div>⏱ {sel.duration}</div>}
-              {sel.mode && <div>📍 {sel.mode}</div>}
+              {sel.duration && (
+                <span className="chip chip--soft">{sel.duration}</span>
+              )}
+              {sel.mode && <span className="chip chip--soft">{sel.mode}</span>}
               {sel.price != null && (
-                <div>
-                  <b>{formatEUR(sel.price, sel.currency)}</b>
-                </div>
+                <span className="chip chip--strong">
+                  {formatEUR(sel.price, sel.currency)}
+                </span>
               )}
             </div>
 
-            {/* Desplegable de modalidad para el cliente */}
             {!esAdmin && (
-              <div style={{ marginTop: 12, marginBottom: 12 }}>
-                <label>
-                  Modalidad:
-                  <select
-                    style={{ marginLeft: 8 }}
-                    value={selModalidad}
-                    onChange={(e) => setSelModalidad(e.target.value)}
-                  >
-                    {getModalitiesFromItem(sel).map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
+              <>
+                <div className="modal-field">
+                  <label>
+                    Modalidad
+                    <select
+                      value={selModalidad}
+                      onChange={(e) => setSelModalidad(e.target.value)}
+                    >
+                      {getModalitiesFromItem(sel).map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
-            {!esAdmin && (
-              <button
-                className="modal-btn"
-                type="button"
-                onClick={() => contratar(sel, selModalidad)}
-              >
-                Reservar este servicio
-              </button>
+                <button
+                  className="modal-btn btn-primary"
+                  type="button"
+                  onClick={() => contratar(sel, selModalidad)}
+                >
+                  Reservar este servicio
+                </button>
+              </>
             )}
 
             {esAdmin && (
@@ -624,7 +690,8 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
   };
 
   const handleChange = (field) => (e) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const value =
+      e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -648,67 +715,80 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
 
   return (
     <form onSubmit={submit} className="admin-edit-form">
-      <h4>Editar servicio</h4>
+      <h4 className="admin-edit-form__title">Editar servicio</h4>
 
       <label className="full">
-        Título:
+        Título
         <input value={form.title} onChange={handleChange('title')} required />
       </label>
 
       <label className="full">
-        Resumen:
+        Resumen
         <input value={form.short} onChange={handleChange('short')} required />
       </label>
 
       <label className="full">
-        Descripción:
+        Descripción
         <textarea rows={3} value={form.long} onChange={handleChange('long')} />
       </label>
 
-      <label>
-        Precio (€):
-        <input
-          type="number"
-          step="0.01"
-          value={form.price}
-          onChange={handleChange('price')}
-        />
-      </label>
+      <div className="admin-form__row">
+        <label>
+          Precio (€)
+          <input
+            type="number"
+            step="0.01"
+            value={form.price}
+            onChange={handleChange('price')}
+          />
+        </label>
 
-      <label>
-        Moneda:
-        <input value={form.currency} onChange={handleChange('currency')} />
-      </label>
+        <label>
+          Moneda
+          <input
+            value={form.currency}
+            onChange={handleChange('currency')}
+          />
+        </label>
+      </div>
 
-      <label>
-        Duración:
-        <input value={form.duration} onChange={handleChange('duration')} />
-      </label>
+      <div className="admin-form__row">
+        <label>
+          Duración
+          <input
+            value={form.duration}
+            onChange={handleChange('duration')}
+          />
+        </label>
 
-      <label>
-        Modalidad:
-        <input value={form.mode} onChange={handleChange('mode')} />
-      </label>
+        <label>
+          Modalidad
+          <input value={form.mode} onChange={handleChange('mode')} />
+        </label>
+      </div>
 
-      <label>
-        Orden:
-        <input
-          type="number"
-          value={form.order}
-          onChange={handleChange('order')}
-        />
-      </label>
+      <div className="admin-form__row">
+        <label>
+          Orden
+          <input
+            type="number"
+            value={form.order}
+            onChange={handleChange('order')}
+          />
+        </label>
+
+        <label>
+          Imagen (URL o nombre archivo)
+          <input
+            value={form.imageUrl}
+            onChange={handleChange('imageUrl')}
+            placeholder="adiestramiento-basico.jpg o /files/xxx"
+          />
+        </label>
+      </div>
 
       <label className="full">
-        Imagen (URL o nombre archivo):
-        <input
-          value={form.imageUrl}
-          onChange={handleChange('imageUrl')}
-          placeholder="adiestramiento-basico.jpg o /files/xxx"
-        />
-        <small>
-          Puedes escribir el nombre del archivo clásico o subir una nueva:
-        </small>
+        Subir nueva imagen
         <input
           type="file"
           accept="image/*"
@@ -727,12 +807,17 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
         Destacado
       </label>
 
-      <div className="form-actions">
-        <button type="submit" disabled={saving}>
+      <div className="form-actions form-actions--edit">
+        <button type="submit" className="btn-primary" disabled={saving}>
           {saving ? 'Guardando…' : 'Guardar cambios'}
         </button>
 
-        <button type="button" className="delete-btn" onClick={onDelete}>
+        <button
+          type="button"
+          className="delete-btn"
+          onClick={onDelete}
+          disabled={saving}
+        >
           Borrar
         </button>
 

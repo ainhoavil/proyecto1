@@ -1,131 +1,189 @@
 // src/components/navbar.jsx
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/auth';
-import '../styles/navbar.scss';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/auth";
+import "../styles/navbar.scss";
 
 export default function Navbar() {
   const { isAuthenticated, user, role, logout } = useAuth();
   const navigate = useNavigate();
 
   // Roles normalizados
-  const esAdmin = role === 'admin' || user?.isAdmin;
-  const esTrainer = role === 'adiestrador'; // Coincide con la BD
+  const esAdmin = role === "admin" || user?.isAdmin;
+  const esTrainer = role === "adiestrador"; // Coincide con la BD
 
   const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
-    navigate('/login', { replace: true });
+    navigate("/login", { replace: true });
     setMenuOpen(false);
   };
 
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <nav className={`navbar ${menuOpen ? 'open' : ''}`}>
+    <nav className={`navbar ${menuOpen ? "open" : ""}`}>
+      {/* Barra superior (desktop + toggle) */}
+      <div className="navbar__inner container">
+        {/* LEFT: Logo + links desktop */}
+        <div className="navbar__left">
+          <Link to="/" className="navbar__logo" onClick={closeMenu}>
+            <span className="navbar__logo-circle">
+              <span className="paw">🐾</span>
+            </span>
+            <span className="navbar__logo-text">Dogform</span>
+          </Link>
 
-      {/* LEFT: Logo + Desktop */}
-      <div className="navbar__left">
-        <Link to="/" className="navbar__logo" onClick={closeMenu}>
-          <span className="paw">🐾</span> Dogform
-        </Link>
+          <ul className="navbar__links">
+            <li>
+              <Link to="/servicios">Servicios</Link>
+            </li>
 
-        <ul className="navbar__links">
-          <li><Link to="/servicios">Servicios</Link></li>
-          
-          {/* Enlace genérico de Reservas (visible para usuarios y admins) */}
-          {isAuthenticated && !esTrainer && (
-            <li><Link to="/reservas">Reservas</Link></li>
-          )}
+            {/* Enlace genérico de Reservas (visible para usuarios y admins, no trainers) */}
+            {isAuthenticated && !esTrainer && (
+              <li>
+                <Link to="/reservas">Reservas</Link>
+              </li>
+            )}
 
-          <li><Link to="/contacto">Contacto</Link></li>
+            <li>
+              <Link to="/contacto">Contacto</Link>
+            </li>
 
-          {/* Si es adiestrador, le mostramos "Agenda" (que va a /reservas donde está su vista) */}
-          {esTrainer && (
-            <li><Link to="/reservas">Agenda</Link></li>
-          )}
+            {/* Si es adiestrador, le mostramos "Agenda" (que va a /reservas donde está su vista) */}
+            {esTrainer && (
+              <li>
+                <Link to="/reservas">Agenda</Link>
+              </li>
+            )}
 
-          {/* Si es Admin, mostramos el Panel */}
-          {esAdmin && (
-            <li><Link to="/admin">Panel admin</Link></li>
+            {/* Si es Admin, mostramos el Panel */}
+            {esAdmin && (
+              <li>
+                <Link to="/admin">Panel admin</Link>
+              </li>
+            )}
+          </ul>
+        </div>
+
+        {/* RIGHT: Auth desktop */}
+        <ul className="navbar__right">
+          {isAuthenticated ? (
+            <>
+              <li>
+                <Link to="/perfil">{user?.email || "Mi perfil"}</Link>
+              </li>
+              <li>
+                <button className="logout-btn" onClick={handleLogout}>
+                  Salir
+                </button>
+              </li>
+            </>
+          ) : (
+            <>
+              <li>
+                <Link to="/login">Iniciar sesión</Link>
+              </li>
+              <li>
+                <Link to="/register" className="btn-small">
+                  Regístrate
+                </Link>
+              </li>
+            </>
           )}
         </ul>
+
+        {/* HAMBURGER ICON */}
+        <button
+          className="navbar__toggle"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="Abrir menú"
+        >
+          <span />
+          <span />
+          <span />
+        </button>
       </div>
 
-      {/* RIGHT: Auth desktop */}
-      <ul className="navbar__right">
-        {isAuthenticated ? (
-          <>
-            <li><Link to="/perfil">{user?.email || 'Mi perfil'}</Link></li>
-            <li>
-              <button className="logout-btn" onClick={handleLogout}>
-                Salir
-              </button>
-            </li>
-          </>
-        ) : (
-          <>
-            <li><Link to="/login">Iniciar sesión</Link></li>
-            <li><Link to="/register" className="btn-small">Regístrate</Link></li>
-          </>
-        )}
-      </ul>
-
-      {/* HAMBURGER ICON */}
-      <button
-        className="navbar__toggle"
-        onClick={() => setMenuOpen(!menuOpen)}
-        aria-label="Abrir menú"
-      >
-        <span />
-        <span />
-        <span />
-      </button>
-
-      {/* MOBILE MENU */}
+      {/* MOBILE MENU (overlay bajo el nav) */}
       <div className="navbar__mobile">
-
-        <button className="close-mobile" onClick={closeMenu} aria-label="Cerrar menú">
+        <button
+          className="close-mobile"
+          onClick={closeMenu}
+          aria-label="Cerrar menú"
+        >
           ✕
         </button>
 
         <ul>
-          <li><Link to="/servicios" onClick={closeMenu}>Servicios</Link></li>
-          
+          <li>
+            <Link to="/servicios" onClick={closeMenu}>
+              Servicios
+            </Link>
+          </li>
+
           {isAuthenticated && !esTrainer && (
-            <li><Link to="/reservas" onClick={closeMenu}>Reservas</Link></li>
+            <li>
+              <Link to="/reservas" onClick={closeMenu}>
+                Reservas
+              </Link>
+            </li>
           )}
 
-          <li><Link to="/contacto" onClick={closeMenu}>Contacto</Link></li>
+          <li>
+            <Link to="/contacto" onClick={closeMenu}>
+              Contacto
+            </Link>
+          </li>
 
           {esTrainer && (
-            <li><Link to="/reservas" onClick={closeMenu}>Agenda</Link></li>
+            <li>
+              <Link to="/reservas" onClick={closeMenu}>
+                Agenda
+              </Link>
+            </li>
           )}
 
           {esAdmin && (
-            <li><Link to="/admin" onClick={closeMenu}>Panel admin</Link></li>
+            <li>
+              <Link to="/admin" onClick={closeMenu}>
+                Panel admin
+              </Link>
+            </li>
           )}
 
           <hr />
 
           {isAuthenticated ? (
             <>
-              <li><Link to="/perfil" onClick={closeMenu}>{user?.email || 'Mi perfil'}</Link></li>
               <li>
-                <button className="logout-btn" onClick={handleLogout}>Salir</button>
+                <Link to="/perfil" onClick={closeMenu}>
+                  {user?.email || "Mi perfil"}
+                </Link>
+              </li>
+              <li>
+                <button className="logout-btn" onClick={handleLogout}>
+                  Salir
+                </button>
               </li>
             </>
           ) : (
             <>
-              <li><Link to="/login" onClick={closeMenu}>Iniciar sesión</Link></li>
-              <li><Link to="/register" onClick={closeMenu}>Regístrate</Link></li>
+              <li>
+                <Link to="/login" onClick={closeMenu}>
+                  Iniciar sesión
+                </Link>
+              </li>
+              <li>
+                <Link to="/register" onClick={closeMenu}>
+                  Regístrate
+                </Link>
+              </li>
             </>
           )}
         </ul>
-
       </div>
-
     </nav>
   );
 }

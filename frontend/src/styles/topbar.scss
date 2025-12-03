@@ -1,30 +1,565 @@
-.topbar {
-    background-color: #1a1a1a;
-    color: #f1f1f1;
-    font-size: 0.9rem;
-    padding: 0.4rem 2rem;
+/* =========================================
+   PÁGINA DE SERVICIOS – DOGFORM
+   ========================================= */
+
+.servicios {
+  padding: 64px 0 80px;
+  background-color: #fff6ef; // fondo general de DogForm
+  color: #4c3527;
+
+  &.page-wrapper {
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+}
+
+/* ===== HEADER ===== */
+
+.servicios__header {
+  text-align: center;
+  margin-bottom: 56px;
+}
+
+.servicios__eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  color: #c49c7f;
+  margin: 0 0 8px;
+}
+
+.servicios__title {
+  margin: 0 0 12px;
+  font-size: 32px;
+  font-weight: 600;
+  color: #3b281c;
+}
+
+.servicios__subtitle {
+  margin: 0;
+  max-width: 640px;
+  margin-inline: auto;
+  font-size: 14px;
+  color: #a08168;
+}
+
+/* ===== MENSAJE ERROR / LOADING ===== */
+
+.error-msg {
+  margin: 0 0 24px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #ffe1dd;
+  color: #9b3b3b;
+  font-size: 13px;
+}
+
+.servicios__loading {
+  margin-top: 40px;
+}
+
+/* =========================================
+   GRID DE SERVICIOS (vista cliente)
+   ========================================= */
+
+.servicios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-top: 8px;
+}
+
+.service-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #f3d8c6;
+  box-shadow: 0 14px 30px rgba(148, 95, 52, 0.09);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 18px 40px rgba(148, 95, 52, 0.16);
+  }
+}
+
+/* Imagen opcional arriba de la card */
+.card-img {
+  width: 100%;
+  height: 140px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Contenido interior de la card */
+.card-content {
+  padding: 20px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #3b281c;
+  }
+}
+
+.short {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8f6b53;
+}
+
+/* Detalles tipo chips (duración, modalidad, precio) */
+
+.details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Chips reutilizables (también en modal) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chip--soft {
+  background-color: #ffe8d7;
+  color: #a3683b;
+}
+
+.chip--strong {
+  background-color: #f08a3c;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Badge "Destacado" */
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  background-color: #fff0e0;
+  color: #c0671f;
+}
+
+.badge--featured {
+  background-color: #f08a3c;
+  color: #ffffff;
+}
+
+/* Acciones en la parte inferior de la tarjeta */
+
+.actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Botones reutilizables */
+.btn-primary,
+.btn-outline,
+.btn-secondary {
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease,
+    border-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+  font-family: inherit;
+}
+
+/* Botón relleno naranja */
+.btn-primary {
+  background-color: #f08a3c;
+  border-color: #f08a3c;
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(240, 138, 60, 0.35);
+
+  &:hover {
+    background-color: #f49950;
+    border-color: #f49950;
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+/* Botón contorno blanco */
+.btn-outline {
+  background-color: #ffffff;
+  color: #8f6b53;
+  border-color: #e6cbb8;
+
+  &:hover {
+    background-color: #fff3ea;
+    border-color: #f08a3c;
+    color: #c0671f;
+  }
+}
+
+/* Botón gris clarito (descartar, etc.) */
+.btn-secondary {
+  background-color: #fff5eb;
+  color: #8f6b53;
+  border-color: #f2d8c6;
+
+  &:hover {
+    background-color: #ffe8d7;
+  }
+}
+
+/* =========================================
+   MODAL DETALLE SERVICIO
+   ========================================= */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(41, 28, 19, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  z-index: 40;
+}
+
+.modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  max-height: 90vh;
+  background-color: #fffaf5;
+  border-radius: 24px;
+  box-shadow: 0 18px 50px rgba(57, 32, 18, 0.35);
+  padding: 24px 24px 20px;
+  overflow: auto;
+}
+
+.close-modal {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border: none;
+  background: #ffe8d7;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: #8f6b53;
+}
+
+.modal-img {
+  width: 100%;
+  height: 160px;
+  border-radius: 18px;
+  background-size: cover;
+  background-position: center;
+  margin-bottom: 16px;
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #3b281c;
+}
+
+.modal-description {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: #8f6b53;
+}
+
+.modal-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.modal-field {
+  margin-bottom: 16px;
+
+  label {
+    font-size: 13px;
+    color: #7b5b45;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-  
-    .left,
-    .right {
-      display: flex;
-      gap: 1.2rem;
-      align-items: center;
-    }
-  
-    .icon {
-      margin-right: 0.4rem;
-    }
-  
-    a {
-      color: #f1f1f1;
-      text-decoration: none;
-  
-      &:hover {
-        text-decoration: underline;
-      }
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  select {
+    border-radius: 10px;
+    border: 1px solid #f2d8c6;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #ffffff;
+  }
+}
+
+.modal-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* =========================================
+   BLOQUE CREAR SERVICIO (ADMIN)
+   ========================================= */
+
+.card {
+  background-color: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #f3d8c6;
+  box-shadow: 0 14px 30px rgba(148, 95, 52, 0.06);
+}
+
+/* Card grande de creación */
+.admin-create {
+  margin-bottom: 40px;
+  padding: 24px 24px 20px;
+}
+
+.admin-create__header {
+  margin-bottom: 20px;
+}
+
+.admin-create__breadcrumb {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #c49c7f;
+}
+
+.admin-create__title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #3b281c;
+}
+
+.admin-create__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #a08168;
+}
+
+/* Formulario admin (crear / editar) */
+
+.admin-form {
+  border-radius: 14px;
+  border: 1px solid #f3e1d4;
+  padding: 18px 18px 16px;
+  background-color: #fffaf6;
+}
+
+.admin-form__group-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7b5b45;
+}
+
+.admin-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-form__row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* Inputs / textarea */
+
+.admin-form label,
+.admin-edit-form label {
+  font-size: 12px;
+  color: #7b5b45;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-form input,
+.admin-form textarea,
+.admin-edit-form input,
+.admin-edit-form textarea {
+  border-radius: 10px;
+  border: 1px solid #f0d7c7;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background-color: #fffdfb;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-form input:focus,
+.admin-form textarea:focus,
+.admin-edit-form input:focus,
+.admin-edit-form textarea:focus {
+  border-color: #f08a3c;
+  box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.2);
+}
+
+.admin-form small,
+.admin-edit-form small {
+  font-size: 11px;
+  color: #b0937a;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+/* Checkbox "Destacado" */
+
+.featured-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+
+  input[type='checkbox'] {
+    width: 14px;
+    height: 14px;
+    accent-color: #f08a3c;
+  }
+}
+
+/* Acciones del formulario */
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.form-actions--edit {
+  margin-top: 16px;
+  justify-content: space-between;
+}
+
+.msg-inline {
+  font-size: 12px;
+  color: #7b5b45;
+}
+
+/* Botón borrar */
+
+.delete-btn {
+  border-radius: 999px;
+  border: 1px solid #f2b8b4;
+  padding: 8px 16px;
+  background-color: #ffe1dd;
+  color: #9b3b3b;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Form de edición dentro del modal */
+
+.admin-edit-form {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f3e1d4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-edit-form__title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #7b5b45;
+}
+
+/* =========================================
+   RESPONSIVE
+   ========================================= */
+
+@media (max-width: 900px) {
+  .servicios {
+    padding-top: 40px;
+  }
+
+  .admin-form__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .servicios-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .modal-card {
+    padding: 20px 16px 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .servicios__title {
+    font-size: 26px;
+  }
+
+  .card-content {
+    padding-inline: 16px;
+  }
+
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+
+    .btn-primary,
+    .btn-outline {
+      width: 100%;
+      justify-content: center;
+      text-align: center;
     }
   }
-  
+}

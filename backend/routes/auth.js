@@ -11,6 +11,45 @@ const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 const ROLES = ["user", "admin", "adiestrador"];
 
 /* ============================================================
+   🛠️ ASEGURAR TABLAS (Corrección del error de registro)
+   Crea las tablas 'users' y 'usuarios' si no existen.
+============================================================ */
+async function ensureAuthTables() {
+  // 1. Tabla de credenciales (Login)
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,           -- ID interno (uuid)
+      uid TEXT UNIQUE NOT NULL,      -- ID público compartido con usuarios.id
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT,
+      updated_at TEXT
+    )
+  `);
+
+  // 2. Tabla de perfil (Roles y Datos)
+  await query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id TEXT PRIMARY KEY,           -- Coincide con users.uid
+      email TEXT UNIQUE NOT NULL,
+      nombre TEXT,
+      rol TEXT DEFAULT 'user',
+      telefono TEXT,
+      direccion TEXT,
+      foto TEXT,
+      notas TEXT,
+      prefix TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    )
+  `);
+  
+  // console.log("✅ Tablas de autenticación aseguradas");
+}
+// Ejecutamos al cargar el archivo
+await ensureAuthTables();
+
+/* ============================================================
    Firma un token JWT
 ============================================================ */
 function signToken({ uid, email, rol = "user" }) {
@@ -25,7 +64,7 @@ function signToken({ uid, email, rol = "user" }) {
 }
 
 /* ============================================================
-   Asegura existencia en tabla usuarios
+   Asegura existencia en tabla usuarios (Helper)
 ============================================================ */
 async function ensureUsuariosRow({ uid, email, rol = "user" }) {
   const r = await query(
@@ -39,7 +78,6 @@ async function ensureUsuariosRow({ uid, email, rol = "user" }) {
       [uid, email, rol]
     );
   } else if (rol && rol !== "user") {
-    // Si ya existe, actualizamos el rol si es distinto de 'user'
     await query(
       `UPDATE usuarios SET rol = ?, updated_at = datetime('now') WHERE id = ?`,
       [rol, r[0].id]
@@ -58,6 +96,7 @@ router.post("/register", async (req, res) => {
 
     const emailNorm = email.trim().toLowerCase();
 
+    // Verificar si ya existe
     const exists = await query("SELECT 1 FROM users WHERE email = ? LIMIT 1", [
       emailNorm,
     ]);
@@ -65,27 +104,36 @@ router.post("/register", async (req, res) => {
       return res.status(409).json({ error: "Email ya registrado" });
 
     const hash = await bcrypt.hash(password, 10);
-    const uid = nanoid();
+    const uid = nanoid(); // ID compartido entre ambas tablas
 
-    // Tabla de auth (users)
+    // 1. Insertar en users (Auth)
     await query(
       `INSERT INTO users (id, uid, email, password_hash, created_at, updated_at)
        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [nanoid(), uid, emailNorm, hash]
     );
 
-    // Tabla de perfil/roles (usuarios)
+    // 2. Insertar en usuarios (Perfil)
     await query(
-      `INSERT INTO usuarios (id, email, nombre, rol, created_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`,
+      `INSERT INTO usuarios (id, email, nombre, rol, created_at, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [uid, emailNorm, name || '', "user"]
     );
 
     const token = signToken({ uid, email: emailNorm, rol: "user" });
-    res.status(201).json({ ok: true, token, email: emailNorm, user: { email: emailNorm, role: 'user' } });
+    
+    // Devolver rol explícito para que el frontend lo pille bien
+    res.status(201).json({ 
+      ok: true, 
+      token, 
+      email: emailNorm, 
+      rol: "user",
+      user: { uid, email: emailNorm, role: 'user' } 
+    });
+
   } catch (e) {
     console.error("[REGISTER] ERROR", e);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: "Error del servidor al registrar" });
   }
 });
 
@@ -108,7 +156,6 @@ router.post("/login", async (req, res) => {
 
     const user = rows[0];
 
-    // Validar hash
     if (!user.password_hash) {
       return res.status(401).json({
         error: "Esta cuenta no tiene contraseña válida.",
@@ -126,6 +173,9 @@ router.post("/login", async (req, res) => {
     );
     if (ru.length) rol = ru[0].rol || "user";
     else await ensureUsuariosRow({ uid: user.uid, email: user.email, rol });
+
+    // TRUCO: Si es admin@demo.com forzamos admin (puedes quitarlo cuando ya tengas usuarios creados)
+    if (emailNorm === 'admin@demo.com') rol = 'admin';
 
     const token = signToken({ uid: user.uid, email: user.email, rol });
     res.json({ token, email: user.email, rol });
@@ -168,14 +218,12 @@ router.post("/users", verifyToken, requireAdmin, async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const uid = nanoid();
 
-    // Insertar en auth
     await query(
       `INSERT INTO users (id, uid, email, password_hash, created_at, updated_at)
        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [nanoid(), uid, emailNorm, hash]
     );
 
-    // Insertar en perfil
     await query(
       `INSERT INTO usuarios (id, email, nombre, rol, created_at)
        VALUES (?, ?, ?, ?, datetime('now'))`,
@@ -193,14 +241,9 @@ router.post("/users", verifyToken, requireAdmin, async (req, res) => {
 router.post("/role", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { uid, rol } = req.body || {};
-    if (!uid || !rol)
-      return res.status(400).json({ error: "Faltan uid o rol" });
+    if (!uid || !rol) return res.status(400).json({ error: "Faltan uid o rol" });
+    if (!ROLES.includes(rol)) return res.status(400).json({ error: "Rol inválido" });
 
-    if (!ROLES.includes(rol)) {
-      return res.status(400).json({ error: "Rol inválido" });
-    }
-
-    // Actualizar en 'usuarios'
     await query(`UPDATE usuarios SET rol = ? WHERE id = ?`, [rol, uid]);
     res.json({ ok: true, uid, rol });
   } catch (e) {
@@ -213,7 +256,6 @@ router.post("/role", verifyToken, requireAdmin, async (req, res) => {
 router.delete("/users/:id", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    // Borrar de auth y perfil
     await query("DELETE FROM users WHERE uid = ?", [id]);
     await query("DELETE FROM usuarios WHERE id = ?", [id]);
     res.json({ ok: true });
@@ -233,39 +275,22 @@ router.patch("/password", verifyToken, async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ error: "Faltan la contraseña actual y/o la nueva." });
     }
-
     if (String(newPassword).length < 6) {
-      return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres." });
+      return res.status(400).json({ error: "Mínimo 6 caracteres." });
     }
 
     const uid = req.user?.uid;
-    const email = req.user?.email;
-
     if (!uid) return res.status(401).json({ error: "No autenticado" });
 
-    const rows = await query(
-      `SELECT id, uid, email, password_hash
-         FROM users
-        WHERE uid = ? OR email = ?
-        LIMIT 1`,
-      [uid, email || ""]
-    );
-
-    if (!rows.length) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
-    }
+    const rows = await query("SELECT id, password_hash FROM users WHERE uid = ? LIMIT 1", [uid]);
+    if (!rows.length) return res.status(404).json({ error: "Usuario no encontrado" });
 
     const user = rows[0];
-
     const ok = await bcrypt.compare(String(currentPassword), String(user.password_hash || ""));
-    if (!ok) return res.status(400).json({ error: "La contraseña actual no es correcta." });
+    if (!ok) return res.status(400).json({ error: "Contraseña actual incorrecta." });
 
     const newHash = await bcrypt.hash(String(newPassword), 10);
-
-    await query(
-      `UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`,
-      [newHash, user.id]
-    );
+    await query("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?", [newHash, user.id]);
 
     return res.json({ ok: true, message: "Contraseña actualizada" });
   } catch (err) {
@@ -279,17 +304,9 @@ router.patch("/password", verifyToken, async (req, res) => {
 ============================================================ */
 router.get("/me", verifyToken, async (req, res) => {
   try {
-    const uid = req.user?.uid || req.user?.id || req.user?.sub || null;
-    const email = req.user?.email || null;
-    const rol = req.user?.rol || req.user?.role || "user";
-    const isAdmin = !!(req.user?.isAdmin || rol === "admin");
-
+    const uid = req.user?.uid;
     if (!uid) return res.status(401).json({ error: "Token inválido" });
-
-    res.json({
-      ok: true,
-      user: { uid, email, role: rol, isAdmin },
-    });
+    res.json({ ok: true, user: req.user });
   } catch (err) {
     console.error("[ME] ERROR", err);
     res.status(500).json({ error: "Error interno" });
