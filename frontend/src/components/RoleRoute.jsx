@@ -1,21 +1,23 @@
 // frontend/src/components/RoleRoute.jsx
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../context/auth';
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../context/auth";
 
 export default function RoleRoute({ children, allow = [] }) {
   const { role, user, loading } = useAuth();
 
-  if (loading) return null;
-
-  // 1. Si se requiere 'admin' y el usuario tiene la flag isAdmin, permitir acceso
-  if (allow.includes('admin') && user?.isAdmin) {
-    return children;
+  // Mientras se cargan los datos de auth, mejor mostrar algo
+  if (loading) {
+    return <div className="page-wrapper">Cargando permisos…</div>;
   }
 
-  // 2. Comprobación estándar de rol
-  if (!allow.includes(role)) {
+  // Si el backend marca isAdmin en el token, forzamos rol admin
+  const effectiveRole = user?.isAdmin ? "admin" : role;
+
+  // Si hay lista de roles permitidos y el usuario NO está en la lista → fuera
+  if (allow.length > 0 && !allow.includes(effectiveRole)) {
     return <Navigate to="/" replace />;
   }
 
+  // Tiene permiso → renderizamos el contenido protegido
   return children;
 }

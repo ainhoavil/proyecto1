@@ -1,9 +1,10 @@
+// frontend/src/App.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 
 // Layout
 import Navbar from "./components/navbar";
 import Topbar from "./components/topbar";
-import Footer from "./components/Footer"; // 👈 NUEVO
+import Footer from "./components/Footer";
 
 // Contextos
 import { AuthProvider } from "./context/auth";
@@ -24,6 +25,8 @@ import Contratar from "./pages/contratar.jsx";
 
 // Páginas protegidas
 import Perfil from "./pages/perfil.jsx";
+import AdminPanel from "./pages/admin.jsx";
+import TrainerAgenda from "./pages/trainerAgenda.jsx"; // 👈 Agenda adiestrador
 
 // Import global styles
 import "./styles/global.scss";
@@ -62,6 +65,30 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Reservas />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ===== PANEL ADMIN (solo admin) ===== */}
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["admin"]}>
+                  <AdminPanel />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ===== AGENDA ADIESTRADOR (adiestrador + admin) ===== */}
+          <Route
+            path="/trainer-agenda"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["adiestrador", "admin"]}>
+                  <TrainerAgenda />
+                </RoleRoute>
               </ProtectedRoute>
             }
           />

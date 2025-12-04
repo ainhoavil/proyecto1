@@ -26,6 +26,7 @@ export default function Register() {
     if (loading) return;
 
     setError('');
+
     if (pass !== pass2) {
       setError('Las contraseñas no coinciden.');
       return;
@@ -35,31 +36,36 @@ export default function Register() {
       return;
     }
 
+    const emailNorm = email.trim().toLowerCase();
+
     setLoading(true);
     try {
-      // Esperado: POST /api/auth/register { name, email, password }
-      const res = await http('/api/auth/register', {
+      // Tu backend: POST /api/auth/register (http añade el /api)
+      // body: { name, email, password }
+      const res = await http('/auth/register', {
         method: 'POST',
-        data: { name: nombre, email, password: pass },
+        data: { name: nombre, email: emailNorm, password: pass },
       });
 
-      // Si el backend devuelve token, iniciamos sesión automáticamente
-      const token =
-        res?.token || res?.accessToken || res?.jwt || res?.data?.token || null;
+      // Backend devuelve: { ok, token, email, rol, user: { uid, email, role } }
+      const token = res?.token || null;
+      const role  = res?.rol || res?.user?.role || 'user';
 
-      const role =
-        res?.user?.role || res?.role || res?.data?.user?.role || 'client';
-
-      const user =
-        res?.user || res?.data?.user || { email, name: nombre };
+      const user = res?.user || {
+        uid: res?.uid,
+        email: emailNorm,
+        nombre,
+        role,
+      };
 
       if (token) {
-        // Sesión directa
+        // Login automático
         loginSuccess({ token, role, user });
+
         const next = nextParam || location.state?.next || '/';
         navigate(next, { replace: true });
       } else {
-        // Sin token: redirige a login llevando next
+        // Sin token (no debería pasar con tu backend), mandamos a login
         const nextLogin = nextParam
           ? `/login?next=${encodeURIComponent(nextParam)}`
           : '/login';
@@ -67,9 +73,18 @@ export default function Register() {
       }
     } catch (err) {
       const status = err?.status || err?.response?.status;
-      if (status === 409) setError('Ese email ya está registrado.');
-      else if (status === 400) setError('Datos inválidos. Revisa el formulario.');
-      else setError('No se pudo crear la cuenta. Inténtalo de nuevo.');
+      const backendMsg =
+        err?.data?.error ||
+        err?.response?.data?.error ||
+        '';
+
+      if (status === 409) {
+        setError(backendMsg || 'Ese email ya está registrado.');
+      } else if (status === 400) {
+        setError(backendMsg || 'Datos inválidos. Revisa el formulario.');
+      } else {
+        setError(backendMsg || 'No se pudo crear la cuenta. Inténtalo de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -159,12 +174,22 @@ export default function Register() {
           {loading ? 'Creando…' : 'Registrarse'}
         </button>
 
-        {error && <div role="alert" style={{ color: 'crimson' }}>{error}</div>}
+        {error && (
+          <div role="alert" style={{ color: 'crimson' }}>
+            {error}
+          </div>
+        )}
       </form>
 
       <p style={{ marginTop: 12 }}>
         ¿Ya tienes cuenta?{' '}
-        <Link to={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'}>
+        <Link
+          to={
+            nextParam
+              ? `/login?next=${encodeURIComponent(nextParam)}`
+              : '/login'
+          }
+        >
           Inicia sesión
         </Link>
       </p>

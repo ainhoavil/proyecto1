@@ -126,7 +126,7 @@ export default function PerfilPage() {
         "";
 
       if (status === 400) {
-        setPassError(backendMsg);
+        setPassError(backendMsg || "Petición incorrecta.");
       } else if (status === 401) {
         setPassError("Tu sesión ha expirado. Inicia sesión otra vez.");
       } else if (status === 404) {
