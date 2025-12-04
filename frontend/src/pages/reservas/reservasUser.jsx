@@ -8,7 +8,9 @@ import '../../styles/contratar.scss'; // reutilizamos estilos de botones / card
 function formatEUR(value, currency = 'EUR') {
   if (value == null) return 'A consultar';
   try {
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(value);
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(
+      value
+    );
   } catch {
     return `${value} ${currency}`;
   }
@@ -66,10 +68,10 @@ function renderPerro(perro) {
 
 function statusLabel(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'pending' || s === 'pendiente') return 'Pending';
-  if (s === 'confirmed' || s === 'confirmada') return 'Confirmed';
-  if (s === 'cancelled' || s === 'cancelada') return 'Cancelled';
-  if (s === 'rejected' || s === 'rechazada') return 'Rejected';
+  if (s === 'pending' || s === 'pendiente') return 'Pendiente centro';
+  if (s === 'confirmed' || s === 'confirmada') return 'Confirmada';
+  if (s === 'cancelled' || s === 'cancelada') return 'Cancelada';
+  if (s === 'rejected' || s === 'rechazada') return 'Rechazada';
   if (s === 'pending_user') return 'Pendiente (tu aceptación)';
   return s || 'Estado';
 }
@@ -80,7 +82,7 @@ function statusClass(status) {
   if (s === 'confirmed' || s === 'confirmada') return 'badge badge-confirmed';
   if (s === 'cancelled' || s === 'cancelada') return 'badge badge-cancelled';
   if (s === 'rejected' || s === 'rechazada') return 'badge badge-rejected';
-  if (s === 'pending_user') return 'badge badge-pending';
+  if (s === 'pending_user') return 'badge badge-pending-user';
   return 'badge';
 }
 
@@ -157,7 +159,10 @@ function ReservaCard({
         </div>
       </div>
 
-      <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div
+        style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}
+        className="reservas-actions-row"
+      >
         <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
           📝 Notas
           {countNotas != null ? ` (${countNotas})` : ''}
@@ -189,40 +194,20 @@ function ReservaCard({
 
       {/* === Panel desplegable de notas dentro de la card === */}
       {isNotesOpen && (
-        <div
-          style={{
-            marginTop: 10,
-            padding: 10,
-            borderRadius: 10,
-            background: '#fafafa',
-            border: '1px solid #e4e4e4',
-          }}
-        >
+        <div className="reservas-notes">
           {loadingNotes ? (
-            <p style={{ fontSize: 14 }}>Cargando notas…</p>
+            <p className="reservas-notes__loading">Cargando notas…</p>
           ) : !notes || notes.length === 0 ? (
-            <p style={{ fontSize: 14 }}>No hay notas todavía.</p>
+            <p className="reservas-notes__empty">No hay notas todavía.</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="reservas-notes__list">
               {notes.map((n) => (
-                <div
-                  key={n.id}
-                  style={{
-                    padding: 8,
-                    borderRadius: 8,
-                    background: '#ffffff',
-                    border: '1px solid #e4e4e4',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
+                <div key={n.id} className="reservas-notes__item">
                   <div>
-                    <div style={{ fontSize: 12, marginBottom: 4 }}>
+                    <div className="reservas-notes__meta">
                       <b>{n.author || 'Centro'}</b>{' '}
                       {n.createdAt && (
-                        <span style={{ opacity: 0.7 }}>
+                        <span>
                           ·{' '}
                           {new Date(n.createdAt).toLocaleString('es-ES', {
                             hour: '2-digit',
@@ -233,12 +218,13 @@ function ReservaCard({
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 14 }}>{n.text || n.nota}</div>
+                    <div className="reservas-notes__text">
+                      {n.text || n.nota}
+                    </div>
                   </div>
                   {onDeleteNote && (
                     <button
                       className="btn-ghost"
-                      style={{ padding: '4px 6px' }}
                       onClick={() => onDeleteNote(n.id)}
                       title="Eliminar nota"
                     >
@@ -251,24 +237,15 @@ function ReservaCard({
           )}
 
           {/* zona de “chat” para añadir nueva nota */}
-          <div style={{ marginTop: 10 }}>
+          <div className="reservas-notes__new">
             <textarea
               rows={2}
-              style={{
-                width: '100%',
-                borderRadius: 8,
-                border: '1px solid #e4e4e4',
-                padding: 8,
-                resize: 'vertical',
-                fontSize: 14,
-              }}
               placeholder="Escribe una nota…"
               value={newNote}
               onChange={(e) => onChangeNote(e.target.value)}
             />
             <button
               className="btn-primary"
-              style={{ marginTop: 6, width: '100%' }}
               onClick={onAddNote}
               disabled={!newNote.trim()}
             >
@@ -286,6 +263,9 @@ export default function ReservasUser() {
   const { isAuthenticated } = useAuth();
   const [reservas, setReservas] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // buscador
+  const [search, setSearch] = useState('');
 
   // calendario
   const [mesBase, setMesBase] = useState(
@@ -319,10 +299,35 @@ export default function ReservasUser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  // mapa de días con reservas (YYYY-MM-DD)
+  // texto de filtro
+  const filtro = search.trim().toLowerCase();
+
+  // reservas filtradas por búsqueda
+  const reservasFiltradas = useMemo(() => {
+    if (!filtro) return reservas;
+
+    return reservas.filter((r) => {
+      const perroStr =
+        typeof r.perro === 'string' ? r.perro : renderPerro(r.perro);
+      const campos = [
+        r.servicioTitulo,
+        r.servicioId,
+        perroStr,
+        r.fecha,
+        r.hora,
+        statusLabel(r.status),
+      ];
+
+      return campos.some((v) =>
+        String(v || '').toLowerCase().includes(filtro)
+      );
+    });
+  }, [reservas, filtro]);
+
+  // mapa de días con reservas (YYYY-MM-DD) usando las filtradas
   const fechasConReservas = useMemo(() => {
     const map = new Map();
-    for (const r of reservas) {
+    for (const r of reservasFiltradas) {
       if (!r.fecha) continue;
       const f = String(r.fecha).slice(0, 10);
       const list = map.get(f) || [];
@@ -330,44 +335,44 @@ export default function ReservasUser() {
       map.set(f, list);
     }
     return map;
-  }, [reservas]);
+  }, [reservasFiltradas]);
 
   const reservasDelDiaSeleccionado = useMemo(() => {
     if (!selectedDate) return [];
     return fechasConReservas.get(selectedDate) || [];
   }, [fechasConReservas, selectedDate]);
 
-  // agrupaciones por estado
+  // agrupaciones por estado (también usando filtradas)
   const pendientesCentro = useMemo(
     () =>
-      reservas.filter((r) => {
+      reservasFiltradas.filter((r) => {
         const s = String(r.status || '').toLowerCase();
         return s === 'pending' || s === 'pendiente';
       }),
-    [reservas]
+    [reservasFiltradas]
   );
 
   const pendientesUsuario = useMemo(
     () =>
-      reservas.filter((r) => {
+      reservasFiltradas.filter((r) => {
         const s = String(r.status || '').toLowerCase();
         return s === 'pending_user';
       }),
-    [reservas]
+    [reservasFiltradas]
   );
 
   const confirmadas = useMemo(
     () =>
-      reservas.filter((r) => {
+      reservasFiltradas.filter((r) => {
         const s = String(r.status || '').toLowerCase();
         return s === 'confirmed' || s === 'confirmada';
       }),
-    [reservas]
+    [reservasFiltradas]
   );
 
   const canceladasRechazadas = useMemo(
     () =>
-      reservas.filter((r) => {
+      reservasFiltradas.filter((r) => {
         const s = String(r.status || '').toLowerCase();
         return (
           s === 'cancelled' ||
@@ -376,12 +381,13 @@ export default function ReservasUser() {
           s === 'rechazada'
         );
       }),
-    [reservas]
+    [reservasFiltradas]
   );
 
   // cancelar reserva
   const handleCancel = async (r) => {
-    if (!window.confirm(`¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`)) return;
+    if (!window.confirm(`¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`))
+      return;
     try {
       await http(`/api/reservas/${r.id}/cancel`, {
         method: 'PATCH',
@@ -398,7 +404,11 @@ export default function ReservasUser() {
   // aceptar / rechazar cuando está en pending_user
   const handleUserDecision = async (r, action) => {
     const verb = action === 'confirm' ? 'aceptar' : 'rechazar';
-    if (!window.confirm(`¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`)) {
+    if (
+      !window.confirm(
+        `¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`
+      )
+    ) {
       return;
     }
     try {
@@ -418,7 +428,9 @@ export default function ReservasUser() {
   const loadNotes = async (reserva) => {
     setLoadingNotes(true);
     try {
-      const data = await http(`/api/reservas/${reserva.id}/notes`, { auth: true });
+      const data = await http(`/api/reservas/${reserva.id}/notes`, {
+        auth: true,
+      });
       setNotes(Array.isArray(data) ? data : data?.items || []);
     } catch (e) {
       console.error('Error cargando notas', e);
@@ -457,7 +469,9 @@ export default function ReservasUser() {
       await loadNotes({ id: openNotesId });
     } catch (e) {
       console.error('Error guardando nota', e);
-      alert('No se pudo guardar la nota (revisa qué campo espera el backend).');
+      alert(
+        'No se pudo guardar la nota (revisa qué campo espera el backend).'
+      );
     }
   };
 
@@ -472,14 +486,16 @@ export default function ReservasUser() {
       await loadNotes({ id: openNotesId });
     } catch (e) {
       console.error('Error eliminando nota', e);
-      alert('No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).');
+      alert(
+        'No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).'
+      );
     }
   };
 
   if (!isAuthenticated) {
     return (
       <div className="card contratar-page">
-        <h1>Mis reservas</h1>
+        <h1>Reservas</h1>
         <p>Necesitas iniciar sesión para ver tus reservas.</p>
       </div>
     );
@@ -488,7 +504,7 @@ export default function ReservasUser() {
   if (loading) {
     return (
       <div className="card contratar-page">
-        <h1>Mis reservas</h1>
+        <h1>Reservas</h1>
         <p>Cargando…</p>
       </div>
     );
@@ -497,23 +513,40 @@ export default function ReservasUser() {
   // ==== render ====
   return (
     <div className="card contratar-page">
-      <h1>Mis reservas</h1>
-      <p style={{ marginBottom: 24 }}>
-        Recuerda: puedes cancelar sin coste hasta 24 horas antes de la cita.
+      <p className="reservas-eyebrow">Sesión iniciada</p>
+      <h1>Reservas</h1>
+      <p className="reservas-subtitle">
+        Consulta tu calendario de reservas y gestiona su estado. Puedes
+        comunicarte con el centro directamente desde cada reserva usando el
+        sistema de notas.
       </p>
+
+      {/* Buscador */}
+      <div className="reservas-search">
+        <input
+          type="search"
+          placeholder="Buscar por servicio, perro, fecha o estado…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
 
       {/* ==== Calendario resumen ==== */}
       <section className="month-scheduler" style={{ marginBottom: 32 }}>
         <div className="month-header">
           <button
             className="btn-ghost"
+            type="button"
             onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
+              setMesBase(
+                new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1)
+              )
             }
           >
             ‹
           </button>
           <div className="month-label">
+            Calendario de reservas ·{' '}
             {mesBase.toLocaleString('es-ES', {
               month: 'long',
               year: 'numeric',
@@ -521,8 +554,11 @@ export default function ReservasUser() {
           </div>
           <button
             className="btn-ghost"
+            type="button"
             onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
+              setMesBase(
+                new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1)
+              )
             }
           >
             ›
@@ -530,7 +566,7 @@ export default function ReservasUser() {
         </div>
 
         <div className="weekdays">
-          {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => (
+          {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
             <div key={d}>{d}</div>
           ))}
         </div>
@@ -554,7 +590,11 @@ export default function ReservasUser() {
               let hasReserva = false;
 
               if (inMonth) {
-                const d = new Date(mesBase.getFullYear(), mesBase.getMonth(), dayNum);
+                const d = new Date(
+                  mesBase.getFullYear(),
+                  mesBase.getMonth(),
+                  dayNum
+                );
                 f = ymd(d);
                 disabled = false;
                 isSelected = f === selectedDate;
@@ -566,15 +606,13 @@ export default function ReservasUser() {
                   key={i}
                   type="button"
                   className={`daycell ${inMonth ? '' : 'out'} ${
-                    disabled ? 'disabled' : ''
-                  } ${isSelected ? 'selected' : ''} ${
-                    hasReserva ? 'has-reserva' : ''
-                  }`}
+                    isSelected ? 'selected' : ''
+                  } ${hasReserva ? 'has-reserva' : ''}`}
                   onClick={() => {
-                    if (!inMonth || disabled) return;
+                    if (!inMonth) return;
                     setSelectedDate(f === selectedDate ? '' : f);
                   }}
-                  disabled={!inMonth || disabled}
+                  disabled={!inMonth}
                 >
                   {inMonth ? dayNum : ''}
                 </button>
@@ -584,13 +622,26 @@ export default function ReservasUser() {
           })()}
         </div>
 
+        <div className="month-legend">
+          <span>
+            <span className="legend-dot legend-dot--pending" /> Pendiente
+          </span>
+          <span>
+            <span className="legend-dot legend-dot--confirmed" /> Confirmada
+          </span>
+          <span>
+            <span className="legend-dot legend-dot--cancelled" /> Cancelada /
+            rechazada
+          </span>
+        </div>
+
         {selectedDate && (
-          <div style={{ marginTop: 12 }}>
+          <div className="month-selected">
             <strong>Reservas del día: {renderFecha(selectedDate)}</strong>
             {reservasDelDiaSeleccionado.length === 0 ? (
-              <p style={{ fontSize: 14, marginTop: 4 }}>No tienes reservas ese día.</p>
+              <p className="reservas-empty">No tienes reservas ese día.</p>
             ) : (
-              <div style={{ marginTop: 8 }}>
+              <div className="reservas-list reservas-list--day">
                 {reservasDelDiaSeleccionado.map((r) => (
                   <ReservaCard
                     key={r.id}
@@ -613,108 +664,112 @@ export default function ReservasUser() {
         )}
       </section>
 
-      {/* ==== Listas por estado ==== */}
-      <section style={{ marginBottom: 32 }}>
-        <h2>Pendientes (confirmación del centro)</h2>
+      {/* ==== Listas por estado, todas seguidas ==== */}
+      <section className="reservas-section">
+        <h2>Pendientes por confirmar por el centro</h2>
         {pendientesCentro.length === 0 ? (
-          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
-            Sin registros.
-          </div>
+          <p className="reservas-empty">No tienes reservas pendientes de centro.</p>
         ) : (
-          pendientesCentro.map((r) => (
-            <ReservaCard
-              key={r.id}
-              r={r}
-              onCancel={handleCancel}
-              onToggleNotes={handleToggleNotes}
-              onUserDecision={handleUserDecision}
-              isNotesOpen={openNotesId === r.id}
-              notes={notes}
-              loadingNotes={loadingNotes}
-              newNote={newNote}
-              onChangeNote={setNewNote}
-              onAddNote={handleAddNote}
-              onDeleteNote={handleDeleteNote}
-            />
-          ))
+          <div className="reservas-list">
+            {pendientesCentro.map((r) => (
+              <ReservaCard
+                key={r.id}
+                r={r}
+                onCancel={handleCancel}
+                onToggleNotes={handleToggleNotes}
+                onUserDecision={handleUserDecision}
+                isNotesOpen={openNotesId === r.id}
+                notes={notes}
+                loadingNotes={loadingNotes}
+                newNote={newNote}
+                onChangeNote={setNewNote}
+                onAddNote={handleAddNote}
+                onDeleteNote={handleDeleteNote}
+              />
+            ))}
+          </div>
         )}
       </section>
 
-      <section style={{ marginBottom: 32 }}>
-        <h2>Pendientes (tu aceptación)</h2>
+      <section className="reservas-section">
+        <h2>Pendientes por confirmar por el usuario</h2>
         {pendientesUsuario.length === 0 ? (
-          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
-            Sin registros.
-          </div>
+          <p className="reservas-empty">
+            No tienes reservas pendientes de tu aceptación.
+          </p>
         ) : (
-          pendientesUsuario.map((r) => (
-            <ReservaCard
-              key={r.id}
-              r={r}
-              onCancel={handleCancel}
-              onToggleNotes={handleToggleNotes}
-              onUserDecision={handleUserDecision}
-              isNotesOpen={openNotesId === r.id}
-              notes={notes}
-              loadingNotes={loadingNotes}
-              newNote={newNote}
-              onChangeNote={setNewNote}
-              onAddNote={handleAddNote}
-              onDeleteNote={handleDeleteNote}
-            />
-          ))
+          <div className="reservas-list">
+            {pendientesUsuario.map((r) => (
+              <ReservaCard
+                key={r.id}
+                r={r}
+                onCancel={handleCancel}
+                onToggleNotes={handleToggleNotes}
+                onUserDecision={handleUserDecision}
+                isNotesOpen={openNotesId === r.id}
+                notes={notes}
+                loadingNotes={loadingNotes}
+                newNote={newNote}
+                onChangeNote={setNewNote}
+                onAddNote={handleAddNote}
+                onDeleteNote={handleDeleteNote}
+              />
+            ))}
+          </div>
         )}
       </section>
 
-      <section style={{ marginBottom: 32 }}>
+      <section className="reservas-section">
         <h2>Confirmadas</h2>
         {confirmadas.length === 0 ? (
-          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
-            Sin registros.
-          </div>
+          <p className="reservas-empty">No tienes reservas confirmadas.</p>
         ) : (
-          confirmadas.map((r) => (
-            <ReservaCard
-              key={r.id}
-              r={r}
-              onCancel={handleCancel}
-              onToggleNotes={handleToggleNotes}
-              onUserDecision={handleUserDecision}
-              isNotesOpen={openNotesId === r.id}
-              notes={notes}
-              loadingNotes={loadingNotes}
-              newNote={newNote}
-              onChangeNote={setNewNote}
-              onAddNote={handleAddNote}
-              onDeleteNote={handleDeleteNote}
-            />
-          ))
+          <div className="reservas-list">
+            {confirmadas.map((r) => (
+              <ReservaCard
+                key={r.id}
+                r={r}
+                onCancel={handleCancel}
+                onToggleNotes={handleToggleNotes}
+                onUserDecision={handleUserDecision}
+                isNotesOpen={openNotesId === r.id}
+                notes={notes}
+                loadingNotes={loadingNotes}
+                newNote={newNote}
+                onChangeNote={setNewNote}
+                onAddNote={handleAddNote}
+                onDeleteNote={handleDeleteNote}
+              />
+            ))}
+          </div>
         )}
       </section>
 
-      <section style={{ marginBottom: 32 }}>
+      <section className="reservas-section">
         <h2>Canceladas / Rechazadas</h2>
         {canceladasRechazadas.length === 0 ? (
-          <div className="card" style={{ background: '#f7f7f7', marginTop: 8 }}>
-            Sin registros.
-          </div>
+          <p className="reservas-empty">
+            No tienes reservas canceladas ni rechazadas.
+          </p>
         ) : (
-          canceladasRechazadas.map((r) => (
-            <ReservaCard
-              key={r.id}
-              r={r}
-              onCancel={handleCancel}
-              onToggleNotes={handleToggleNotes}
-              onUserDecision={handleUserDecision}
-              isNotesOpen={openNotesId === r.id}
-              notes={notes}
-              loadingNotes={loadingNotes}
-              newNote={newNote}
-              onChangeNote={setNewNote}
-              onAddNote={handleAddNote}
-              onDeleteNote={handleDeleteNote}
-            />
-          ))
+          <div className="reservas-list">
+            {canceladasRechazadas.map((r) => (
+              <ReservaCard
+                key={r.id}
+                r={r}
+                onCancel={handleCancel}
+                onToggleNotes={handleToggleNotes}
+                onUserDecision={handleUserDecision}
+                isNotesOpen={openNotesId === r.id}
+                notes={notes}
+                loadingNotes={loadingNotes}
+                newNote={newNote}
+                onChangeNote={setNewNote}
+                onAddNote={handleAddNote}
+                onDeleteNote={handleDeleteNote}
+              />
+            ))}
+          </div>
         )}
       </section>
     </div>

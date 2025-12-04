@@ -1,0 +1,374 @@
+/* ================================
+   PÁGINA DE ACCESO DOGFORM
+================================ */
+
+.access-page {
+  background-color: #f6efe8;
+  padding: 32px 0 80px;
+}
+
+.access-page__container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-inline: 16px;
+}
+
+/* Cabecera */
+
+.access-header__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #b39a82;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
+.access-header__title {
+  font-size: 26px;
+  font-weight: 600;
+  color: #2c2723;
+  margin: 0 0 6px;
+}
+
+.access-header__lead {
+  max-width: 640px;
+  font-size: 14px;
+  color: #6b5b51;
+  margin: 0 0 18px;
+}
+
+/* Layout 2 columnas */
+
+.access-layout {
+  margin-top: 26px;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.1fr);
+  align-items: flex-start;
+}
+
+/* Tarjetas */
+
+.access-card {
+  border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  padding: 0; /* cuerpo gestionado dentro */
+}
+
+.access-card--form {
+  background-color: #ffffff;
+}
+
+.access-card--info {
+  background-color: #fbe8d9;
+  padding: 20px 22px 22px;
+}
+
+.access-card__body {
+  padding: 18px 22px 22px;
+}
+
+.access-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #3a312b;
+  margin: 0 0 4px;
+}
+
+.access-card__subtitle {
+  font-size: 13px;
+  color: #8d7c70;
+  margin: 0 0 14px;
+}
+
+/* Tabs superiores */
+
+.access-tabs {
+  display: flex;
+  padding: 10px 10px 0;
+  gap: 8px;
+}
+
+.access-tab {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px 999px 0 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #b39a82;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.access-tab--active {
+  background-color: #ffffff;
+  color: #2c2723;
+}
+
+/* Formulario */
+
+.access-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.access-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #6b5b51;
+
+  input {
+    border-radius: 8px;
+    border: 1px solid #f1d4c2;
+    padding: 8px 10px;
+    font-size: 13px;
+    background-color: #fdf2e9;
+    outline: none;
+
+    &:focus {
+      border-color: #f37f3b;
+      box-shadow: 0 0 0 1px rgba(243, 127, 59, 0.35);
+    }
+  }
+}
+
+/* Password + botón Ver */
+
+.access-password-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  input {
+    flex: 1;
+  }
+}
+
+.access-link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: #c35a26;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.access-link-btn--right {
+  margin-left: auto;
+}
+
+/* Checkbox + fila pequeña */
+
+.access-form__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.access-form__row--small {
+  font-size: 12px;
+}
+
+.access-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #7f6e62;
+
+  input {
+    margin: 0;
+  }
+}
+
+/* Botones */
+
+.access-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: none;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+
+.access-btn--primary {
+  background-color: #f37f3b;
+  color: #ffffff;
+  box-shadow: 0 14px 32px rgba(243, 127, 59, 0.55);
+  width: 100%;
+
+  &:hover {
+    background-color: #e56f28;
+    box-shadow: 0 18px 40px rgba(243, 127, 59, 0.7);
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    box-shadow: none;
+  }
+}
+
+.access-btn--secondary {
+  background-color: #ffffff;
+  color: #6b5b51;
+  width: 100%;
+  border: 1px solid #e0d4c8;
+
+  &:hover {
+    background-color: #fff7f0;
+  }
+}
+
+/* Texto auxiliar */
+
+.access-muted {
+  font-size: 12px;
+  color: #8d7c70;
+  margin: 4px 0 0;
+}
+
+.access-muted--small {
+  margin-top: 6px;
+}
+
+.access-link {
+  color: #c35a26;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* Divider "o continúa con" */
+
+.access-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: -2px; /* se ajusta con márgenes de botones */
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background-color: rgba(0, 0, 0, 0.06);
+  }
+
+  span {
+    font-size: 12px;
+    color: #a4968a;
+  }
+}
+
+/* Alertas */
+
+.access-alert {
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+}
+
+.access-alert--error {
+  background-color: #fde8e8;
+  border-color: #f39b9b;
+  color: #b83232;
+}
+
+/* Columna derecha: beneficios */
+
+.access-benefits {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  li {
+    display: flex;
+    gap: 10px;
+    font-size: 13px;
+    color: #5f5146;
+  }
+}
+
+.access-benefits__icon {
+  flex: 0 0 22px;
+  height: 22px;
+  border-radius: 999px;
+  background-color: #f37f3b;
+  color: #ffffff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.access-help {
+  font-size: 12px;
+  color: #7f6e62;
+  margin-top: 8px;
+
+  a {
+    color: #c35a26;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+/* Responsive */
+
+@media (max-width: 900px) {
+  .access-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .access-card--info {
+    order: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .access-page {
+    padding-top: 24px;
+  }
+
+  .access-card--info,
+  .access-card__body {
+    padding-inline: 16px;
+  }
+}

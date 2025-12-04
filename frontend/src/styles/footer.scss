@@ -3,9 +3,9 @@
    ============================== */
 
 .df-footer {
-  border-top: 1px solid #f1d9c7; // línea finita como en el diseño
-  background-color: #fff3ea;     // mismo tono que el fondo de la página
-  padding: 32px 0 24px;
+  border-top: 1px solid #f1d9c7; // línea superior muy suave
+  background-color: #fff6ef;     // mismo tono de fondo que el layout
+  padding: 24px 0 28px;
   color: #5f4637;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", sans-serif;
@@ -16,7 +16,7 @@
 .df-footer__inner {
   max-width: 1120px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 32px;
   display: flex;
   flex-direction: column;
 }
@@ -27,9 +27,10 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
+/* Círculo naranja con huellas (como en el navbar) */
 .df-footer__logo {
   width: 40px;
   height: 40px;
@@ -39,14 +40,13 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 10px rgba(240, 138, 60, 0.3);
+  box-shadow: 0 6px 16px rgba(240, 138, 60, 0.4);
+}
 
-  span {
-    font-weight: 600;
-    font-size: 16px;
-    color: #ffffff;
-    letter-spacing: 0.02em;
-  }
+.df-footer__logo-icon {
+  font-size: 18px;
+  line-height: 1;
+  color: #3b2140; /* tono morado oscuro de las huellas */
 }
 
 .df-footer__brand-text {
@@ -59,25 +59,23 @@
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #4c3527;
+  color: #3b281c;
 }
 
 .df-footer__subtitle {
-  margin: 0;
+  margin: 2px 0 0;
   font-size: 13px;
   color: #9a7b63;
 }
 
-/* ===== INFO LÍNEAS ===== */
-
 .df-footer__address {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   font-size: 13px;
   color: #a08168;
 }
 
 .df-footer__copy {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   font-size: 12px;
   color: #b0937a;
 }
@@ -85,7 +83,7 @@
 /* ===== NAV ===== */
 
 .df-footer__nav {
-  margin-top: 24px;
+  margin-top: 18px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -96,7 +94,7 @@
 .df-footer__link {
   text-decoration: none;
   color: #8f6b53;
-  transition: color 0.2s ease, transform 0.15s ease;
+  transition: color 0.18s ease, transform 0.12s ease;
 
   &:hover {
     color: #f08a3c;
@@ -111,7 +109,7 @@
 /* ===== SOCIAL ===== */
 
 .df-footer__social {
-  margin-top: 24px;
+  margin-top: 22px;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -131,8 +129,8 @@
   color: #a47755;
   text-transform: lowercase;
   letter-spacing: 0.03em;
-  transition: background-color 0.2s ease, border-color 0.2s ease,
-    transform 0.15s ease;
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+    transform 0.12s ease, color 0.12s ease;
 
   &:hover {
     background-color: #f08a3c;
@@ -150,24 +148,49 @@
 
 @media (max-width: 768px) {
   .df-footer {
-    padding: 24px 0 20px;
+    padding: 20px 0 22px;
   }
 
   .df-footer__inner {
-    align-items: center;
-    text-align: center;
+    padding-inline: 20px;
   }
 
   .df-footer__brand-row {
-    justify-content: center;
-  }
-
-  .df-footer__address,
-  .df-footer__copy {
-    text-align: center;
+    align-items: flex-start;
   }
 
   .df-footer__social {
     justify-content: center;
+  }
+
+  .df-footer__brand-text {
+    gap: 4px;
+  }
+
+  .df-footer__nav {
+    margin-top: 16px;
+    gap: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .df-footer__inner {
+    padding-inline: 16px;
+  }
+
+  .df-footer__brand-row {
+    flex-direction: row;
+  }
+
+  .df-footer__title {
+    font-size: 16px;
+  }
+
+  .df-footer__subtitle {
+    font-size: 12px;
+  }
+
+  .df-footer__nav {
+    font-size: 12px;
   }
 }

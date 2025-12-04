@@ -1,0 +1,241 @@
+/* =========================================
+   PÁGINA RESERVAS – VISTA PÚBLICA
+   ========================================= */
+
+.reservas-public {
+  padding: 64px 0 80px;
+  background-color: #fff6ef;
+  color: #4c3527;
+
+  &.page-wrapper {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding-inline: 24px;
+  }
+}
+
+.reservas-public__loading {
+  text-align: center;
+  font-size: 14px;
+  color: #8f6b53;
+}
+
+/* ===== HEADER ===== */
+
+.reservas-public__header {
+  margin-bottom: 40px;
+}
+
+.reservas-public__breadcrumb {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #c49c7f;
+}
+
+.reservas-public__title {
+  margin: 0 0 10px;
+  font-size: 26px;
+  font-weight: 600;
+  color: #3b281c;
+}
+
+.reservas-public__subtitle {
+  margin: 0;
+  max-width: 640px;
+  font-size: 14px;
+  color: #a08168;
+}
+
+/* ===== BODY 2 COLUMNAS ===== */
+
+.reservas-public__body {
+  display: flex;
+  align-items: flex-start;
+  gap: 40px;
+  margin-top: 24px;
+}
+
+.reservas-public__left {
+  flex: 1.2;
+}
+
+.reservas-public__right {
+  flex: 1;
+}
+
+/* Divider fino debajo del texto principal */
+
+.reservas-public__divider {
+  border: none;
+  border-top: 1px solid #f0d7c7;
+  margin: 16px 0 20px;
+}
+
+/* Barra naranja grande */
+
+.reservas-public__notice {
+  display: inline-block;
+  width: 100%;
+  padding: 10px 16px;
+  margin-bottom: 24px;
+  border-radius: 12px;
+  background-color: #f08a3c;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Título "Cómo funciona la reserva" */
+
+.reservas-public__section-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #3b281c;
+}
+
+/* Lista de pasos */
+
+.reservas-public__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #7b5b45;
+
+  li + li {
+    margin-top: 4px;
+  }
+}
+
+/* =========================================
+   CARD LOGIN RESERVAS (DERECHA)
+   ========================================= */
+
+.reservas-login-card {
+  background-color: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #f3d8c6;
+  box-shadow: 0 14px 30px rgba(148, 95, 52, 0.08);
+  padding: 20px 22px 18px;
+  font-size: 13px;
+}
+
+.reservas-login-card__title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #3b281c;
+}
+
+.reservas-login-card__subtitle {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #8f6b53;
+}
+
+.reservas-login-card__text {
+  margin: 0 0 18px;
+  color: #a08168;
+  font-size: 13px;
+}
+
+.reservas-login-card__button {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Enlaces inferiores */
+
+.reservas-login-card__links {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #8f6b53;
+}
+
+.reservas-login-card__link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 12px;
+  color: #f08a3c;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* =========================================
+   REUTILIZACIÓN BOTÓN PRIMARIO (por si acaso)
+   ========================================= */
+
+.btn-primary {
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  background-color: #f08a3c;
+  border-color: #f08a3c;
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(240, 138, 60, 0.3);
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease, transform 0.12s ease;
+
+  &:hover {
+    background-color: #f49950;
+    border-color: #f49950;
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+/* =========================================
+   VISTA INTERNA (ya usas .card / .contratar-page)
+   ========================================= */
+
+.reservas-internas {
+  margin-top: 40px;
+}
+
+/* =========================================
+   RESPONSIVE
+   ========================================= */
+
+@media (max-width: 900px) {
+  .reservas-public {
+    padding-top: 40px;
+  }
+
+  .reservas-public__body {
+    flex-direction: column;
+  }
+
+  .reservas-public__right {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .reservas-public__title {
+    font-size: 22px;
+  }
+
+  .reservas-login-card {
+    padding-inline: 16px;
+  }
+}

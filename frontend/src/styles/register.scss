@@ -1,0 +1,367 @@
+/* ================================
+   PÁGINA REGISTRO DOGFORM
+================================ */
+
+.register-page {
+  background-color: #f6efe8;
+  padding: 32px 0 80px;
+}
+
+.register-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-inline: 16px;
+}
+
+/* Cabecera */
+
+.register-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #b39a82;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
+.register-title {
+  font-size: 26px;
+  font-weight: 600;
+  color: #2c2723;
+  margin: 0 0 6px;
+}
+
+.register-lead {
+  max-width: 640px;
+  font-size: 14px;
+  color: #6b5b51;
+  margin: 0 0 18px;
+}
+
+/* Layout 2 columnas */
+
+.register-grid {
+  margin-top: 26px;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.1fr);
+  align-items: flex-start;
+}
+
+/* Tarjetas generales */
+
+.register-card {
+  border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  padding: 0;
+}
+
+.register-card--form {
+  background-color: #ffffff;
+}
+
+.register-card--info {
+  background-color: #fbe8d9;
+  padding: 20px 22px 22px;
+}
+
+.register-card__body {
+  padding: 18px 22px 22px;
+}
+
+/* Tabs Acceder / Crear cuenta */
+
+.register-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 10px 0;
+}
+
+.register-tab {
+  padding: 6px 14px;
+  border-radius: 999px 999px 0 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #b39a82;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.register-tab--active {
+  background-color: #ffffff;
+  color: #2c2723;
+}
+
+/* Títulos dentro de la card izquierda */
+
+.register-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #3a312b;
+  margin: 0 0 4px;
+}
+
+.register-section-sub {
+  font-size: 13px;
+  color: #8d7c70;
+  margin: 0 0 14px;
+}
+
+/* Alertas de error */
+
+.register-alert {
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  background-color: #fde8e8;
+  border: 1px solid #f39b9b;
+  color: #b83232;
+}
+
+/* Formulario principal */
+
+.register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Grid de campos (2 columnas) */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #6b5b51;
+}
+
+.form-grid input {
+  border-radius: 8px;
+  border: 1px solid #f1d4c2;
+  padding: 8px 10px;
+  font-size: 13px;
+  background-color: #fdf2e9;
+  outline: none;
+
+  &:focus {
+    border-color: #f37f3b;
+    box-shadow: 0 0 0 1px rgba(243, 127, 59, 0.35);
+  }
+}
+
+/* Filas de contraseña con botón Ver/Ocultar */
+
+.password-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.password-row input {
+  flex: 1;
+}
+
+.password-row button {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: #c35a26;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* Intereses (chips) */
+
+.intereses {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b5b51;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  border-radius: 999px;
+  border: 1px solid #f1d4c2;
+  padding: 4px 10px;
+  font-size: 12px;
+  background-color: #ffffff;
+  cursor: pointer;
+  color: #7f6e62;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.chip--active {
+  background-color: #f37f3b;
+  border-color: #f37f3b;
+  color: #ffffff;
+}
+
+/* Checkboxes */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: #7f6e62;
+}
+
+.check input {
+  margin-top: 2px;
+}
+
+/* Botón principal */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: none;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #f37f3b;
+  color: #ffffff;
+  box-shadow: 0 14px 32px rgba(243, 127, 59, 0.55);
+  width: 100%;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+
+  &:hover:not(:disabled) {
+    background-color: #e56f28;
+    box-shadow: 0 18px 40px rgba(243, 127, 59, 0.7);
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    box-shadow: none;
+  }
+}
+
+/* Texto muted debajo del botón */
+
+.muted {
+  font-size: 12px;
+  color: #8d7c70;
+  margin-top: 4px;
+
+  a {
+    color: #c35a26;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+/* Card derecha (info) */
+
+.register-info-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #3a312b;
+  margin: 0 0 10px;
+}
+
+.register-info-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: #5f5146;
+}
+
+.register-info-list li {
+  position: relative;
+  padding-left: 14px;
+}
+
+.register-info-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #f37f3b;
+}
+
+.register-help {
+  font-size: 12px;
+  color: #7f6e62;
+  margin-top: 6px;
+
+  a {
+    color: #c35a26;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+/* Responsive */
+
+@media (max-width: 900px) {
+  .register-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .register-card--info {
+    order: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .register-page {
+    padding-top: 24px;
+  }
+
+  .register-card__body,
+  .register-card--info {
+    padding-inline: 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -8,26 +8,23 @@ export default function Footer() {
         {/* BRAND + TEXTO */}
         <div className="df-footer__brand-row">
           <div className="df-footer__logo">
-            <span>DF</span>
+            <span className="df-footer__logo-icon">🐾</span>
           </div>
+
           <div className="df-footer__brand-text">
             <h2 className="df-footer__title">DogForm</h2>
             <p className="df-footer__subtitle">
               La forma más sencilla y profesional de gestionar el bienestar diario
               de tu perro desde un único lugar.
             </p>
+            <p className="df-footer__address">
+              DogForm · C/ Gran Vía 25, 4ºB · 28013 Madrid
+            </p>
+            <p className="df-footer__copy">
+              © DogForm, todos los derechos reservados.
+            </p>
           </div>
         </div>
-
-        {/* DIRECCIÓN */}
-        <p className="df-footer__address">
-          DogForm · C/ Gran Vía 25, 4ºB · 28013 Madrid
-        </p>
-
-        {/* COPYRIGHT */}
-        <p className="df-footer__copy">
-          © DogForm, todos los derechos reservados.
-        </p>
 
         {/* NAVEGACIÓN INFERIOR */}
         <nav className="df-footer__nav">

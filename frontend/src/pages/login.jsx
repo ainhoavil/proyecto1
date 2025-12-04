@@ -1,14 +1,16 @@
 // frontend/src/pages/Login.jsx
-import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { http } from '../helpers/http';
-import { useAuth } from '../context/auth';
+import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { http } from "../helpers/http";
+import { useAuth } from "../context/auth";
+import "../styles/login.scss";
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [pass, setPass] = useState('');
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [error, setError] = useState('');
+  const [recordar, setRecordar] = useState(false); // solo visual, por ahora
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const location = useLocation();
@@ -17,104 +19,233 @@ export default function Login() {
 
   // Propaga ?next= tanto al enlace de registro como a la redirección post-login
   const params = new URLSearchParams(location.search);
-  const nextParam = params.get('next') || '';
+  const nextParam = params.get("next") || "";
 
   const handleLogin = async (e) => {
     e.preventDefault();
     if (loading) return;
 
-    setError('');
+    setError("");
     setLoading(true);
 
     try {
       // POST /api/auth/login { email, password }
       // Backend responde: { token, email, rol }
-      const res = await http('/api/auth/login', {
-        method: 'POST',
+      const res = await http("/api/auth/login", {
+        method: "POST",
         data: { email, password: pass },
       });
 
-      // Delega todo en AuthProvider.loginSuccess
-      // que ya sabe interpretar { token, email, rol }
-      if (typeof loginSuccess === 'function') {
-        loginSuccess(res);
+      if (typeof loginSuccess === "function") {
+        loginSuccess(res, { remember: recordar });
       }
 
-      // Redirección respetando ?next=
-      const next = nextParam || location.state?.next || '/';
+      const next = nextParam || location.state?.next || "/";
       navigate(next, { replace: true });
     } catch (err) {
       const status = err?.status || err?.httpStatus || err?.response?.status;
 
-      if (status === 401) setError('Email o contraseña incorrectos.');
-      else if (status === 400) setError('Solicitud inválida. Revisa los campos.');
-      else if (status === 429) setError('Demasiados intentos. Prueba de nuevo en unos minutos.');
-      else setError('No se pudo iniciar sesión. Inténtalo de nuevo.');
+      if (status === 401) setError("Email o contraseña incorrectos.");
+      else if (status === 400)
+        setError("Solicitud inválida. Revisa los campos.");
+      else if (status === 429)
+        setError("Demasiados intentos. Prueba de nuevo en unos minutos.");
+      else setError("No se pudo iniciar sesión. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
   };
 
+  const registerHref = nextParam
+    ? `/register?next=${encodeURIComponent(nextParam)}`
+    : "/register";
+
   return (
-    <div className="card" style={{ maxWidth: 420, margin: '0 auto' }}>
-      <h1>Iniciar sesión</h1>
+    <div className="access-page">
+      <div className="access-page__container">
+        {/* Cabecera de la página */}
+        <header className="access-header">
+          <span className="access-header__eyebrow">ACCESO CLIENTES</span>
+          <h1 className="access-header__title">
+            Accede o crea tu cuenta en DogForm
+          </h1>
+          <p className="access-header__lead">
+            Gestiona reservas, seguimiento de adiestramiento y comunicación con
+            nuestro equipo desde tu espacio privado.
+          </p>
+        </header>
 
-      <form onSubmit={handleLogin} style={{ display: 'grid', gap: 12 }}>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            inputMode="email"
-            placeholder="tucorreo@ejemplo.com"
-            autoFocus
-          />
-        </label>
+        {/* Layout dos columnas */}
+        <div className="access-layout">
+          {/* Izquierda: tarjeta de login */}
+          <section className="access-card access-card--form">
+            {/* Tabs superiores */}
+            <div className="access-tabs">
+              <button className="access-tab access-tab--active" type="button">
+                Acceder
+              </button>
+              <Link to={registerHref} className="access-tab">
+                Crear cuenta
+              </Link>
+            </div>
 
-        <label>
-          Contraseña
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type={showPass ? 'text' : 'password'}
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-              required
-              autoComplete="current-password"
-              placeholder="Tu contraseña"
-              style={{ flex: 1 }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPass((v) => !v)}
-              aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-              className="btn-link"
-              style={{ minWidth: 90 }}
-            >
-              {showPass ? 'Ocultar' : 'Ver'}
-            </button>
-          </div>
-        </label>
+            <div className="access-card__body">
+              <h2 className="access-card__title">Inicia sesión en tu cuenta</h2>
+              <p className="access-card__subtitle">
+                Introduce tu correo y contraseña para continuar con tus reservas
+                y servicios.
+              </p>
 
-        <button type="submit" disabled={loading || !email || !pass}>
-          {loading ? 'Entrando…' : 'Entrar'}
-        </button>
+              {error && (
+                <div
+                  className="access-alert access-alert--error"
+                  role="alert"
+                >
+                  {error}
+                </div>
+              )}
 
-        {error && (
-          <div role="alert" style={{ color: 'crimson' }}>
-            {error}
-          </div>
-        )}
-      </form>
+              <form className="access-form" onSubmit={handleLogin} noValidate>
+                <label className="access-field">
+                  <span>Correo electrónico</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                    inputMode="email"
+                    placeholder="tu-email@ejemplo.com"
+                    autoFocus
+                  />
+                </label>
 
-      <p style={{ marginTop: 12 }}>
-        ¿Aún no tienes cuenta?{' '}
-        <Link to={nextParam ? `/register?next=${encodeURIComponent(nextParam)}` : '/register'}>
-          Regístrate aquí
-        </Link>
-      </p>
+                <label className="access-field">
+                  <span>Contraseña</span>
+                  <div className="access-password-row">
+                    <input
+                      type={showPass ? "text" : "password"}
+                      value={pass}
+                      onChange={(e) => setPass(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      placeholder="Tu contraseña"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass((v) => !v)}
+                      aria-label={
+                        showPass ? "Ocultar contraseña" : "Mostrar contraseña"
+                      }
+                      className="access-link-btn"
+                    >
+                      {showPass ? "Ocultar" : "Ver"}
+                    </button>
+                  </div>
+                </label>
+
+                <div className="access-form__row access-form__row--small">
+                  <label className="access-check">
+                    <input
+                      type="checkbox"
+                      checked={recordar}
+                      onChange={(e) => setRecordar(e.target.checked)}
+                    />
+                    <span>Recordar en este dispositivo</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    className="access-link-btn access-link-btn--right"
+                  >
+                    He olvidado mi contraseña
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  className="access-btn access-btn--primary"
+                  disabled={loading || !email || !pass}
+                >
+                  {loading ? "Entrando…" : "Acceder"}
+                </button>
+
+                <p className="access-muted">
+                  ¿Aún no tienes cuenta?{" "}
+                  <Link to={registerHref} className="access-link">
+                    Crear una cuenta nueva
+                  </Link>
+                </p>
+
+                <div className="access-divider">
+                  <span>O continúa con</span>
+                </div>
+
+                <button
+                  type="button"
+                  className="access-btn access-btn--secondary"
+                >
+                  Continuar con Google
+                </button>
+
+                <p className="access-muted access-muted--small">
+                  Al continuar aceptas nuestras políticas de privacidad y
+                  términos de servicio.
+                </p>
+              </form>
+            </div>
+          </section>
+
+          {/* Derecha: beneficios */}
+          <aside className="access-card access-card--info">
+            <h2 className="access-card__title">
+              Ventajas de crear tu cuenta DogForm
+            </h2>
+            <p className="access-card__subtitle">
+              Centraliza todo lo relacionado con el bienestar de tu perro desde
+              un solo lugar.
+            </p>
+
+            <ul className="access-benefits">
+              <li>
+                <span className="access-benefits__icon">①</span>
+                <div>
+                  <p>
+                    Reserva y gestiona sesiones de adiestramiento, educación y
+                    paseos en Madrid en pocos clics.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <span className="access-benefits__icon">②</span>
+                <div>
+                  <p>
+                    Consulta el historial de servicios, pagos y notas del
+                    educador canino sobre la evolución de tu perro.
+                  </p>
+                </div>
+              </li>
+              <li>
+                <span className="access-benefits__icon">③</span>
+                <div>
+                  <p>
+                    Mantente en contacto directo con nuestro equipo para
+                    resolver dudas rápidas sobre rutinas, ejercicios y
+                    bienestar.
+                  </p>
+                </div>
+              </li>
+            </ul>
+
+            <p className="access-help">
+              Si tienes cualquier problema para acceder, también puedes
+              escribirnos a{" "}
+              <a href="mailto:hola@dogform.es">hola@dogform.es</a> o por
+              WhatsApp al <a href="tel:+34600123456">+34 600 123 456</a>.
+            </p>
+          </aside>
+        </div>
+      </div>
     </div>
   );
 }

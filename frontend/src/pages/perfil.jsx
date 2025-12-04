@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { isLogged } from "../helpers/auth";
 import "../styles/contratar.scss";
+import "../styles/perfil.scss";
 
 function nowIso() {
   return new Date().toISOString();
@@ -147,7 +148,9 @@ export default function PerfilPage() {
       setEmail(data?.email || prof?.email || "");
       setPerfil({
         displayName: prof.displayName || prof.nombre || "",
-        prefix: String(prof.prefix || "+34").replace(/[^\d+]/g, "").replace(/(?!^)\+/g, ""),
+        prefix: String(prof.prefix || "+34")
+          .replace(/[^\d+]/g, "")
+          .replace(/(?!^)\+/g, ""),
         phone: String(prof.phone || prof.telefono || "").replace(/\D/g, ""),
         address: prof.address || prof.direccion || "",
         avatarURL: absUrl(prof.avatarURL ?? prof.foto ?? ""),
@@ -427,522 +430,450 @@ export default function PerfilPage() {
   const closeModal = () =>
     setModal({ open: false, dog: null, success: false, loading: false, error: "" });
 
-  if (!authReady) return <div className="card">Cargando sesión…</div>;
+  if (!authReady) {
+    return (
+      <div className="perfil-page">
+        <div className="perfil-container">
+          <div className="perfil-card">Cargando sesión…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="card contratar-page" style={{ maxWidth: 980, margin: "0 auto" }}>
-      <h1>Mi perfil</h1>
+    <div className="perfil-page">
+      <div className="perfil-container">
+        {/* Cabecera */}
+        <header className="perfil-header">
+          <div className="perfil-eyebrow">SESIÓN INICIADA</div>
+          <h1 className="perfil-title">Mi perfil</h1>
+          <p className="perfil-lead">
+            Gestiona tus datos personales y la información de tus perros. Estos datos se compartirán
+            con los centros cuando hagas una reserva.
+          </p>
+        </header>
 
-      {/* PERFIL */}
-      <section className="card" style={{ padding: "1rem", marginBottom: 16 }}>
-        <h2>Datos del usuario</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "120px 1fr" }}>
-          {/* Avatar */}
-          <div>
-            <div
-              style={{
-                width: 100,
-                height: 100,
-                borderRadius: "50%",
-                overflow: "hidden",
-                background: "#eee",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {perfil.avatarURL ? (
-                <img
-                  src={absUrl(perfil.avatarURL)}
-                  alt="avatar"
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
-              ) : (
-                <span style={{ fontSize: 12, color: "#777" }}>Sin foto</span>
-              )}
+        {/* DATOS USUARIO */}
+        <section className="perfil-card perfil-card--user">
+          <h2 className="perfil-card__title">Datos del usuario</h2>
+
+          <div className="perfil-user-grid">
+            {/* Avatar */}
+            <div className="perfil-avatar">
+              <div className="perfil-avatar__circle">
+                {perfil.avatarURL ? (
+                  <img
+                    src={absUrl(perfil.avatarURL)}
+                    alt="avatar"
+                    className="perfil-avatar__img"
+                  />
+                ) : (
+                  <span className="perfil-avatar__placeholder">Sin foto</span>
+                )}
+              </div>
+              <div className="perfil-avatar__actions">
+                <label className="btn-ghost">
+                  Cambiar foto
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePickProfile}
+                    style={{ display: "none" }}
+                  />
+                </label>
+                {perfil.avatarURL && (
+                  <button className="btn-danger" onClick={onDeleteProfilePhoto}>
+                    Eliminar foto
+                  </button>
+                )}
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <label className="btn-ghost">
-                Cambiar foto
+
+            {/* Campos */}
+            <div className="perfil-user-fields">
+              <label>
+                Nombre (obligatorio)
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePickProfile}
-                  style={{ display: "none" }}
+                  required
+                  value={perfil.displayName}
+                  onChange={(e) =>
+                    setPerfil((p) => ({ ...p, displayName: e.target.value }))
+                  }
+                  placeholder="Tu nombre"
                 />
               </label>
-              {perfil.avatarURL && (
-                <button className="btn-danger" onClick={onDeleteProfilePhoto}>
-                  Eliminar foto
+
+              <div className="perfil-phone-group">
+                <span>Teléfono (obligatorio)</span>
+                <div className="perfil-phone-row">
+                  <input
+                    value={perfil.prefix}
+                    onChange={(e) =>
+                      setPerfil((p) => ({
+                        ...p,
+                        prefix: e.target.value
+                          .replace(/[^\d+]/g, "")
+                          .replace(/(?!^)\+/g, ""),
+                      }))
+                    }
+                    placeholder="+34"
+                  />
+                  <input
+                    type="tel"
+                    pattern="[0-9]*"
+                    value={perfil.phone}
+                    onChange={(e) =>
+                      setPerfil((p) => ({
+                        ...p,
+                        phone: e.target.value.replace(/\D/g, ""),
+                      }))
+                    }
+                    placeholder="600123123"
+                  />
+                </div>
+              </div>
+
+              <label>
+                Dirección (opcional)
+                <input
+                  value={perfil.address}
+                  onChange={(e) =>
+                    setPerfil((p) => ({ ...p, address: e.target.value }))
+                  }
+                  placeholder="Calle, nº, ciudad…"
+                />
+              </label>
+
+              <label>
+                Notas (opcional)
+                <textarea
+                  rows={3}
+                  value={perfil.notes}
+                  onChange={(e) =>
+                    setPerfil((p) => ({ ...p, notes: e.target.value }))
+                  }
+                  placeholder="Preferencias, horarios, etc."
+                />
+              </label>
+
+              <div className="perfil-actions">
+                <button
+                  className="btn-primary"
+                  onClick={saveProfile}
+                  disabled={
+                    !perfil.displayName?.trim() ||
+                    !perfil.phone?.trim() ||
+                    savingProfile
+                  }
+                >
+                  {savingProfile ? "Guardando…" : "Guardar perfil"}
                 </button>
+                {pMsg && <span className="perfil-msg">{pMsg}</span>}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* CAMBIAR CONTRASEÑA */}
+        <section className="perfil-card perfil-card--password">
+          <h2 className="perfil-card__title">Cambiar contraseña</h2>
+
+          <form onSubmit={handleChangePassword} className="perfil-password-form">
+            <label>
+              Contraseña actual
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </label>
+
+            <label>
+              Nueva contraseña
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+
+            <label>
+              Repetir nueva contraseña
+              <input
+                type="password"
+                value={repeatNewPassword}
+                onChange={(e) => setRepeatNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+
+            {passError && (
+              <p className="perfil-pass-error">{passError}</p>
+            )}
+            {passMsg && !passError && (
+              <p className="perfil-pass-success">{passMsg}</p>
+            )}
+
+            <button
+              className="btn-primary"
+              type="submit"
+              disabled={changingPass}
+              style={{ marginTop: 8 }}
+            >
+              {changingPass ? "Guardando…" : "Actualizar contraseña"}
+            </button>
+          </form>
+        </section>
+
+        {/* MIS PERROS */}
+        <section className="perfil-card perfil-card--dogs">
+          <div className="perfil-dogs-header">
+            <h2 className="perfil-card__title">Mis perros</h2>
+            {!creatingDog && (
+              <button className="btn-primary" onClick={startCreateDog}>
+                Añadir perro
+              </button>
+            )}
+          </div>
+
+          {(creatingDog || perros.length === 0) && (
+            <div className="perfil-dog-editor">
+              <h3>{editingDogId ? "Editar perro" : "Añadir perro"}</h3>
+              <p className="perfil-dog-editor__hint">
+                * La <b>fecha de nacimiento</b> puede ser <b>(aproximada)</b> si es rescatado.
+              </p>
+
+              <div className="perfil-dog-editor__grid">
+                {/* Foto perro */}
+                <div>
+                  <div className="perfil-dog-photo__frame">
+                    {dogForm.avatarURL ? (
+                      <img
+                        src={absUrl(dogForm.avatarURL)}
+                        alt="perro"
+                        className="perfil-dog-photo__img"
+                      />
+                    ) : (
+                      <span className="perfil-avatar__placeholder">Sin foto</span>
+                    )}
+                  </div>
+                  <div className="perfil-dog-photo__actions">
+                    <label className="btn-ghost">
+                      Cambiar foto
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePickDog}
+                        style={{ display: "none" }}
+                      />
+                    </label>
+                    {dogForm.avatarURL && (
+                      <button className="btn-danger" onClick={onDeleteDogPhoto}>
+                        Eliminar foto
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Campos perro 1 */}
+                <div className="perfil-dog-fields">
+                  <label>
+                    Nombre (obligatorio)
+                    <input
+                      required
+                      value={dogForm.nombre}
+                      onChange={(e) =>
+                        setDogForm((f) => ({
+                          ...f,
+                          nombre: e.target.value,
+                        }))
+                      }
+                      placeholder="Nombre del perro"
+                    />
+                  </label>
+                  <label>
+                    Raza/Tamaño (obligatorio)
+                    <input
+                      required
+                      value={dogForm.raza}
+                      onChange={(e) =>
+                        setDogForm((f) => ({
+                          ...f,
+                          raza: e.target.value,
+                        }))
+                      }
+                      placeholder="Ej.: mestizo mediano, pastor alemán…"
+                    />
+                  </label>
+                </div>
+
+                {/* Campos perro 2 */}
+                <div className="perfil-dog-fields">
+                  <label>
+                    Fecha de nacimiento (aproximada) (obligatoria)
+                    <input
+                      required
+                      type="date"
+                      value={dogForm.nacimiento}
+                      onChange={(e) =>
+                        setDogForm((f) => ({
+                          ...f,
+                          nacimiento: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="perfil-dog-check">
+                    <input
+                      type="checkbox"
+                      checked={!!dogForm.castrado}
+                      onChange={(e) =>
+                        setDogForm((f) => ({
+                          ...f,
+                          castrado: e.target.checked,
+                        }))
+                      }
+                    />
+                    Castrado/esterilizado (opcional)
+                  </label>
+                  <label>
+                    Observaciones (opcional)
+                    <input
+                      value={dogForm.notas}
+                      onChange={(e) =>
+                        setDogForm((f) => ({ ...f, notas: e.target.value }))
+                      }
+                      placeholder="Miedos, reactividad, alergias…"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="perfil-dog-editor__actions perfil-actions">
+                <button className="btn-secondary" onClick={cancelDogForm}>
+                  Cancelar
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={saveDog}
+                  disabled={
+                    savingDog ||
+                    !dogForm.nombre?.trim() ||
+                    !dogForm.raza?.trim() ||
+                    !dogForm.nacimiento
+                  }
+                >
+                  {savingDog
+                    ? "Guardando…"
+                    : editingDogId
+                    ? "Guardar cambios"
+                    : "Añadir perro"}
+                </button>
+                {dMsg && <span className="perfil-msg">{dMsg}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Lista perros */}
+          {!creatingDog && perros.length > 0 && (
+            <div className="perfil-dogs-list">
+              <ul className="reservas-list">
+                {perros.map((p) => (
+                  <li key={p.id} className="reserva-item">
+                    <div className="reserva-main">
+                      <div className="title">
+                        {p.nombre} {p.raza ? `· ${p.raza}` : ""}
+                      </div>
+                      <div className="meta">
+                        {p.nacimiento
+                          ? `Nac.: ${String(p.nacimiento).slice(0, 10)} · `
+                          : ""}
+                        {p.castrado ? "Castrado · " : ""}
+                        {p.notas || ""}
+                      </div>
+                    </div>
+                    <div className="admin-actions perfil-dogs-actions">
+                      <button className="btn-ghost" onClick={() => editDog(p)}>
+                        Editar
+                      </button>
+                      <button
+                        className="btn-danger"
+                        onClick={() => askDeleteDog(p)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                    {p.avatarURL && (
+                      <div className="perfil-dog-list-photo">
+                        <img
+                          src={absUrl(p.avatarURL)}
+                          alt={p.nombre}
+                          className="perfil-dog-list-photo__img"
+                        />
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        {/* Modal eliminar */}
+        {modal.open && (
+          <div
+            className="perfil-modal"
+            onClick={() => !modal.loading && closeModal()}
+          >
+            <div
+              className="perfil-modal__content"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {!modal.success ? (
+                <>
+                  <p>
+                    ¿Seguro que quieres eliminar a <b>{modal.dog?.nombre}</b>?
+                  </p>
+                  {modal.error && (
+                    <p className="perfil-pass-error" style={{ marginTop: 6 }}>
+                      {modal.error}
+                    </p>
+                  )}
+                  <div className="perfil-modal__actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={closeModal}
+                      disabled={modal.loading}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className="btn-danger"
+                      onClick={confirmDeleteDog}
+                      disabled={modal.loading}
+                    >
+                      {modal.loading ? "Eliminando…" : "Confirmar"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>
+                    ✅ <b>Perro eliminado con éxito</b>
+                  </p>
+                  <div className="perfil-modal__actions">
+                    <button className="btn-primary" onClick={closeModal}>
+                      Cerrar
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
-
-          {/* Campos */}
-          <div style={{ display: "grid", gap: 8 }}>
-            <label>
-              Nombre (obligatorio)
-              <input
-                required
-                value={perfil.displayName}
-                onChange={(e) =>
-                  setPerfil((p) => ({ ...p, displayName: e.target.value }))
-                }
-                placeholder="Tu nombre"
-              />
-            </label>
-
-            <label>Teléfono (obligatorio)</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                style={{ width: 70 }}
-                value={perfil.prefix}
-                onChange={(e) =>
-                  setPerfil((p) => ({
-                    ...p,
-                    prefix: e.target.value
-                      .replace(/[^\d+]/g, "")
-                      .replace(/(?!^)\+/g, ""),
-                  }))
-                }
-                placeholder="+34"
-              />
-              <input
-                type="tel"
-                pattern="[0-9]*"
-                style={{ flex: 1 }}
-                value={perfil.phone}
-                onChange={(e) =>
-                  setPerfil((p) => ({
-                    ...p,
-                    phone: e.target.value.replace(/\D/g, ""),
-                  }))
-                }
-                placeholder="600123123"
-              />
-            </div>
-
-            <label>
-              Dirección (opcional)
-              <input
-                value={perfil.address}
-                onChange={(e) => setPerfil((p) => ({ ...p, address: e.target.value }))}
-                placeholder="Calle, nº, ciudad…"
-              />
-            </label>
-
-            <label>
-              Notas (opcional)
-              <textarea
-                rows={3}
-                value={perfil.notes}
-                onChange={(e) =>
-                  setPerfil((p) => ({ ...p, notes: e.target.value }))
-                }
-                placeholder="Preferencias, horarios, etc."
-              />
-            </label>
-
-            <div className="actions" style={{ marginTop: 6 }}>
-              <button
-                className="btn-primary"
-                onClick={saveProfile}
-                disabled={
-                  !perfil.displayName?.trim() ||
-                  !perfil.phone?.trim() ||
-                  savingProfile
-                }
-              >
-                {savingProfile ? "Guardando…" : "Guardar perfil"}
-              </button>
-              {pMsg && <span style={{ marginLeft: 8 }}>{pMsg}</span>}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ======== CAMBIAR CONTRASEÑA ======== */}
-      <section className="card" style={{ padding: "1rem", marginBottom: 16 }}>
-        <h2>Cambiar contraseña</h2>
-
-        <form onSubmit={handleChangePassword} className="perfil-form">
-          <div className="campo">
-            <label>Contraseña actual</label>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
-
-          <div className="campo">
-            <label>Nueva contraseña</label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-
-          <div className="campo">
-            <label>Repetir nueva contraseña</label>
-            <input
-              type="password"
-              value={repeatNewPassword}
-              onChange={(e) => setRepeatNewPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-
-          {passError && (
-            <p style={{ color: "crimson", marginTop: 8 }}>{passError}</p>
-          )}
-          {passMsg && (
-            <p style={{ color: "green", marginTop: 8 }}>{passMsg}</p>
-          )}
-
-          <button
-            className="btn-primary"
-            type="submit"
-            disabled={changingPass}
-            style={{ marginTop: 12 }}
-          >
-            {changingPass ? "Guardando…" : "Actualizar contraseña"}
-          </button>
-        </form>
-      </section>
-
-      {/* PERROS */}
-      <section className="card" style={{ padding: "1rem" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <h2 style={{ margin: 0 }}>Mis perros</h2>
-          {!creatingDog && (
-            <button className="btn-primary" onClick={startCreateDog}>
-              Añadir perro
-            </button>
-          )}
-        </div>
-
-        {(creatingDog || perros.length === 0) && (
-          <div
-            className="card"
-            style={{ padding: "0.8rem", margin: "12px 0 16px" }}
-          >
-            <h3 style={{ marginTop: 0 }}>
-              {editingDogId ? "Editar perro" : "Añadir perro"}
-            </h3>
-            <p style={{ marginTop: 0, color: "#666" }}>
-              * La <b>fecha de nacimiento</b> puede ser{" "}
-              <b>(aproximada)</b> si es rescatado.
-            </p>
-
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-                gridTemplateColumns: "120px 1fr 1fr",
-                alignItems: "start",
-              }}
-            >
-              {/* Foto perro */}
-              <div>
-                <div
-                  style={{
-                    width: 100,
-                    height: 100,
-                    borderRadius: 12,
-                    overflow: "hidden",
-                    background: "#eee",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {dogForm.avatarURL ? (
-                    <img
-                      src={absUrl(dogForm.avatarURL)}
-                      alt="perro"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  ) : (
-                    <span style={{ fontSize: 12, color: "#777" }}>
-                      Sin foto
-                    </span>
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    marginTop: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <label className="btn-ghost">
-                    Cambiar foto
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePickDog}
-                      style={{ display: "none" }}
-                    />
-                  </label>
-                  {dogForm.avatarURL && (
-                    <button className="btn-danger" onClick={onDeleteDogPhoto}>
-                      Eliminar foto
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Campos perro */}
-              <div style={{ display: "grid", gap: 8 }}>
-                <label>
-                  Nombre (obligatorio)
-                  <input
-                    required
-                    value={dogForm.nombre}
-                    onChange={(e) =>
-                      setDogForm((f) => ({
-                        ...f,
-                        nombre: e.target.value,
-                      }))
-                    }
-                    placeholder="Nombre del perro"
-                  />
-                </label>
-                <label>
-                  Raza/Tamaño (obligatorio)
-                  <input
-                    required
-                    value={dogForm.raza}
-                    onChange={(e) =>
-                      setDogForm((f) => ({
-                        ...f,
-                        raza: e.target.value,
-                      }))
-                    }
-                    placeholder="Ej.: mestizo mediano, pastor alemán…"
-                  />
-                </label>
-              </div>
-
-              <div style={{ display: "grid", gap: 8 }}>
-                <label>
-                  Fecha de nacimiento (aproximada) (obligatoria)
-                  <input
-                    required
-                    type="date"
-                    value={dogForm.nacimiento}
-                    onChange={(e) =>
-                      setDogForm((f) => ({
-                        ...f,
-                        nacimiento: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={!!dogForm.castrado}
-                    onChange={(e) =>
-                      setDogForm((f) => ({
-                        ...f,
-                        castrado: e.target.checked,
-                      }))
-                    }
-                  />
-                  Castrado/esterilizado (opcional)
-                </label>
-                <label>
-                  Observaciones (opcional)
-                  <input
-                    value={dogForm.notas}
-                    onChange={(e) =>
-                      setDogForm((f) => ({ ...f, notas: e.target.value }))
-                    }
-                    placeholder="Miedos, reactividad, alergias…"
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="actions" style={{ marginTop: 10 }}>
-              <button className="btn-secondary" onClick={cancelDogForm}>
-                Cancelar
-              </button>
-              <button
-                className="btn-primary"
-                onClick={saveDog}
-                disabled={
-                  savingDog ||
-                  !dogForm.nombre?.trim() ||
-                  !dogForm.raza?.trim() ||
-                  !dogForm.nacimiento
-                }
-              >
-                {savingDog
-                  ? "Guardando…"
-                  : editingDogId
-                  ? "Guardar cambios"
-                  : "Añadir perro"}
-              </button>
-              {dMsg && <span style={{ marginLeft: 8 }}>{dMsg}</span>}
-            </div>
-          </div>
         )}
-
-        {/* Lista perros */}
-        {!creatingDog && perros.length > 0 && (
-          <ul className="reservas-list">
-            {perros.map((p) => (
-              <li key={p.id} className="reserva-item">
-                <div className="reserva-main">
-                  <div className="title">
-                    {p.nombre} {p.raza ? `· ${p.raza}` : ""}
-                  </div>
-                  <div className="meta">
-                    {p.nacimiento
-                      ? `Nac.: ${String(p.nacimiento).slice(0, 10)} · `
-                      : ""}
-                    {p.castrado ? "Castrado · " : ""}
-                    {p.notas || ""}
-                  </div>
-                </div>
-                <div className="admin-actions" style={{ gap: 8 }}>
-                  <button className="btn-ghost" onClick={() => editDog(p)}>
-                    Editar
-                  </button>
-                  <button className="btn-danger" onClick={() => askDeleteDog(p)}>
-                    Eliminar
-                  </button>
-                </div>
-                {p.avatarURL && (
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <img
-                      src={absUrl(p.avatarURL)}
-                      alt={p.nombre}
-                      style={{
-                        width: 120,
-                        height: 120,
-                        objectFit: "cover",
-                        borderRadius: 12,
-                      }}
-                    />
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* Modal eliminar */}
-      {modal.open && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={() => !modal.loading && closeModal()}
-        >
-          <div
-            className="card"
-            style={{
-              background: "#fff",
-              padding: 20,
-              borderRadius: 12,
-              width: "90%",
-              maxWidth: 420,
-              textAlign: "center",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {!modal.success ? (
-              <>
-                <p>
-                  ¿Seguro que quieres eliminar a <b>{modal.dog?.nombre}</b>?
-                </p>
-                {modal.error && (
-                  <p style={{ color: "crimson", marginTop: 6 }}>
-                    {modal.error}
-                  </p>
-                )}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    justifyContent: "center",
-                    marginTop: 10,
-                  }}
-                >
-                  <button
-                    className="btn-secondary"
-                    onClick={closeModal}
-                    disabled={modal.loading}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    className="btn-danger"
-                    onClick={confirmDeleteDog}
-                    disabled={modal.loading}
-                  >
-                    {modal.loading ? "Eliminando…" : "Confirmar"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p>
-                  ✅ <b>Perro eliminado con éxito</b>
-                </p>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    justifyContent: "center",
-                    marginTop: 10,
-                  }}
-                >
-                  <button className="btn-primary" onClick={closeModal}>
-                    Cerrar
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

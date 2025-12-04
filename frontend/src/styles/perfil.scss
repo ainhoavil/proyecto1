@@ -1,0 +1,530 @@
+/* ================================
+   PÁGINA PERFIL DOGFORM
+   frontend/src/styles/perfil.scss
+================================ */
+
+/* Fondo general de la vista de perfil */
+.perfil-page {
+  background-color: #f6efe8;
+  padding: 32px 0 80px;
+}
+
+/* Contenedor centrado */
+.perfil-container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding-inline: 16px;
+}
+
+/* Cabecera (SESIÓN INICIADA / Mi perfil / texto) */
+.perfil-header {
+  margin-bottom: 20px;
+}
+
+.perfil-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #b39a82;
+  display: inline-block;
+  margin-bottom: 10px;
+}
+
+.perfil-title {
+  font-size: 26px;
+  font-weight: 600;
+  color: #2c2723;
+  margin: 0 0 6px;
+}
+
+.perfil-lead {
+  max-width: 640px;
+  font-size: 14px;
+  color: #6b5b51;
+  margin: 0;
+}
+
+/* Tarjeta base (Datos, contraseña, perros) */
+.perfil-card {
+  border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  background-color: #ffffff;
+  padding: 20px 22px 22px;
+  margin-bottom: 18px;
+}
+
+.perfil-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #3a312b;
+  margin: 0 0 12px;
+}
+
+.perfil-msg {
+  font-size: 12px;
+  color: #8d7c70;
+}
+
+/* ================================
+   DATOS DEL USUARIO
+================================ */
+
+.perfil-card--user {
+  margin-top: 6px;
+}
+
+/* Grid avatar + formulario */
+.perfil-user-grid {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 18px;
+  align-items: flex-start;
+}
+
+/* Avatar */
+
+.perfil-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.perfil-avatar__circle {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #f1dfcf;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.perfil-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.perfil-avatar__placeholder {
+  font-size: 12px;
+  color: #9b8876;
+}
+
+.perfil-avatar__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Campos usuario */
+
+.perfil-user-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.perfil-user-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #6b5b51;
+}
+
+/* Inputs/textarea dentro de la tarjeta */
+.perfil-card input,
+.perfil-card textarea {
+  border-radius: 8px;
+  border: 1px solid #f1d4c2;
+  padding: 8px 10px;
+  font-size: 13px;
+  background-color: #fdf2e9;
+  outline: none;
+
+  &:focus {
+    border-color: #f37f3b;
+    box-shadow: 0 0 0 1px rgba(243, 127, 59, 0.35);
+  }
+}
+
+.perfil-card textarea {
+  resize: vertical;
+}
+
+/* Teléfono */
+
+.perfil-phone-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.perfil-phone-row {
+  display: flex;
+  gap: 6px;
+}
+
+.perfil-phone-row input:first-child {
+  width: 70px;
+}
+
+/* Grupo de acciones (botón Guardar perfil + mensaje) */
+.perfil-actions {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ================================
+   CAMBIAR CONTRASEÑA
+================================ */
+
+.perfil-card--password {
+  /* mismo estilo de tarjeta, solo se separa un poco */
+}
+
+.perfil-password-form {
+  display: grid;
+  gap: 8px;
+}
+
+.perfil-password-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #6b5b51;
+}
+
+.perfil-pass-error {
+  font-size: 12px;
+  color: #b83232;
+  margin: 4px 0 0;
+}
+
+.perfil-pass-success {
+  font-size: 12px;
+  color: #22623d;
+  margin: 4px 0 0;
+}
+
+/* ================================
+   MIS PERROS
+================================ */
+
+.perfil-card--dogs {
+  margin-top: 4px;
+}
+
+.perfil-dogs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+/* Editor perro (bloque beige dentro de la tarjeta) */
+
+.perfil-dog-editor {
+  border-radius: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  background-color: #fff7f0;
+  padding: 12px 14px 14px;
+  margin-bottom: 14px;
+}
+
+.perfil-dog-editor h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #3a312b;
+}
+
+.perfil-dog-editor__hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #8d7c70;
+}
+
+.perfil-dog-editor__grid {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: flex-start;
+}
+
+/* Foto perro */
+
+.perfil-dog-photo__frame {
+  width: 110px;
+  height: 110px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #f1dfcf;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.perfil-dog-photo__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.perfil-dog-photo__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Campos perro */
+
+.perfil-dog-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.perfil-dog-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #6b5b51;
+}
+
+.perfil-dog-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #7f6e62;
+}
+
+/* Acciones editor perro */
+
+.perfil-dog-editor__actions {
+  margin-top: 10px;
+}
+
+/* Lista de perros debajo del editor */
+
+.perfil-dogs-list {
+  margin-top: 6px;
+}
+
+.perfil-dogs-list .reserva-item {
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  background-color: #fffdfb;
+}
+
+.perfil-dogs-list .title {
+  font-size: 14px;
+}
+
+.perfil-dogs-list .meta {
+  font-size: 12px;
+  color: #6b5b51;
+}
+
+.perfil-dogs-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.perfil-dog-list-photo {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.perfil-dog-list-photo__img {
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+/* ================================
+   MODAL ELIMINAR PERRO
+================================ */
+
+.perfil-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.perfil-modal__content {
+  background: #ffffff;
+  padding: 18px 18px 16px;
+  border-radius: 14px;
+  width: 90%;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+}
+
+.perfil-modal__actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ================================
+   BOTONES DOGFORM (globales)
+================================ */
+
+/* Botón principal naranja */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: none;
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #f37f3b;
+  color: #ffffff;
+  box-shadow: 0 14px 32px rgba(243, 127, 59, 0.45);
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+
+  &:hover:not(:disabled) {
+    background-color: #e66d25;
+    box-shadow: 0 18px 40px rgba(243, 127, 59, 0.65);
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    box-shadow: none;
+  }
+}
+
+/* Botón secundario gris/beige */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid #f1d4c2;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #fff7f0;
+  color: #7f6e62;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+
+  &:hover {
+    background-color: #fbe8d9;
+    border-color: #e8c1a3;
+  }
+}
+
+/* Botón “ghost” blanco con borde suave */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  background-color: #ffffff;
+  color: #7f6e62;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+
+  &:hover {
+    background-color: #fdf2e9;
+    border-color: rgba(0, 0, 0, 0.12);
+  }
+}
+
+/* Botón peligro (Eliminar) */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid #f39b9b;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #ffe9e5;
+  color: #b83232;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:hover {
+    background-color: #fcd3cc;
+    border-color: #e27a7a;
+    box-shadow: 0 6px 18px rgba(184, 50, 50, 0.25);
+  }
+}
+
+/* ================================
+   RESPONSIVE
+================================ */
+
+@media (max-width: 900px) {
+  .perfil-user-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .perfil-avatar {
+    align-items: flex-start;
+    flex-direction: row;
+    gap: 16px;
+  }
+
+  .perfil-avatar__actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .perfil-dog-editor__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .perfil-page {
+    padding-top: 24px;
+  }
+
+  .perfil-card {
+    padding-inline: 16px;
+  }
+}
