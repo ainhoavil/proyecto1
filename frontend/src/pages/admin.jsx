@@ -7,14 +7,20 @@ import { useAuth } from '../context/auth'; // Importamos useAuth
 /* ==================== UTILS ==================== */
 function formatEUR(value, currency = 'EUR') {
   if (value == null) return 'A consultar';
-  try { return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(value); }
-  catch { return `${value} ${currency}`; }
+  try {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(value);
+  } catch {
+    return `${value} ${currency}`;
+  }
 }
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 9).filter(h => h !== 14 && h !== 15);
 const todayYMD = () => {
   const d = new Date(); const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
 };
+
+// helper para evitar keys null/undefined
+const getServicioKey = (s) => String(s.id ?? s.uuid ?? s._id ?? s.title ?? `srv-${Math.random()}`);
 
 /* ==================== COMPONENTE PRINCIPAL ==================== */
 export default function Admin() {
@@ -109,11 +115,11 @@ function UsersTab() {
       <div className="card" style={{ marginBottom: 20, padding: '1.5rem' }}>
         <h3 style={{ marginTop: 0 }}>Crear nuevo usuario (Empleado/Cliente)</h3>
         <form onSubmit={createUser} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, alignItems: 'end' }}>
-          <label>Nombre <input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} style={{width:'100%'}} /></label>
-          <label>Email <input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} required style={{width:'100%'}}/></label>
-          <label>Contraseña <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} required style={{width:'100%'}}/></label>
+          <label>Nombre <input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} style={{ width: '100%' }} /></label>
+          <label>Email <input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} required style={{ width: '100%' }} /></label>
+          <label>Contraseña <input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} required style={{ width: '100%' }} /></label>
           <label>Rol
-            <select value={newUser.rol} onChange={e => setNewUser({ ...newUser, rol: e.target.value })} style={{width:'100%'}}>
+            <select value={newUser.rol} onChange={e => setNewUser({ ...newUser, rol: e.target.value })} style={{ width: '100%' }}>
               <option value="user">Usuario</option>
               <option value="adiestrador">Adiestrador</option>
               <option value="admin">Admin</option>
@@ -144,7 +150,7 @@ function UsersTab() {
                     <td style={{ padding: 10 }}>{u.nombre || '-'}</td>
                     <td style={{ padding: 10 }}>{u.email}</td>
                     <td style={{ padding: 10 }}>
-                      <span style={{ 
+                      <span style={{
                         padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 'bold',
                         background: u.rol === 'admin' ? '#333' : u.rol === 'adiestrador' ? '#e68a4e' : '#eee',
                         color: u.rol === 'user' ? '#333' : '#fff'
@@ -153,8 +159,8 @@ function UsersTab() {
                       </span>
                     </td>
                     <td style={{ padding: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <select 
-                        value={u.rol} 
+                      <select
+                        value={u.rol}
                         onChange={(e) => changeRole(u.uid, e.target.value)}
                         style={{ padding: 4, borderRadius: 4, border: '1px solid #ccc' }}
                       >
@@ -162,7 +168,7 @@ function UsersTab() {
                         <option value="adiestrador">Adiestrador</option>
                         <option value="admin">Admin</option>
                       </select>
-                      <button className="btn-ghost" onClick={() => deleteUser(u.uid)} title="Eliminar" style={{color: 'crimson'}}>🗑️</button>
+                      <button className="btn-ghost" onClick={() => deleteUser(u.uid)} title="Eliminar" style={{ color: 'crimson' }}>🗑️</button>
                     </td>
                   </tr>
                 ))}
@@ -193,9 +199,10 @@ function ReservasTab() {
     http('/api/servicios').then(data => {
       const arr = Array.isArray(data) ? data : [];
       setServicios(arr);
-      if(arr.length) setServicioId(arr[0].id);
+      if (arr.length) setServicioId(arr[0].id);
     }).catch(() => {});
     cargarReservas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const cargarReservas = async () => {
@@ -256,7 +263,14 @@ function ReservasTab() {
           </label>
           <label>Servicio
             <select value={servicioId} onChange={e => setServicioId(e.target.value)}>
-              {servicios.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+              {servicios.map(s => {
+                const key = getServicioKey(s);
+                return (
+                  <option key={key} value={s.id}>
+                    {s.title}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <button className="btn-danger" onClick={bloquear}>Bloquear Hora</button>
@@ -348,15 +362,18 @@ function ServiciosTab() {
         <button type="submit" className="btn-primary">Añadir</button>
       </form>
       <div style={{ display: 'grid', gap: 10 }}>
-        {servicios.map(s => (
-          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', border: '1px solid #eee', borderRadius: 8 }}>
-            <div>
-              <strong>{s.title}</strong> <small>({formatEUR(s.price)})</small><br/>
-              <span style={{fontSize:12, color:'#666'}}>{s.short}</span>
+        {servicios.map(s => {
+          const key = getServicioKey(s);
+          return (
+            <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', border: '1px solid #eee', borderRadius: 8 }}>
+              <div>
+                <strong>{s.title}</strong> <small>({formatEUR(s.price)})</small><br/>
+                <span style={{fontSize:12, color:'#666'}}>{s.short}</span>
+              </div>
+              <button onClick={() => borrar(s.id)} className="btn-ghost" style={{color:'crimson'}}>🗑️</button>
             </div>
-            <button onClick={() => borrar(s.id)} className="btn-ghost" style={{color:'crimson'}}>🗑️</button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

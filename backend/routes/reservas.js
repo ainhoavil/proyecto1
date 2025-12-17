@@ -2,7 +2,6 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../db.js';
-// Importamos allowRoles para gestionar permisos múltiples
 import { verifyToken, requireAdmin, allowRoles } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -19,7 +18,10 @@ const toMin = (hhmm) => {
   return h * 60 + m;
 };
 const fromMin = (t) =>
-  `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(
+    2,
+    '0'
+  )}`;
 const overlaps = (aStart, aDur, bStart, bDur) => {
   const a1 = toMin(aStart),
     a2 = a1 + Number(aDur || 60);
@@ -29,7 +31,7 @@ const overlaps = (aStart, aDur, bStart, bDur) => {
 };
 const parseJSONSafe = (v, fb = {}) => {
   try {
-    return typeof v === 'string' ? JSON.parse(v) : (v ?? fb);
+    return typeof v === 'string' ? JSON.parse(v) : v ?? fb;
   } catch {
     return fb;
   }
@@ -58,7 +60,13 @@ function puedeCancelar24h(fecha, hora) {
 async function autoExpireIfPast(rows) {
   for (const r of rows) {
     const s = String(r.status || '').toLowerCase();
-    if ((s === 'pending' || s === 'pendiente') && isPast(r.fecha, r.hora)) {
+    if (
+      (s === 'pending' ||
+        s === 'pendiente' ||
+        s === 'pending_user' ||
+        s === 'pendiente_usuario') &&
+      isPast(r.fecha, r.hora)
+    ) {
       await query(
         `UPDATE reservas
             SET status='rejected',
@@ -99,10 +107,10 @@ async function canSeeReservation(req, reservaId) {
 
   if (!r) return { ok: false };
 
-  const rol = req.user?.rol || req.user?.role || "user";
+  const rol = req.user?.rol || req.user?.role || 'user';
 
-  const isAdmin   = !!req.user?.isAdmin || rol === "admin";
-  const isTrainer = rol === "adiestrador"; // Corrección: usar 'adiestrador'
+  const isAdmin = !!req.user?.isAdmin || rol === 'admin';
+  const isTrainer = rol === 'adiestrador';
   const isOwner =
     (r.uid && req.user?.uid && r.uid === req.user.uid) ||
     (r.email && req.user?.email && r.email === req.user.email);
@@ -111,12 +119,102 @@ async function canSeeReservation(req, reservaId) {
   return { ok: isAdmin || isTrainer || isOwner };
 }
 
+/* ===================== Trainer assignment ===================== */
+/**
+ * Tabla esperada:
+ * trainer_servicios(id, trainer_id, servicio_id, modalidad, enabled, created_at, updated_at)
+ * - modalidad NULL o '' => vale para cualquier modalidad
+ */
+async function getEligibleTrainers({ servicioId, modalidad }) {
+  const mod = modalidad ? String(modalidad) : null;
+
+  const rows = await query(
+    `
+    SELECT u.id, u.email, u.nombre
+      FROM usuarios u
+      JOIN trainer_servicios ts
+        ON ts.trainer_id = u.id
+     WHERE u.rol = 'adiestrador'
+       AND ts.enabled = 1
+       AND ts.servicio_id = ?
+       AND (
+            ts.modalidad IS NULL
+            OR ts.modalidad = ''
+            OR ? IS NULL
+            OR ts.modalidad = ?
+       )
+     ORDER BY u.nombre IS NULL, u.nombre ASC, u.email ASC
+    `,
+    [String(servicioId), mod, mod]
+  );
+
+  return rows; // [{id,email,nombre}]
+}
+
+function pickRandomTrainer(eligibleRows) {
+  if (!eligibleRows || eligibleRows.length === 0) return null;
+  const idx = Math.floor(Math.random() * eligibleRows.length);
+  return eligibleRows[idx];
+}
+
+async function validateTrainerExistsAndIsTrainer(trainerId) {
+  const row = (
+    await query(`SELECT id, rol FROM usuarios WHERE id=? LIMIT 1`, [
+      String(trainerId),
+    ])
+  )[0];
+  return !!row && row.rol === 'adiestrador';
+}
+
+async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
+  // trainerId:
+  // - undefined/null/'' => auto
+  // - 'any' => auto
+  // - '<id>' => validar + compatible
+  const reqT = trainerId == null ? '' : String(trainerId).trim();
+
+  if (!servicioId) {
+    throw new Error('Falta servicioId para asignar adiestrador');
+  }
+
+  // específico
+  if (reqT && reqT !== 'any') {
+    const okTrainer = await validateTrainerExistsAndIsTrainer(reqT);
+    if (!okTrainer) {
+      const err = new Error('Trainer inválido');
+      err.statusCode = 400;
+      throw err;
+    }
+    const eligible = await getEligibleTrainers({ servicioId, modalidad });
+    const isEligible = eligible.some((t) => t.id === reqT);
+    if (!isEligible) {
+      const err = new Error('Trainer no habilitado para este servicio/modalidad');
+      err.statusCode = 400;
+      throw err;
+    }
+    return reqT;
+  }
+
+  // auto
+  const eligible = await getEligibleTrainers({ servicioId, modalidad });
+  const chosen = pickRandomTrainer(eligible);
+  if (!chosen) {
+    const err = new Error(
+      'No hay adiestradores disponibles para este servicio/modalidad'
+    );
+    err.statusCode = 409;
+    throw err;
+  }
+  return chosen.id;
+}
+
 /* ===================== Disponibilidad ===================== */
 // GET /api/reservas/disponibilidad?fecha=YYYY-MM-DD
 router.get('/disponibilidad', async (req, res) => {
   try {
     const { fecha } = req.query;
-    if (!fecha) return res.status(400).json({ error: 'Falta fecha (YYYY-MM-DD)' });
+    if (!fecha)
+      return res.status(400).json({ error: 'Falta fecha (YYYY-MM-DD)' });
 
     const slots = [];
     for (let h = BUSINESS_HOURS.start; h < BUSINESS_HOURS.end; h++) {
@@ -127,10 +225,12 @@ router.get('/disponibilidad', async (req, res) => {
     const reservas = await query(
       `SELECT hora, COALESCE(duration_min,60) AS durationMin
          FROM reservas
-        WHERE fecha = ? AND status IN ('pending','confirmed')`,
+        WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [fecha]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
+      fecha,
+    ]);
 
     const ocupadasSet = new Set();
     for (const r of reservas) {
@@ -173,12 +273,17 @@ router.post('/', verifyToken, async (req, res) => {
       pricing,
       paqueteId,
       userNote = null,
+
+      // NUEVO: elección de trainer
+      trainerId, // '<id>' | 'any' | undefined
     } = req.body;
 
     const uid = req.user?.uid || null;
     const emailNorm = String(email || req.user?.email || '').trim();
     if (!uid || !emailNorm || !fecha || !hora) {
-      return res.status(400).json({ error: 'Faltan campos (login/email/fecha/hora)' });
+      return res
+        .status(400)
+        .json({ error: 'Faltan campos (login/email/fecha/hora)' });
     }
 
     // Fallback del servicio
@@ -198,14 +303,16 @@ router.post('/', verifyToken, async (req, res) => {
       }
     }
 
-    // Colisiones
+    // Colisiones (sistema actual por franja global)
     const existentes = await query(
       `SELECT hora, COALESCE(duration_min,60) AS durationMin
          FROM reservas
-        WHERE fecha = ? AND status IN ('pending','confirmed')`,
+        WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [fecha]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
+      fecha,
+    ]);
 
     if (
       existentes.some((r) => String(r.hora) === String(hora)) ||
@@ -215,10 +322,24 @@ router.post('/', verifyToken, async (req, res) => {
 
     if (
       existentes.some((r) =>
-        overlaps(String(hora), Number(durationMin), String(r.hora), Number(r.durationMin || 60))
+        overlaps(
+          String(hora),
+          Number(durationMin),
+          String(r.hora),
+          Number(r.durationMin || 60)
+        )
       )
     )
       return res.status(409).json({ error: 'Franja solapada' });
+
+    // ===== Asignación trainer (2.2 / 2.3) =====
+    // - trainerId concreto => validar compatible
+    // - trainerId 'any' o vacío => auto (aleatorio entre compatibles)
+    const trainerIdFinal = await resolveTrainerIdOrFail({
+      trainerId,
+      servicioId,
+      modalidad,
+    });
 
     const id = uuidv4();
     const ts = nowISO();
@@ -236,11 +357,16 @@ router.post('/', verifyToken, async (req, res) => {
         if (!pRows.length) throw new Error('Paquete no existe');
         const p = pRows[0];
         if (p.status !== 'active') throw new Error('Paquete no activo');
-        if (p.userId && p.userId !== uid) throw new Error('El paquete no pertenece al usuario');
+        if (p.userId && p.userId !== uid)
+          throw new Error('El paquete no pertenece al usuario');
 
-        const saldo = parseJSONSafe(p.saldo, { total: 1, usadas: 0, pendientes: 0 });
+        const saldo = parseJSONSafe(p.saldo, {
+          total: 1,
+          usadas: 0,
+          pendientes: 0,
+        });
         if (
-          (Number(saldo.usadas || 0) + Number(saldo.pendientes || 0)) >=
+          Number(saldo.usadas || 0) + Number(saldo.pendientes || 0) >=
           Number(saldo.total || 1)
         )
           throw new Error('Saldo agotado');
@@ -249,8 +375,9 @@ router.post('/', verifyToken, async (req, res) => {
           `INSERT INTO reservas
             (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
              price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin, user_note,
+             trainer_id,
              created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
             id,
             uid,
@@ -272,6 +399,7 @@ router.post('/', verifyToken, async (req, res) => {
             status,
             'paquete',
             userNote,
+            trainerIdFinal,
             ts,
             ts,
           ]
@@ -279,18 +407,20 @@ router.post('/', verifyToken, async (req, res) => {
 
         saldo.pendientes = Number(saldo.pendientes || 0) + 1;
 
-        await query(
-          `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-          [JSON.stringify(saldo), ts, String(paqueteId)]
-        );
+        await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+          JSON.stringify(saldo),
+          ts,
+          String(paqueteId),
+        ]);
       });
     } else {
       await query(
         `INSERT INTO reservas
           (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
            price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin, user_note,
+           trainer_id,
            created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           id,
           uid,
@@ -312,6 +442,7 @@ router.post('/', verifyToken, async (req, res) => {
           status,
           'directo',
           userNote,
+          trainerIdFinal,
           ts,
           ts,
         ]
@@ -324,7 +455,9 @@ router.post('/', verifyToken, async (req, res) => {
               modalidad, duration, price, currency, perro, telefono, direccion,
               pricing, paquete_id AS paqueteId, status, origin,
               user_note AS userNote, admin_note AS adminNote,
-              cancel_reason AS cancelReason, created_at AS createdAt,
+              cancel_reason AS cancelReason,
+              trainer_id AS trainerId,
+              created_at AS createdAt,
               updated_at AS updatedAt
          FROM reservas WHERE id = ?`,
       [id]
@@ -336,8 +469,9 @@ router.post('/', verifyToken, async (req, res) => {
       pricing: parseJSONSafe(r.pricing, null),
     });
   } catch (e) {
+    const code = e?.statusCode || 500;
     console.error('POST /reservas', e);
-    res.status(500).json({ error: e?.message || 'No se pudo crear la reserva' });
+    res.status(code).json({ error: e?.message || 'No se pudo crear la reserva' });
   }
 });
 
@@ -364,6 +498,9 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
       status: statusBody,
       adminNote = null,
       userNote = null,
+
+      // NUEVO (admin también puede asignar)
+      trainerId,
     } = req.body;
 
     const emailNorm = String(email || '').trim();
@@ -391,10 +528,12 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
     const existentes = await query(
       `SELECT hora, COALESCE(duration_min,60) AS durationMin
          FROM reservas
-        WHERE fecha = ? AND status IN ('pending','confirmed')`,
+        WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [fecha]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [
+      fecha,
+    ]);
 
     if (
       existentes.some((r) => String(r.hora) === String(hora)) ||
@@ -404,10 +543,22 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
 
     if (
       existentes.some((r) =>
-        overlaps(String(hora), Number(durationMin), String(r.hora), Number(r.durationMin || 60))
+        overlaps(
+          String(hora),
+          Number(durationMin),
+          String(r.hora),
+          Number(r.durationMin || 60)
+        )
       )
     )
       return res.status(409).json({ error: 'Franja solapada' });
+
+    // Trainer final (si admin no manda trainerId => any automático)
+    const trainerIdFinal = await resolveTrainerIdOrFail({
+      trainerId,
+      servicioId,
+      modalidad,
+    });
 
     const id = uuidv4();
     const ts = nowISO();
@@ -418,8 +569,10 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
       `INSERT INTO reservas
         (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
          price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin,
-         user_note, admin_note, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         user_note, admin_note,
+         trainer_id,
+         created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         null,
@@ -442,15 +595,17 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
         'admin',
         userNote,
         adminNote,
+        trainerIdFinal,
         ts,
         ts,
       ]
     );
 
-    res.status(201).json({ ok: true, id });
+    res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
+    const code = e?.statusCode || 500;
     console.error('POST /reservas/admin', e);
-    res.status(500).json({ error: e?.message || 'No se pudo crear (admin)' });
+    res.status(code).json({ error: e?.message || 'No se pudo crear (admin)' });
   }
 });
 
@@ -468,6 +623,7 @@ router.get('/mias', verifyToken, async (req, res) => {
               pricing, paquete_id AS paqueteId,
               status, origin, user_note AS userNote,
               admin_note AS adminNote, cancel_reason AS cancelReason,
+              trainer_id AS trainerId,
               created_at AS createdAt, updated_at AS updatedAt
          FROM reservas
         WHERE (uid = ? OR email = ?)
@@ -476,7 +632,6 @@ router.get('/mias', verifyToken, async (req, res) => {
       [uid || null, email || null]
     );
 
-    // auto-expirar pendientes pasadas
     await autoExpireIfPast(rows);
 
     res.json(
@@ -493,50 +648,54 @@ router.get('/mias', verifyToken, async (req, res) => {
 
 /* ===================== Listado ADMIN / ADIESTRADOR ===================== */
 // GET /api/reservas?status=...&email=...&limit=...
-// Permite a admin y adiestrador ver el listado global.
-router.get('/', verifyToken, allowRoles(['admin', 'adiestrador']), async (req, res) => {
-  try {
-    const { status = 'all', email = '', limit = 300 } = req.query;
-    const where = [];
-    const params = [];
+router.get(
+  '/',
+  verifyToken,
+  allowRoles(['admin', 'adiestrador']),
+  async (req, res) => {
+    try {
+      const { status = 'all', email = '', limit = 300 } = req.query;
+      const where = [];
+      const params = [];
 
-    if (status && status !== 'all') {
-      where.push('status = ?');
-      params.push(String(status));
-    }
-    if (email) {
-      where.push('email = ?');
-      params.push(String(email).trim());
-    }
+      if (status && status !== 'all') {
+        where.push('status = ?');
+        params.push(String(status));
+      }
+      if (email) {
+        where.push('email = ?');
+        params.push(String(email).trim());
+      }
 
-    const sql = `
+      const sql = `
       SELECT id, uid, email, fecha, hora, duration_min AS durationMin,
              servicio_id AS servicioId, servicio_titulo AS servicioTitulo, modalidad, duration,
              price, currency, perro, telefono, direccion, pricing, paquete_id AS paqueteId,
              status, origin, user_note AS userNote, admin_note AS adminNote, cancel_reason AS cancelReason,
-             created_at AS createdAt, updated_at AS UpdatedAt
+             trainer_id AS trainerId,
+             created_at AS createdAt, updated_at AS updatedAt
         FROM reservas
        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
        ORDER BY fecha DESC, hora DESC
        LIMIT ?`;
-    params.push(Math.min(Number(limit || 300), 1000));
+      params.push(Math.min(Number(limit || 300), 1000));
 
-    const rows = await query(sql, params);
+      const rows = await query(sql, params);
 
-    // auto-expirar pendientes pasadas
-    await autoExpireIfPast(rows);
+      await autoExpireIfPast(rows);
 
-    res.json(
-      rows.map((r) => ({
-        ...r,
-        pricing: parseJSONSafe(r.pricing, null),
-      }))
-    );
-  } catch (e) {
-    console.error('GET /reservas', e);
-    res.status(500).json({ error: 'No se pudo obtener reservas' });
+      res.json(
+        rows.map((r) => ({
+          ...r,
+          pricing: parseJSONSafe(r.pricing, null),
+        }))
+      );
+    } catch (e) {
+      console.error('GET /reservas', e);
+      res.status(500).json({ error: 'No se pudo obtener reservas' });
+    }
   }
-});
+);
 
 /* ===================== NOTAS TIPO HILO ===================== */
 
@@ -575,9 +734,8 @@ router.post('/:id/notes', verifyToken, async (req, res) => {
     const rol = req.user?.rol || req.user?.role || 'user';
 
     let author = 'user';
-    // Corrección: el rol en DB es 'adiestrador'
     if (rol === 'adiestrador') {
-      author = 'admin'; // Para efectos de UI, el adiestrador cuenta como "admin" o staff
+      author = 'admin';
     } else if (req.user?.isAdmin || rol === 'admin') {
       author = 'admin';
     }
@@ -623,14 +781,16 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
 
     if (!row) return res.status(404).json({ error: 'Nota no encontrada' });
 
-    // Admin o adiestrador pueden borrar, o el dueño de la nota
     const rol = req.user?.rol || req.user?.role || 'user';
     const isStaff = req.user?.isAdmin || rol === 'admin' || rol === 'adiestrador';
 
     if (!(isStaff || row.author === 'user'))
       return res.status(403).json({ error: 'No puedes borrar esta nota' });
 
-    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [nowISO(), noteId]);
+    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [
+      nowISO(),
+      noteId,
+    ]);
 
     res.json({ ok: true });
   } catch (e) {
@@ -641,83 +801,222 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
 
 /* ===================== Acciones directas (Admin / Adiestrador) ===================== */
 
-// PATCH /api/reservas/:id/confirm
-router.patch('/:id/confirm', verifyToken, allowRoles(['admin', 'adiestrador']), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { note = '' } = req.body || {};
-    await query(
-      `UPDATE reservas
-          SET status='confirmed',
+// PATCH /api/reservas/:id/confirm  (CONFIRMA EL CENTRO → pasa a pending_user)
+router.patch(
+  '/:id/confirm',
+  verifyToken,
+  allowRoles(['admin', 'adiestrador']),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { note = '' } = req.body || {};
+      await query(
+        `UPDATE reservas
+          SET status='pending_user',
               admin_note=COALESCE(?,admin_note),
               updated_at=?
         WHERE id=?`,
-      [note, nowISO(), id]
+        [note, nowISO(), id]
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('PATCH /reservas/:id/confirm', e);
+      res.status(500).json({ error: 'No se pudo confirmar' });
+    }
+  }
+);
+
+// PATCH /api/reservas/:id/reject (centro)
+router.patch(
+  '/:id/reject',
+  verifyToken,
+  allowRoles(['admin', 'adiestrador']),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { note = '' } = req.body || {};
+
+      const rRows = await query(
+        `SELECT id, paquete_id AS paqueteId, status
+         FROM reservas WHERE id=? LIMIT 1`,
+        [id]
+      );
+      if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+      const r = rRows[0];
+
+      if (r.paqueteId) {
+        await tx(async () => {
+          await query(
+            `UPDATE reservas
+              SET status='rejected',
+                  admin_note=COALESCE(?,admin_note),
+                  updated_at=?
+            WHERE id=?`,
+            [note, nowISO(), id]
+          );
+          const pRows = await query(
+            `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
+            [r.paqueteId]
+          );
+          if (pRows.length) {
+            const saldo = parseJSONSafe(pRows[0].saldo, {
+              total: 1,
+              usadas: 0,
+              pendientes: 0,
+            });
+            if (['pending', 'pending_user', 'confirmed'].includes(r.status))
+              saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+            await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+              JSON.stringify(saldo),
+              nowISO(),
+              r.paqueteId,
+            ]);
+          }
+        });
+      } else {
+        await query(
+          `UPDATE reservas
+            SET status='rejected',
+                admin_note=COALESCE(?,admin_note),
+                updated_at=?
+         WHERE id=?`,
+          [note, nowISO(), id]
+        );
+      }
+
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('PATCH /reservas/:id/reject', e);
+      res.status(500).json({ error: 'No se pudo rechazar' });
+    }
+  }
+);
+
+/* ===== Acciones del USUARIO después de que el centro confirma ===== */
+
+// PATCH /api/reservas/:id/user-confirm  (usuario acepta → confirmed)
+router.patch('/:id/user-confirm', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const rRows = await query(
+      `SELECT id, uid, email, status, trainer_id AS trainerId
+         FROM reservas WHERE id=? LIMIT 1`,
+      [id]
     );
+    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+
+    const r = rRows[0];
+    const isOwner =
+      (r.uid && req.user?.uid && r.uid === req.user.uid) ||
+      (r.email && req.user?.email && r.email === req.user.email);
+    if (!isOwner) return res.status(403).json({ error: 'Sin permisos' });
+
+    if (String(r.status) !== 'pending_user') {
+      return res.status(400).json({
+        error: 'La reserva no está pendiente de confirmación por el usuario',
+      });
+    }
+
+    // 2.4: no permitir confirmed si no hay trainer asignado
+    if (!r.trainerId) {
+      return res.status(400).json({ error: 'La reserva no tiene trainer asignado' });
+    }
+
+    await query(
+      `UPDATE reservas
+         SET status='confirmed',
+             updated_at=?
+       WHERE id=?`,
+      [nowISO(), id]
+    );
+
     res.json({ ok: true });
   } catch (e) {
-    console.error('PATCH /reservas/:id/confirm', e);
-    res.status(500).json({ error: 'No se pudo confirmar' });
+    console.error('PATCH /reservas/:id/user-confirm', e);
+    res.status(500).json({ error: 'No se pudo confirmar la reserva' });
   }
 });
 
-// PATCH /api/reservas/:id/reject
-router.patch('/:id/reject', verifyToken, allowRoles(['admin', 'adiestrador']), async (req, res) => {
+// PATCH /api/reservas/:id/user-reject  (usuario rechaza → cancelled)
+router.patch('/:id/user-reject', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { note = '' } = req.body || {};
+    const { reason = '' } = req.body || {};
 
     const rRows = await query(
-      `SELECT id, paquete_id AS paqueteId, status
+      `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
     if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
     const r = rRows[0];
 
+    const isOwner =
+      (r.uid && req.user?.uid && r.uid === req.user.uid) ||
+      (r.email && req.user?.email && r.email === req.user.email);
+    if (!isOwner) return res.status(403).json({ error: 'Sin permisos' });
+
+    if (String(r.status) !== 'pending_user') {
+      return res.status(400).json({
+        error: 'La reserva no está pendiente de confirmación por el usuario',
+      });
+    }
+
+    if (!puedeCancelar24h(r.fecha, r.hora)) {
+      return res.status(400).json({ error: 'No se puede rechazar con menos de 24h' });
+    }
+
     if (r.paqueteId) {
       await tx(async () => {
         await query(
           `UPDATE reservas
-              SET status='rejected',
-                  admin_note=COALESCE(?,admin_note),
+              SET status='cancelled',
+                  cancel_reason=COALESCE(?,cancel_reason),
                   updated_at=?
             WHERE id=?`,
-          [note, nowISO(), id]
+          [reason || 'rechazado por usuario', nowISO(), id]
         );
         const pRows = await query(
           `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
           [r.paqueteId]
         );
         if (pRows.length) {
-          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-          if (['pending', 'confirmed'].includes(r.status))
+          const saldo = parseJSONSafe(pRows[0].saldo, {
+            total: 1,
+            usadas: 0,
+            pendientes: 0,
+          });
+          if (['pending', 'pending_user', 'confirmed'].includes(r.status))
             saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-          await query(
-            `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-            [JSON.stringify(saldo), nowISO(), r.paqueteId]
-          );
+          await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+            JSON.stringify(saldo),
+            nowISO(),
+            r.paqueteId,
+          ]);
         }
       });
     } else {
       await query(
         `UPDATE reservas
-            SET status='rejected',
-                admin_note=COALESCE(?,admin_note),
+            SET status='cancelled',
+                cancel_reason=COALESCE(?,cancel_reason),
                 updated_at=?
          WHERE id=?`,
-        [note, nowISO(), id]
+        [reason || 'rechazado por usuario', nowISO(), id]
       );
     }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('PATCH /reservas/:id/reject', e);
-    res.status(500).json({ error: 'No se pudo rechazar' });
+    console.error('PATCH /reservas/:id/user-reject', e);
+    res.status(500).json({ error: 'No se pudo rechazar la reserva' });
   }
 });
 
-// PATCH /api/reservas/:id/cancel (owner o admin) - Los adiestradores usan reject normalmente
+/* ===================== Cancelar (owner o admin) ===================== */
+
+// PATCH /api/reservas/:id/cancel (owner o admin)
 router.patch('/:id/cancel', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -735,9 +1034,7 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
     const isOwner =
       (r.uid && req.user?.uid && r.uid === req.user.uid) ||
       (r.email && req.user?.email && r.email === req.user.email);
-    
-    // Aquí podríamos permitir también al adiestrador cancelar, pero el flujo habitual es rechazar.
-    // Si quieres permitirlo, añade `|| req.user?.rol === 'adiestrador'`
+
     if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
 
     if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
@@ -759,13 +1056,18 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
           [r.paqueteId]
         );
         if (pRows.length) {
-          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-          if (['pending', 'confirmed'].includes(r.status))
+          const saldo = parseJSONSafe(pRows[0].saldo, {
+            total: 1,
+            usadas: 0,
+            pendientes: 0,
+          });
+          if (['pending', 'pending_user', 'confirmed'].includes(r.status))
             saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-          await query(
-            `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-            [JSON.stringify(saldo), nowISO(), r.paqueteId]
-          );
+          await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+            JSON.stringify(saldo),
+            nowISO(),
+            r.paqueteId,
+          ]);
         }
       });
     } else {
@@ -796,9 +1098,7 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) {
-      return res.status(404).json({ error: 'Reserva no encontrada' });
-    }
+    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
     const r = rRows[0];
 
     const st = String(r.status || '').toLowerCase();
@@ -825,16 +1125,53 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+/* ===================== Admin: cambiar trainer asignado (2.5) ===================== */
+// PATCH /api/reservas/:id/trainer  (solo admin)
+router.patch('/:id/trainer', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { trainerId, mode } = req.body || {};
+
+    const r = (
+      await query(
+        `SELECT id, servicio_id AS servicioId, modalidad
+           FROM reservas
+          WHERE id=? LIMIT 1`,
+        [id]
+      )
+    )[0];
+
+    if (!r) return res.status(404).json({ error: 'Reserva no encontrada' });
+
+    const servicioId = r.servicioId;
+    const modalidad = mode ?? r.modalidad;
+
+    const trainerIdFinal = await resolveTrainerIdOrFail({
+      trainerId,
+      servicioId,
+      modalidad,
+    });
+
+    await query(`UPDATE reservas SET trainer_id=?, updated_at=? WHERE id=?`, [
+      trainerIdFinal,
+      nowISO(),
+      id,
+    ]);
+
+    res.json({ ok: true, trainerId: trainerIdFinal });
+  } catch (e) {
+    const code = e?.statusCode || 500;
+    console.error('PATCH /reservas/:id/trainer', e);
+    res.status(code).json({ error: e?.message || 'No se pudo cambiar el trainer' });
+  }
+});
+
 /* ===== PATCH genérico (para notas/admin desde el front) ===== */
 router.patch('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      status,
-      adminNote = null,
-      adminNoteAppend = false,
-      cancelReason = null,
-    } = req.body || {};
+    const { status, adminNote = null, adminNoteAppend = false, cancelReason = null } =
+      req.body || {};
     if (!status && adminNote === null) {
       return res.status(400).json({ error: 'Nada que actualizar' });
     }
@@ -843,11 +1180,10 @@ router.patch('/:id', verifyToken, async (req, res) => {
     const isTrainer = (req.user?.rol || req.user?.role) === 'adiestrador';
     const isStaff = isAdmin || isTrainer;
 
-    // Confirmar / rechazar / cancelar igual que en los handlers directos
     if (status === 'confirmed' && isStaff) {
       await query(
         `UPDATE reservas
-            SET status='confirmed',
+            SET status='pending_user',
                 admin_note=COALESCE(?,admin_note),
                 updated_at=?
          WHERE id=?`,
@@ -880,13 +1216,18 @@ router.patch('/:id', verifyToken, async (req, res) => {
             [r.paqueteId]
           );
           if (pRows.length) {
-            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-            if (['pending', 'confirmed'].includes(r.status))
+            const saldo = parseJSONSafe(pRows[0].saldo, {
+              total: 1,
+              usadas: 0,
+              pendientes: 0,
+            });
+            if (['pending', 'pending_user', 'confirmed'].includes(r.status))
               saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-            await query(
-              `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-              [JSON.stringify(saldo), nowISO(), r.paqueteId]
-            );
+            await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+              JSON.stringify(saldo),
+              nowISO(),
+              r.paqueteId,
+            ]);
           }
         });
       } else {
@@ -902,7 +1243,6 @@ router.patch('/:id', verifyToken, async (req, res) => {
       return res.json({ ok: true });
     }
 
-    // Cancelar (igual lógica que handler directo)
     if (status === 'cancelled') {
       const rRows = await query(
         `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
@@ -937,13 +1277,18 @@ router.patch('/:id', verifyToken, async (req, res) => {
             [r.paqueteId]
           );
           if (pRows.length) {
-            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
-            if (['pending', 'confirmed'].includes(r.status))
+            const saldo = parseJSONSafe(pRows[0].saldo, {
+              total: 1,
+              usadas: 0,
+              pendientes: 0,
+            });
+            if (['pending', 'pending_user', 'confirmed'].includes(r.status))
               saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
-            await query(
-              `UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`,
-              [JSON.stringify(saldo), nowISO(), r.paqueteId]
-            );
+            await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+              JSON.stringify(saldo),
+              nowISO(),
+              r.paqueteId,
+            ]);
           }
         });
       } else {
@@ -959,7 +1304,6 @@ router.patch('/:id', verifyToken, async (req, res) => {
       return res.json({ ok: true });
     }
 
-    // Solo actualizar nota admin (sin cambiar estado)
     if (isStaff && adminNote !== null) {
       if (adminNoteAppend) {
         await query(
@@ -1025,10 +1369,10 @@ router.delete('/bloqueos', verifyToken, requireAdmin, async (req, res) => {
     const { fecha, hora } = req.query;
     if (!fecha || !hora) return res.status(400).json({ error: 'Faltan fecha y hora' });
 
-    const rows = await query(
-      `SELECT id FROM bloqueos WHERE fecha=? AND hora=?`,
-      [fecha, hora]
-    );
+    const rows = await query(`SELECT id FROM bloqueos WHERE fecha=? AND hora=?`, [
+      fecha,
+      hora,
+    ]);
     if (!rows.length) return res.status(404).json({ error: 'Bloqueo no encontrado.' });
 
     await query(`DELETE FROM bloqueos WHERE fecha=? AND hora=?`, [fecha, hora]);

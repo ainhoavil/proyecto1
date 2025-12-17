@@ -5,6 +5,21 @@ import { query } from "../db.js";
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
 /* ============================================================
+   Normaliza roles (BD manda) y soporta alias:
+   - trainer -> adiestrador
+============================================================ */
+function normalizeRole(raw) {
+  const r = String(raw || "").trim().toLowerCase();
+  if (!r) return "user";
+  if (r === "trainer") return "adiestrador"; // alias
+  if (r === "adiestrador") return "adiestrador";
+  if (r === "admin") return "admin";
+  if (r === "client") return "client";
+  if (r === "user") return "user";
+  return r;
+}
+
+/* ============================================================
    Extrae el token (Authorization: Bearer ... o cookie `token`)
 ============================================================ */
 function getBearerToken(req) {
@@ -49,12 +64,12 @@ async function getUserFromDB(uid, email) {
 ============================================================ */
 async function isAdminInDB(uid, email) {
   const u = await getUserFromDB(uid, email);
-  return u ? u.rol === "admin" : false;
+  return u ? normalizeRole(u.rol) === "admin" : false;
 }
 
 /* ============================================================
-   Intenta completar user desde BD si faltan datos del token
-   y sincroniza el rol actual (user/admin/trainer)
+   Completa user desde BD si faltan datos del token
+   y sincroniza el rol actual (admin / adiestrador / user / client)
 ============================================================ */
 async function hydrateUserFromDB(partialUser) {
   const u = { ...partialUser };
@@ -62,12 +77,12 @@ async function hydrateUserFromDB(partialUser) {
   const dbUser = await getUserFromDB(u.uid, u.email);
 
   if (!dbUser) {
-    // No hay nada en BD, pero al menos normalizamos flags
-    const rolNorm = u.rol || u.role || (u.isAdmin ? "admin" : "user");
+    // No hay nada en BD, normalizamos lo que venga del token
+    const rolNorm = normalizeRole(u.rol || u.role || (u.isAdmin ? "admin" : "user"));
     u.rol = rolNorm;
     u.role = rolNorm;
     u.isAdmin = rolNorm === "admin" || !!u.isAdmin;
-    u.isTrainer = rolNorm === "trainer" || !!u.isTrainer;
+    u.isTrainer = rolNorm === "adiestrador" || !!u.isTrainer;
     return u;
   }
 
@@ -77,12 +92,12 @@ async function hydrateUserFromDB(partialUser) {
   }
 
   // Rol final: el de BD manda
-  const rolDb = dbUser.rol || u.rol || u.role || "user";
+  const rolDb = normalizeRole(dbUser.rol || u.rol || u.role || "user");
 
   u.rol = rolDb;
   u.role = rolDb;
   u.isAdmin = rolDb === "admin";
-  u.isTrainer = rolDb === "trainer";
+  u.isTrainer = rolDb === "adiestrador";
 
   return u;
 }
@@ -101,10 +116,9 @@ export async function verifyToken(req, res, next) {
 
     let decoded;
     try {
-      // Intento normal: verificar firma
       decoded = jwt.verify(token, JWT_SECRET);
     } catch (err) {
-      // Si falla la firma, intentamos al menos decodificar para demo/TFG
+      // fallback para entornos demo/TFG
       console.warn("jwt.verify falló, usando jwt.decode:", err.message);
       decoded = jwt.decode(token);
       if (!decoded) {
@@ -114,18 +128,19 @@ export async function verifyToken(req, res, next) {
 
     // uid/email/rol desde token (acepta sub/uid/id)
     const uid = decoded.uid || decoded.id || decoded.sub || null;
-
     const email = decoded.email || (decoded.user && decoded.user.email) || null;
 
-    const rolFromToken =
+    const rolFromTokenRaw =
       decoded.rol ||
       decoded.role ||
       (decoded.isAdmin ? "admin" : "user") ||
       "user";
 
+    const rolFromToken = normalizeRole(rolFromTokenRaw);
+
     const isAdminToken = !!decoded.isAdmin || rolFromToken === "admin";
     const isTrainerToken =
-      !!decoded.isTrainer || rolFromToken === "trainer";
+      !!decoded.isTrainer || rolFromToken === "adiestrador";
 
     let user = {
       uid,
@@ -154,7 +169,8 @@ export async function verifyToken(req, res, next) {
 ============================================================ */
 export async function requireAdmin(req, res, next) {
   try {
-    if (req.user?.isAdmin || req.user?.rol === "admin") return next();
+    const rol = normalizeRole(req.user?.rol);
+    if (req.user?.isAdmin || rol === "admin") return next();
 
     // Único caso: el token no trae admin pero BD sí
     const ok = await isAdminInDB(req.user?.uid, req.user?.email);
@@ -168,21 +184,22 @@ export async function requireAdmin(req, res, next) {
 }
 
 /* ============================================================
-   Middleware: solo adiestrador (trainer)
+   Middleware: solo adiestrador
 ============================================================ */
 export async function requireTrainer(req, res, next) {
   try {
-    if (req.user?.isTrainer || req.user?.rol === "trainer") {
+    const rol = normalizeRole(req.user?.rol);
+    if (req.user?.isTrainer || rol === "adiestrador") {
       return next();
     }
 
-    // En caso de que el token vaya desactualizado, miramos BD
+    // Si token desactualizado, miramos BD
     const dbUser = await getUserFromDB(req.user?.uid, req.user?.email);
-    if (dbUser && dbUser.rol === "trainer") {
-      req.user.rol = "trainer";
-      req.user.role = "trainer";
+    if (dbUser && normalizeRole(dbUser.rol) === "adiestrador") {
+      req.user.rol = "adiestrador";
+      req.user.role = "adiestrador";
       req.user.isTrainer = true;
-      req.user.isAdmin = dbUser.rol === "admin";
+      req.user.isAdmin = normalizeRole(dbUser.rol) === "admin";
       return next();
     }
 
@@ -198,22 +215,24 @@ export async function requireTrainer(req, res, next) {
 ============================================================ */
 export async function requireTrainerOrAdmin(req, res, next) {
   try {
+    const rol = normalizeRole(req.user?.rol);
+
     if (
       req.user?.isAdmin ||
-      req.user?.rol === "admin" ||
+      rol === "admin" ||
       req.user?.isTrainer ||
-      req.user?.rol === "trainer"
+      rol === "adiestrador"
     ) {
       return next();
     }
 
-    // Consultar BD por si el rol ha cambiado
     const dbUser = await getUserFromDB(req.user?.uid, req.user?.email);
-    if (dbUser && (dbUser.rol === "admin" || dbUser.rol === "trainer")) {
-      req.user.rol = dbUser.rol;
-      req.user.role = dbUser.rol;
-      req.user.isAdmin = dbUser.rol === "admin";
-      req.user.isTrainer = dbUser.rol === "trainer";
+    const rolDb = normalizeRole(dbUser?.rol);
+    if (rolDb === "admin" || rolDb === "adiestrador") {
+      req.user.rol = rolDb;
+      req.user.role = rolDb;
+      req.user.isAdmin = rolDb === "admin";
+      req.user.isTrainer = rolDb === "adiestrador";
       return next();
     }
 
@@ -228,36 +247,38 @@ export async function requireTrainerOrAdmin(req, res, next) {
 
 /* ============================================================
    Middleware genérico: permite varios roles
-   Ej: allowRoles(['admin', 'trainer'])
+   Ej: allowRoles(['admin', 'adiestrador'])
 ============================================================ */
 export function allowRoles(roles = []) {
-  const set = new Set(roles);
+  const normalized = roles.map(normalizeRole);
+  const set = new Set(normalized);
+
   return async (req, res, next) => {
     try {
-      if (!req.user)
+      if (!req.user) {
         return res.status(401).json({ error: "No autenticado" });
+      }
 
-      const rolToken = req.user.rol || "user";
+      const rolToken = normalizeRole(req.user.rol || "user");
 
       // Si el rol del token ya está permitido → OK
       if (set.has(rolToken)) return next();
 
-      // Miramos BD por si el rol ha cambiado
+      // Miramos BD por si rol cambió
       const dbUser = await getUserFromDB(req.user.uid, req.user.email);
-      if (dbUser && set.has(dbUser.rol)) {
-        req.user.rol = dbUser.rol;
-        req.user.role = dbUser.rol;
-        req.user.isAdmin = dbUser.rol === "admin";
-        req.user.isTrainer = dbUser.rol === "trainer";
+      const rolDb = normalizeRole(dbUser?.rol);
+
+      if (rolDb && set.has(rolDb)) {
+        req.user.rol = rolDb;
+        req.user.role = rolDb;
+        req.user.isAdmin = rolDb === "admin";
+        req.user.isTrainer = rolDb === "adiestrador";
         return next();
       }
 
       // Caso especial: permitir admin aunque no esté en el token
       if (set.has("admin")) {
-        const okAdmin = await isAdminInDB(
-          req.user.uid,
-          req.user.email
-        );
+        const okAdmin = await isAdminInDB(req.user.uid, req.user.email);
         if (okAdmin) return next();
       }
 
