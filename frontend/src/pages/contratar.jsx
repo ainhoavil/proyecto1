@@ -30,6 +30,7 @@ function addMinutes(hhmm, mins) {
   const mm = String(total % 60).padStart(2, '0');
   return `${hh}:${mm}`;
 }
+const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 /* ====================================================== */
 
 export default function Contratar() {
@@ -38,7 +39,6 @@ export default function Contratar() {
   const [params] = useSearchParams();
 
   const { isAuthenticated, user, role, loading } = useAuth();
-  const esAdmin = role === 'admin' || !!user?.isAdmin;
   const authReady = !loading && isAuthenticated;
   const userEmail = (user?.email || '').trim();
 
@@ -68,6 +68,7 @@ export default function Contratar() {
         const arr = Array.isArray(list)
           ? list
           : list?.items || list?.servicios || [];
+
         arr.sort((a, b) => (a?.order ?? 0) - (b?.order ?? 0));
         setServicios(arr);
       } catch (e) {
@@ -82,25 +83,33 @@ export default function Contratar() {
   /* ===== servicio / modalidad inicial ===== */
   const servicioParam = params.get('servicio') || location.state?.servicio || '';
   const modalidadParam = params.get('modalidad') || location.state?.modalidad || '';
+
   const [servicioId, setServicioId] = useState(servicioParam);
 
   const servicioSel = useMemo(() => {
     if (!servicioId) return null;
     return (
-      servicios.find(
-        (s) =>
-          String(s.id) === String(servicioId) ||
-          String(s._id) === String(servicioId) ||
-          String(s.uuid) === String(servicioId) ||
-          s.title === servicioId
-      ) || null
+      servicios.find((s) => {
+        const sid = String(s?.id ?? '');
+        const s_id = String(s?._id ?? '');
+        const suuid = String(s?.uuid ?? '');
+        const stitle = String(s?.title ?? '');
+        const reminder = String(servicioId ?? '');
+        return sid === reminder || s_id === reminder || suuid === reminder || stitle === reminder;
+      }) || null
     );
   }, [servicios, servicioId]);
+
+  // ✅ ID real del servicio (evita undefined)
+  const servicioIdResolved = useMemo(() => {
+    if (!servicioSel) return String(servicioId || '').trim();
+    return String(servicioSel.id || servicioSel._id || servicioSel.uuid || servicioId || '').trim();
+  }, [servicioSel, servicioId]);
 
   const durationMin = useMemo(() => {
     if (servicioSel?.durationMin) return Number(servicioSel.durationMin);
     const txt = servicioSel?.duration || '';
-    const m = txt.match(/(\d+)\s*min/i);
+    const m = String(txt).match(/(\d+)\s*min/i);
     return m ? Number(m[1]) : 60;
   }, [servicioSel]);
 
@@ -110,14 +119,9 @@ export default function Contratar() {
 
     const title = String(servicioSel.title || '').toLowerCase();
 
-    if (title.includes('obediencia'))
-      return ['presencial', 'online', 'a domicilio'];
-
-    if (title.includes('básico') || title.includes('basico'))
-      return ['presencial', 'online', 'a domicilio'];
-
-    if (title.includes('paseo'))
-      return ['presencial', 'a domicilio'];
+    if (title.includes('obediencia')) return ['presencial', 'online', 'a domicilio'];
+    if (title.includes('básico') || title.includes('basico')) return ['presencial', 'online', 'a domicilio'];
+    if (title.includes('paseo')) return ['presencial', 'a domicilio'];
 
     if (Array.isArray(servicioSel.modalities) && servicioSel.modalities.length)
       return servicioSel.modalities;
@@ -144,13 +148,64 @@ export default function Contratar() {
     if (!allowedModalities.includes(modalidad)) {
       setModalidad(allowedModalities[0]);
     }
-  }, [allowedModalities, modalidadParam]); // eslint-disable-line
+  }, [allowedModalities, modalidadParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ===== wizard ===== */
   const [step, setStep] = useState(servicioParam ? 1 : 0);
   const atras = () => setStep((s) => Math.max(s - 1, 0));
 
-  /* ===== calendario mensual ===== */
+  /* =====================================================
+         ADIESTRADORES COMPATIBLES (NUEVO)
+  ====================================================== */
+  const [trainers, setTrainers] = useState([]);
+  const [loadingTrainers, setLoadingTrainers] = useState(false);
+  const [trainerChoice, setTrainerChoice] = useState('any'); // 'any' | '<id>'
+  const [trainersErr, setTrainersErr] = useState('');
+
+  const canLoadTrainers = !!servicioIdResolved && !!modalidad && authReady;
+
+  const loadEligibleTrainers = async () => {
+    if (!canLoadTrainers) return;
+
+    setLoadingTrainers(true);
+    setTrainersErr('');
+    try {
+      const qs = new URLSearchParams({
+        servicioId: String(servicioIdResolved),
+        modalidad: String(modalidad || '')
+      });
+
+      const data = await http(`/api/trainers/eligible?${qs.toString()}`, { auth: true });
+
+      const arr = Array.isArray(data) ? data : data?.items || [];
+      setTrainers(arr);
+
+      // Si tenía elegido uno y ya no está, volver a any
+      if (trainerChoice !== 'any') {
+        const ok = arr.some((t) => getTrainerId(t) === String(trainerChoice));
+        if (!ok) setTrainerChoice('any');
+      }
+    } catch (e) {
+      console.error('Error cargando trainers elegibles', e);
+      setTrainers([]);
+      setTrainersErr('No se pudo cargar la lista de adiestradores disponibles.');
+      setTrainerChoice('any');
+    } finally {
+      setLoadingTrainers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!canLoadTrainers) return;
+    loadEligibleTrainers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canLoadTrainers, servicioIdResolved, modalidad]);
+
+  const hasAnyEligibleTrainer = useMemo(() => trainers.length > 0, [trainers]);
+
+  /* =====================================================
+        CALENDARIO + DISPONIBILIDAD
+  ====================================================== */
   const [mesBase, setMesBase] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
@@ -163,17 +218,23 @@ export default function Contratar() {
     try {
       const qs = new URLSearchParams({
         fecha: f,
-        durationMin
+        durationMin: String(durationMin)
       });
+
+      // si el usuario eligió un trainer concreto, filtrar disponibilidad por trainer
+      if (trainerChoice && trainerChoice !== 'any') {
+        qs.set('trainerId', String(trainerChoice));
+      }
+
       const data = await http(`/api/reservas/disponibilidad?${qs.toString()}`);
 
-      const libres = data.libres || data.slots || data.available || [];
-      const ocupadas = data.unavailable || data.ocupadas || data.busy || [];
+      const libres = data?.libres || data?.slots || data?.available || [];
+      const ocupadas = data?.unavailable || data?.ocupadas || data?.busy || [];
 
       setHorasLibres(Array.isArray(libres) ? libres : []);
       setUnavailable(Array.isArray(ocupadas) ? ocupadas : []);
 
-      if (hora && !libres.includes(hora)) setHora('');
+      if (hora && Array.isArray(libres) && !libres.includes(hora)) setHora('');
     } catch (e) {
       console.error('Error disponibilidad', e);
       setHorasLibres([]);
@@ -184,7 +245,7 @@ export default function Contratar() {
   useEffect(() => {
     if (fecha) cargarDisponibilidad(fecha);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fecha, durationMin]);
+  }, [fecha, durationMin, trainerChoice]);
 
   const isSlotBusy = (t) => {
     if (horasLibres.length) return !horasLibres.includes(t);
@@ -221,11 +282,10 @@ export default function Contratar() {
         const arr = Array.isArray(list?.items)
           ? list.items
           : Array.isArray(list)
-          ? list
-          : [];
+            ? list
+            : [];
 
         const activos = arr.filter((p) => !p.archived);
-
         setPerros(activos);
 
         if (activos.length === 1) {
@@ -323,59 +383,6 @@ export default function Contratar() {
   const perroValido = perro.nombre.trim().length > 0;
 
   /* =====================================================
-         ADIESTRADORES COMPATIBLES (NUEVO)
-  ====================================================== */
-  const [trainers, setTrainers] = useState([]);
-  const [loadingTrainers, setLoadingTrainers] = useState(false);
-  const [trainerChoice, setTrainerChoice] = useState('any'); // 'any' | '<uid>'
-  const [trainersErr, setTrainersErr] = useState('');
-
-  const canLoadTrainers = !!servicioSel?.id && !!modalidad && authReady;
-
-  const loadEligibleTrainers = async () => {
-    if (!canLoadTrainers) return;
-
-    setLoadingTrainers(true);
-    setTrainersErr('');
-    try {
-      const qs = new URLSearchParams({
-        servicioId: String(servicioSel.id),
-        modalidad: String(modalidad || '')
-      });
-      const data = await http(`/api/trainers/eligible?${qs.toString()}`, { auth: true });
-
-      const arr = Array.isArray(data) ? data : data?.items || [];
-      setTrainers(arr);
-
-      // si había elegido uno y ya no está, vuelve a "any"
-      if (trainerChoice !== 'any') {
-        const ok = arr.some((t) => String(t.uid) === String(trainerChoice));
-        if (!ok) setTrainerChoice('any');
-      }
-    } catch (e) {
-      console.error('Error cargando trainers elegibles', e);
-      setTrainers([]);
-      setTrainersErr('No se pudo cargar la lista de adiestradores disponibles.');
-      setTrainerChoice('any');
-    } finally {
-      setLoadingTrainers(false);
-    }
-  };
-
-  useEffect(() => {
-    // recargar cuando cambie servicio o modalidad
-    if (!canLoadTrainers) return;
-    loadEligibleTrainers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canLoadTrainers, servicioSel?.id, modalidad]);
-
-  const hasAnyEligibleTrainer = useMemo(() => {
-    // Si backend usa asignación automática, basta con que exista al menos 1 elegible.
-    // Si no hay ninguno, no deberíamos dejar confirmar.
-    return trainers.length > 0;
-  }, [trainers]);
-
-  /* =====================================================
          CONFIRMAR RESERVA
   ====================================================== */
   const [guardando, setGuardando] = useState(false);
@@ -390,7 +397,6 @@ export default function Contratar() {
     if (domicilio && !direccionValida)
       return setMsg('Indica dirección para modalidad a domicilio.');
 
-    // NUEVO: no permitir si no hay trainers elegibles (para evitar 409 del backend)
     if (!hasAnyEligibleTrainer) {
       return setMsg('❌ No hay adiestradores disponibles para este servicio y modalidad.');
     }
@@ -402,8 +408,11 @@ export default function Contratar() {
         email: userEmail,
         fecha,
         hora,
-        servicioId: servicioSel?.id,
+
+        // ✅ enviar ID real (id/_id/uuid)
+        servicioId: servicioIdResolved,
         servicioTitulo: servicioSel?.title,
+
         modalidad,
         duration: servicioSel?.duration,
         durationMin,
@@ -414,34 +423,28 @@ export default function Contratar() {
         direccion: contacto.direccion,
         pricing: {},
 
-        // NUEVO: elección de trainer
-        // - 'any' => backend asigna automático
-        // - '<uid>' => backend valida compatible
+        // elección de trainer (any o id)
         trainerId: trainerChoice
       };
 
-      const res = await http('/api/reservas', {
+      await http('/api/reservas', {
         method: 'POST',
         data: payload,
         auth: true
       });
 
-      if (res?.status === 409)
-        return setMsg('❌ Esa hora ya no está disponible.');
-
       setMsg('✅ Reserva creada. Redirigiendo…');
       setTimeout(() => navigate('/reservas', { replace: true }), 800);
     } catch (e) {
       console.error('Error creando reserva', e);
+
       const serverMsg =
         e?.response?.data?.error ||
         e?.error ||
+        e?.message ||
         '';
-      if (String(serverMsg).toLowerCase().includes('adiestradores')) {
-        setMsg(`❌ ${serverMsg}`);
-      } else {
-        setMsg('❌ No se pudo crear la reserva.');
-      }
+
+      setMsg(serverMsg ? `❌ ${serverMsg}` : '❌ No se pudo crear la reserva.');
     } finally {
       setGuardando(false);
     }
@@ -464,20 +467,18 @@ export default function Contratar() {
           marginBottom: 16
         }}
       >
-        {['Servicio', 'Fecha y hora', 'Datos del perro', 'Contacto', 'Resumen'].map(
-          (t, i) => (
-            <li
-              key={t}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 8,
-                background: i === step ? '#e5f2ea' : '#eee'
-              }}
-            >
-              {i + 1}. {t}
-            </li>
-          )
-        )}
+        {['Servicio', 'Fecha y hora', 'Datos del perro', 'Contacto', 'Resumen'].map((t, i) => (
+          <li
+            key={t}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 8,
+              background: i === step ? '#e5f2ea' : '#eee'
+            }}
+          >
+            {i + 1}. {t}
+          </li>
+        ))}
       </ol>
 
       {/* ===============================================
@@ -549,10 +550,7 @@ export default function Contratar() {
               ‹
             </button>
             <div className="month-label">
-              {mesBase.toLocaleString('es-ES', {
-                month: 'long',
-                year: 'numeric'
-              })}
+              {mesBase.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
             </div>
             <button
               className="btn-ghost"
@@ -575,11 +573,7 @@ export default function Contratar() {
               const first = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
               const startOffset = (first.getDay() + 6) % 7;
 
-              const lastDay = new Date(
-                mesBase.getFullYear(),
-                mesBase.getMonth() + 1,
-                0
-              ).getDate();
+              const lastDay = new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 0).getDate();
 
               const cells = [];
 
@@ -607,9 +601,9 @@ export default function Contratar() {
                   <button
                     key={i}
                     type="button"
-                    className={`daycell ${inMonth ? '' : 'out'} ${
-                      disabled ? 'disabled' : ''
-                    } ${isSelected ? 'selected' : ''}`}
+                    className={`daycell ${inMonth ? '' : 'out'} ${disabled ? 'disabled' : ''} ${
+                      isSelected ? 'selected' : ''
+                    }`}
                     onClick={async (ev) => {
                       ev.stopPropagation();
                       if (!inMonth || disabled) return;
@@ -648,9 +642,7 @@ export default function Contratar() {
                               rows.push(
                                 <button
                                   key={t}
-                                  className={`slot ${busy ? 'busy' : ''} ${
-                                    hora === t ? 'active' : ''
-                                  }`}
+                                  className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
                                   disabled={busy}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -690,9 +682,8 @@ export default function Contratar() {
       =============================================== */}
       {step === 2 && (
         <section>
-          <h2>4) Datos del perro</h2>
+          <h2>3) Datos del perro</h2>
 
-          {/* SIN PERROS — NUEVO */}
           {perros.length === 0 && (
             <>
               <p>No tienes perros guardados. Crea uno para asociarlo a la reserva.</p>
@@ -702,9 +693,7 @@ export default function Contratar() {
                   Nombre (obligatorio)
                   <input
                     value={nuevoPerro.nombre}
-                    onChange={(e) =>
-                      setNuevoPerro({ ...nuevoPerro, nombre: e.target.value })
-                    }
+                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, nombre: e.target.value })}
                   />
                 </label>
 
@@ -712,9 +701,7 @@ export default function Contratar() {
                   Raza/Tamaño (opcional)
                   <input
                     value={nuevoPerro.razaTamaño}
-                    onChange={(e) =>
-                      setNuevoPerro({ ...nuevoPerro, razaTamaño: e.target.value })
-                    }
+                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, razaTamaño: e.target.value })}
                   />
                 </label>
 
@@ -732,9 +719,7 @@ export default function Contratar() {
                   <input
                     type="checkbox"
                     checked={nuevoPerro.castrado}
-                    onChange={(e) =>
-                      setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })
-                    }
+                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })}
                   />
                   Castrado/esterilizado
                 </label>
@@ -771,7 +756,6 @@ export default function Contratar() {
             </>
           )}
 
-          {/* 1 PERRO — AUTORRELLENO */}
           {perros.length === 1 && (
             <>
               <p>
@@ -788,7 +772,6 @@ export default function Contratar() {
             </>
           )}
 
-          {/* MULTIPLES PERROS */}
           {perros.length > 1 && (
             <>
               <label>
@@ -816,9 +799,7 @@ export default function Contratar() {
                   Raza/Tamaño
                   <input
                     value={perro.razaTamaño}
-                    onChange={(e) =>
-                      setPerro({ ...perro, razaTamaño: e.target.value })
-                    }
+                    onChange={(e) => setPerro({ ...perro, razaTamaño: e.target.value })}
                   />
                 </label>
 
@@ -826,9 +807,7 @@ export default function Contratar() {
                   Observaciones
                   <input
                     value={perro.observaciones}
-                    onChange={(e) =>
-                      setPerro({ ...perro, observaciones: e.target.value })
-                    }
+                    onChange={(e) => setPerro({ ...perro, observaciones: e.target.value })}
                   />
                 </label>
 
@@ -836,9 +815,7 @@ export default function Contratar() {
                   <input
                     type="checkbox"
                     checked={perro.castrado}
-                    onChange={(e) =>
-                      setPerro({ ...perro, castrado: e.target.checked })
-                    }
+                    onChange={(e) => setPerro({ ...perro, castrado: e.target.checked })}
                   />
                   Castrado/esterilizado
                 </label>
@@ -860,11 +837,11 @@ export default function Contratar() {
       )}
 
       {/* ===============================================
-            PASO 3 — CONTACTO (incluye elección de adiestrador)
+            PASO 3 — CONTACTO (incluye adiestrador)
       =============================================== */}
       {step === 3 && (
         <section>
-          <h2>5) Datos de contacto</h2>
+          <h2>4) Datos de contacto</h2>
 
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
             <label>
@@ -878,7 +855,6 @@ export default function Contratar() {
               </select>
             </label>
 
-            {/* NUEVO: Adiestrador */}
             <label>
               Adiestrador
               <select
@@ -887,12 +863,16 @@ export default function Contratar() {
                 disabled={!canLoadTrainers || loadingTrainers}
               >
                 <option value="any">Cualquiera disponible</option>
-                {trainers.map((t) => (
-                  <option key={t.uid} value={t.uid}>
-                    {t.nombre ? t.nombre : t.email}
-                  </option>
-                ))}
+                {trainers.map((t) => {
+                  const tid = getTrainerId(t);
+                  return (
+                    <option key={tid} value={tid}>
+                      {t.nombre ? t.nombre : t.email}
+                    </option>
+                  );
+                })}
               </select>
+
               {loadingTrainers && (
                 <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
                   Cargando adiestradores…
@@ -919,16 +899,16 @@ export default function Contratar() {
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
-              Dirección {modalidad === 'a domicilio' ? '(obligatoria)' : '(opcional)'}
+              Dirección {domicilio ? '(obligatoria)' : '(opcional)'}
               <input
                 value={contacto.direccion}
-                required={modalidad === 'a domicilio'}
+                required={domicilio}
                 onChange={(e) => setContacto({ ...contacto, direccion: e.target.value })}
               />
             </label>
           </div>
 
-          {modalidad === 'a domicilio' && !direccionValida && (
+          {domicilio && !direccionValida && (
             <p style={{ color: 'crimson' }}>
               ⚠ Debes indicar una dirección para modalidad a domicilio.
             </p>
@@ -952,7 +932,7 @@ export default function Contratar() {
       =============================================== */}
       {step === 4 && (
         <section>
-          <h2>6) Resumen</h2>
+          <h2>5) Resumen</h2>
 
           {!servicioSel ? (
             <p>
@@ -973,14 +953,13 @@ export default function Contratar() {
                 <b>Modalidad:</b> {modalidad}
               </div>
 
-              {/* NUEVO: resumen trainer */}
               <div>
                 <b>Adiestrador:</b>{' '}
                 {trainerChoice === 'any'
                   ? 'Cualquiera disponible'
-                  : (trainers.find((t) => String(t.uid) === String(trainerChoice))?.nombre ||
-                      trainers.find((t) => String(t.uid) === String(trainerChoice))?.email ||
-                      trainerChoice)}
+                  : (trainers.find((t) => getTrainerId(t) === String(trainerChoice))?.nombre ||
+                    trainers.find((t) => getTrainerId(t) === String(trainerChoice))?.email ||
+                    trainerChoice)}
               </div>
 
               <div>

@@ -98,31 +98,58 @@ a {
   align-items: center;
   justify-content: center;
   background: $color-brand;
-  color: white;
+  color: $color-white;
   padding: $sp-3 $sp-5;
   border-radius: $radius;
   border: none;
   font-weight: 600;
-  transition: $transition;
+  cursor: pointer;
+  transition: all $transition;
 
   &:hover {
     background: $color-brand-dark;
+    color: $color-white;
     transform: translateY(-2px);
+    box-shadow: $shadow-soft;
   }
 }
 
 .btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   color: $color-brand-dark;
   border: 2px solid $color-brand;
   padding: $sp-3 $sp-5;
   border-radius: $radius;
   font-weight: 600;
-  transition: $transition;
+  cursor: pointer;
+  transition: all $transition;
 
   &:hover {
     background: $color-brand;
-    color: white;
+    color: $color-white;
+    transform: translateY(-2px);
+    box-shadow: $shadow-soft;
+  }
+}
+
+/* MIXIN PARA REUTILIZAR EN OTROS LADOS */
+@mixin btn-base {
+  background: $color-brand;
+  color: $color-white;
+  padding: 10px 20px;
+  border-radius: $radius-large;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all $transition;
+
+  &:hover {
+    background: $color-brand-dark;
+    color: $color-white;
+    transform: translateY(-2px);
   }
 }
 
@@ -155,22 +182,5 @@ a {
 .hide-desktop {
   @media (min-width: 901px) {
     display: none !important;
-  }
-}
-/* ============================
-   BASE DE BOTONES GLOBAL
-============================ */
-@mixin btn-base {
-  background: $color-brand;
-  color: white;
-  padding: 10px 20px;
-  border-radius: $radius-large;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  transition: 0.25s ease;
-
-  &:hover {
-    background: $color-brand-dark;
   }
 }

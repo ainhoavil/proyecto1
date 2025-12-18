@@ -125,30 +125,68 @@ async function canSeeReservation(req, reservaId) {
  * trainer_servicios(id, trainer_id, servicio_id, modalidad, enabled, created_at, updated_at)
  * - modalidad NULL o '' => vale para cualquier modalidad
  */
+
+// ✅ NUEVO: fallback a "todos los adiestradores" (coherente con /api/trainers/eligible actual)
+async function getAllTrainers() {
+  // OJO: si tu tabla usuarios NO tiene "nombre", esto NO rompe: lo usamos pero no es obligatorio
+  // Si te da error por columna inexistente, cambia a: SELECT id, email FROM usuarios ...
+  try {
+    return await query(
+      `SELECT id, email, nombre
+         FROM usuarios
+        WHERE rol = 'adiestrador'
+        ORDER BY nombre IS NULL, nombre ASC, email ASC`
+    );
+  } catch {
+    return await query(
+      `SELECT id, email
+         FROM usuarios
+        WHERE rol = 'adiestrador'
+        ORDER BY email ASC`
+    );
+  }
+}
+
 async function getEligibleTrainers({ servicioId, modalidad }) {
   const mod = modalidad ? String(modalidad) : null;
 
-  const rows = await query(
-    `
-    SELECT u.id, u.email, u.nombre
-      FROM usuarios u
-      JOIN trainer_servicios ts
-        ON ts.trainer_id = u.id
-     WHERE u.rol = 'adiestrador'
-       AND ts.enabled = 1
-       AND ts.servicio_id = ?
-       AND (
-            ts.modalidad IS NULL
-            OR ts.modalidad = ''
-            OR ? IS NULL
-            OR ts.modalidad = ?
-       )
-     ORDER BY u.nombre IS NULL, u.nombre ASC, u.email ASC
-    `,
-    [String(servicioId), mod, mod]
-  );
+  // Si no hay servicioId, no bloqueamos el sistema: devolvemos todos
+  if (!servicioId) {
+    return await getAllTrainers();
+  }
 
-  return rows; // [{id,email,nombre}]
+  let rows = [];
+  try {
+    rows = await query(
+      `
+      SELECT u.id, u.email, u.nombre
+        FROM usuarios u
+        JOIN trainer_servicios ts
+          ON ts.trainer_id = u.id
+       WHERE u.rol = 'adiestrador'
+         AND ts.enabled = 1
+         AND ts.servicio_id = ?
+         AND (
+              ts.modalidad IS NULL
+              OR ts.modalidad = ''
+              OR ? IS NULL
+              OR ts.modalidad = ?
+         )
+       ORDER BY u.nombre IS NULL, u.nombre ASC, u.email ASC
+      `,
+      [String(servicioId), mod, mod]
+    );
+  } catch (e) {
+    // Si trainer_servicios no existe / columnas distintas / datos incompletos => no tiramos el flujo
+    rows = [];
+  }
+
+  // ✅ FALLBACK: si no hay mapeos compatibles, usar todos los adiestradores
+  if (!rows || rows.length === 0) {
+    return await getAllTrainers();
+  }
+
+  return rows;
 }
 
 function pickRandomTrainer(eligibleRows) {
@@ -167,17 +205,12 @@ async function validateTrainerExistsAndIsTrainer(trainerId) {
 }
 
 async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
-  // trainerId:
-  // - undefined/null/'' => auto
-  // - 'any' => auto
-  // - '<id>' => validar + compatible
   const reqT = trainerId == null ? '' : String(trainerId).trim();
 
-  if (!servicioId) {
-    throw new Error('Falta servicioId para asignar adiestrador');
-  }
+  // Cargamos elegibles con fallback automático
+  const eligible = await getEligibleTrainers({ servicioId, modalidad });
 
-  // específico
+  // Si el usuario eligió uno concreto
   if (reqT && reqT !== 'any') {
     const okTrainer = await validateTrainerExistsAndIsTrainer(reqT);
     if (!okTrainer) {
@@ -185,36 +218,31 @@ async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
       err.statusCode = 400;
       throw err;
     }
-    const eligible = await getEligibleTrainers({ servicioId, modalidad });
-    const isEligible = eligible.some((t) => t.id === reqT);
-    if (!isEligible) {
-      const err = new Error('Trainer no habilitado para este servicio/modalidad');
-      err.statusCode = 400;
-      throw err;
-    }
+
+    // Si está en elegibles, perfecto. Si no, NO BLOQUEAMOS (coherencia con listado actual)
+    // Esto evita que el usuario no pueda reservar por falta de trainer_servicios.
     return reqT;
   }
 
-  // auto
-  const eligible = await getEligibleTrainers({ servicioId, modalidad });
+  // Auto (any/vacío)
   const chosen = pickRandomTrainer(eligible);
   if (!chosen) {
-    const err = new Error(
-      'No hay adiestradores disponibles para este servicio/modalidad'
-    );
+    const err = new Error('No hay adiestradores disponibles');
     err.statusCode = 409;
     throw err;
   }
   return chosen.id;
 }
 
+
 /* ===================== Disponibilidad ===================== */
-// GET /api/reservas/disponibilidad?fecha=YYYY-MM-DD
+// GET /api/reservas/disponibilidad?fecha=YYYY-MM-DD&trainerId=&durationMin=
 router.get('/disponibilidad', async (req, res) => {
   try {
-    const { fecha } = req.query;
-    if (!fecha)
+    const { fecha, trainerId = '', durationMin = 60 } = req.query;
+    if (!fecha) {
       return res.status(400).json({ error: 'Falta fecha (YYYY-MM-DD)' });
+    }
 
     const slots = [];
     for (let h = BUSINESS_HOURS.start; h < BUSINESS_HOURS.end; h++) {
@@ -222,35 +250,64 @@ router.get('/disponibilidad', async (req, res) => {
       slots.push(`${String(h).padStart(2, '0')}:00`);
     }
 
+    const params = [fecha];
+    let whereTrainer = '';
+
+    if (trainerId && trainerId !== 'any') {
+      whereTrainer = ' AND trainer_id = ?';
+      params.push(String(trainerId));
+    }
+
     const reservas = await query(
-      `SELECT hora, COALESCE(duration_min,60) AS durationMin
-         FROM reservas
-        WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
+      `
+      SELECT hora, COALESCE(duration_min,60) AS durationMin
+        FROM reservas
+       WHERE fecha = ?
+         AND status IN ('pending','pending_user','confirmed')
+         ${whereTrainer}
+      `,
+      params
+    );
+
+    const bloqueos = await query(
+      `SELECT hora FROM bloqueos WHERE fecha = ?`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
-      fecha,
-    ]);
 
-    const ocupadasSet = new Set();
+    const ocupadas = new Set();
+
     for (const r of reservas) {
-      const dur = Number(r.durationMin || 60);
-      const steps = Math.max(1, Math.ceil(dur / 60));
-      for (let i = 0; i < steps; i++) {
-        ocupadasSet.add(fromMin(toMin(String(r.hora)) + i * 60));
+      const start = toMin(r.hora);
+      const end = start + Number(r.durationMin || 60);
+      for (let t = start; t < end; t += 60) {
+        ocupadas.add(fromMin(t));
       }
     }
-    for (const b of bloqueos) ocupadasSet.add(String(b.hora));
 
-    const libres = slots.filter((s) => !ocupadasSet.has(s));
-    const ocupadas = Array.from(ocupadasSet);
+    for (const b of bloqueos) {
+      ocupadas.add(String(b.hora));
+    }
 
-    res.json({ fecha, libres, ocupadas });
+    const libres = slots.filter((slot) => {
+      const start = toMin(slot);
+      const end = start + Number(durationMin || 60);
+      for (let t = start; t < end; t += 60) {
+        if (ocupadas.has(fromMin(t))) return false;
+      }
+      return true;
+    });
+
+    res.json({
+      fecha,
+      libres,
+      ocupadas: Array.from(ocupadas),
+    });
   } catch (e) {
     console.error('GET /reservas/disponibilidad', e);
     res.status(500).json({ error: 'No se pudo calcular disponibilidad' });
   }
 });
+
 
 /* ===================== Crear (usuario) ===================== */
 // POST /api/reservas
@@ -608,6 +665,58 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
     res.status(code).json({ error: e?.message || 'No se pudo crear (admin)' });
   }
 });
+
+/* ===================== Agenda diaria del adiestrador ===================== */
+// GET /api/reservas/trainer/day?fecha=YYYY-MM-DD
+router.get(
+  '/trainer/day',
+  verifyToken,
+  allowRoles(['adiestrador', 'admin']),
+  async (req, res) => {
+    try {
+      const { fecha } = req.query;
+      const trainerId = req.user?.id;
+
+      if (!fecha) {
+        return res.status(400).json({ error: 'Falta fecha (YYYY-MM-DD)' });
+      }
+      if (!trainerId) {
+        return res.status(401).json({ error: 'No autorizado' });
+      }
+
+      const rows = await query(
+        `
+        SELECT
+          r.id,
+          r.fecha,
+          r.hora,
+          r.duration_min AS durationMin,
+          r.status,
+          r.modalidad,
+          r.servicio_titulo AS servicioTitulo,
+          u.id AS clienteId,
+          u.nombre AS clienteNombre,
+          u.email AS clienteEmail
+        FROM reservas r
+        LEFT JOIN usuarios u ON u.id = r.uid
+        WHERE r.trainer_id = ?
+          AND r.fecha = ?
+          AND r.status IN ('pending','pending_user','confirmed')
+        ORDER BY r.hora ASC
+        `,
+        [trainerId, fecha]
+      );
+
+      res.json(rows);
+    } catch (e) {
+      console.error('GET /reservas/trainer/day', e);
+      res.status(500).json({
+        error: 'No se pudo cargar la agenda del adiestrador',
+      });
+    }
+  }
+);
+
 
 /* ===================== Mis reservas (usuario) ===================== */
 // GET /api/reservas/mias

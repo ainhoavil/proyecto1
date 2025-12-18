@@ -1,80 +1,77 @@
 import { useEffect, useState } from "react";
 import { http } from "../helpers/http";
-import { first, HOURS, parseDisponibilidad, humanDate } from "../helpers/reservas";
+import { HOURS, humanDate } from "../helpers/reservas";
 import { useAuth } from "../context/auth";
 import "../styles/contratar.scss";
 
 export default function TrainerAgenda() {
-
   const { user } = useAuth();
 
   /* ======================== Estados ============================ */
+  const [fecha, setFecha] = useState("");
+
+  const [reservasDia, setReservasDia] = useState([]);
+  const [bloqueosDia, setBloqueosDia] = useState([]);
+
   const [clientes, setClientes] = useState([]);
   const [clienteId, setClienteId] = useState("");
-
   const [servicios, setServicios] = useState([]);
   const [servicioId, setServicioId] = useState("");
-
-  const [fecha, setFecha] = useState("");
-  const [horasNoDisp, setHorasNoDisp] = useState([]);
-  const [loadingHoras, setLoadingHoras] = useState(false);
-
   const [modalidad, setModalidad] = useState("presencial");
 
   const [notice, setNotice] = useState({ type: "", text: "" });
 
-  const showSuccess = (t) => setNotice({ type: "success", text: t });
   const showError = (t) => setNotice({ type: "error", text: t });
+  const showSuccess = (t) => setNotice({ type: "success", text: t });
 
-  /* ======================== Cargar clientes ============================ */
-  const loadClientes = async () => {
-    try {
-      const data = await http("/api/trainers/me/clients", { auth: true });
-      const arr = data?.items || data || [];
+  /* ======================== Cargar base ============================ */
+  useEffect(() => {
+    http("/api/trainers/me/clients", { auth: true }).then((r) => {
+      const arr = Array.isArray(r) ? r : [];
       setClientes(arr);
       if (arr.length) setClienteId(arr[0].id);
-    } catch (e) {
-      showError("No se pudieron cargar los clientes.");
-    }
-  };
+    });
 
-  /* ======================== Cargar servicios ============================ */
-  const loadServicios = async () => {
-    try {
-      const data = await http("/api/servicios");
-      const arr = Array.isArray(data) ? data : data?.items || [];
+    http("/api/servicios").then((r) => {
+      const arr = Array.isArray(r) ? r : [];
       setServicios(arr);
-      if (arr.length)
-        setServicioId(first(arr[0].id, arr[0]._id, arr[0].uuid));
-    } catch (e) {
-      showError("No se pudieron cargar los servicios.");
-    }
-  };
+      if (arr.length) setServicioId(arr[0].id);
+    });
+  }, []);
 
-  /* ======================== Disponibilidad ============================ */
-  const cargarDisponibilidad = async (fecha) => {
-    if (!fecha || !servicioId) return;
-
-    setLoadingHoras(true);
+  /* ======================== Agenda diaria ============================ */
+  const loadAgendaDia = async (f) => {
+    if (!f) return;
     try {
-      const qs = new URLSearchParams({
-        fecha,
-        servicioId
-      });
-
-      const data = await http(`/api/reservas/disponibilidad?${qs}`, { auth: true });
-      const { ocup } = parseDisponibilidad(data || {});
-      setHorasNoDisp(ocup || []);
-    } catch (e) {
-      showError("No se pudo cargar la disponibilidad.");
+      const r = await http(
+        `/api/reservas/trainer/day?fecha=${f}`,
+        { auth: true }
+      );
+      setReservasDia(Array.isArray(r) ? r : []);
+    } catch {
+      showError("No se pudo cargar la agenda del día.");
     }
-    setLoadingHoras(false);
   };
 
-  /* ======================== Crear reserva ============================ */
+  const loadBloqueosDia = async (f) => {
+    if (!f) return;
+    try {
+      const r = await http(`/api/bloqueos/day?fecha=${f}`, { auth: true });
+      setBloqueosDia(Array.isArray(r) ? r.map((b) => b.hora) : []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (fecha) {
+      loadAgendaDia(fecha);
+      loadBloqueosDia(fecha);
+    }
+  }, [fecha]);
+
+  /* ======================== Acciones ============================ */
   const crearReserva = async (hora) => {
-    if (!clienteId || !servicioId || !fecha || !hora) {
-      showError("Faltan datos.");
+    if (!clienteId || !servicioId || !fecha) {
+      showError("Faltan datos para crear la reserva.");
       return;
     }
 
@@ -91,101 +88,143 @@ export default function TrainerAgenda() {
           status: "confirmed"
         }
       });
-
-      showSuccess("Reserva creada para el cliente.");
-      setFecha("");
-    } catch (e) {
+      showSuccess("Reserva creada.");
+      loadAgendaDia(fecha);
+    } catch {
       showError("No se pudo crear la reserva.");
     }
   };
 
-  /* ======================== Cargar inicial ============================ */
-  useEffect(() => {
-    loadClientes();
-    loadServicios();
-  }, []);
+  const bloquearHora = async (hora) => {
+    await http("/api/bloqueos", {
+      method: "POST",
+      auth: true,
+      data: { fecha, hora }
+    });
+    loadBloqueosDia(fecha);
+  };
 
-  useEffect(() => {
-    if (fecha) cargarDisponibilidad(fecha);
-  }, [fecha, servicioId]);
+  const desbloquearHora = async (hora) => {
+    await http("/api/bloqueos", {
+      method: "DELETE",
+      auth: true,
+      data: { fecha, hora }
+    });
+    loadBloqueosDia(fecha);
+  };
 
+  const reservaPorHora = (hora) =>
+    reservasDia.find((r) => r.hora === hora);
 
+  /* ======================== Render ============================ */
   return (
     <div className="reservas-page">
-      <h2>Crear reserva para un cliente</h2>
 
       {notice.text && (
         <div className={`notice ${notice.type}`}>{notice.text}</div>
       )}
 
-      {/* Cliente */}
-      <div className="servicios-box">
-        <label>Cliente:</label>
-        <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-          {clientes.map(c => (
-            <option key={c.id} value={c.id}>
-              {c.nombre} ({c.email})
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* ================= CREAR RESERVA ================= */}
+      <section>
+        <h3>Crear reserva</h3>
 
-      {/* Servicio */}
-      <div className="servicios-box">
-        <label>Servicio:</label>
-        <select value={servicioId} onChange={(e) => setServicioId(e.target.value)}>
-          {servicios.map(s => {
-            const id = first(s.id, s._id, s.uuid);
-            const t = first(s.title, s.titulo, s.name, "Servicio");
-            return <option key={id} value={id}>{t}</option>;
-          })}
-        </select>
-      </div>
+        <div className="servicios-box">
+          <label>Cliente</label>
+          <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+            {clientes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nombre || c.email}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      {/* Fecha */}
-      <div className="servicios-box">
-        <label>Fecha:</label>
-        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
-      </div>
+        <div className="servicios-box">
+          <label>Servicio</label>
+          <select value={servicioId} onChange={(e) => setServicioId(e.target.value)}>
+            {servicios.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.title || s.titulo || "Servicio"}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      {/* Modalidad */}
-      <div className="servicios-box">
-        <label>Modalidad:</label>
-        <select value={modalidad} onChange={(e) => setModalidad(e.target.value)}>
-          <option value="presencial">Presencial</option>
-          <option value="online">Online</option>
-          <option value="a domicilio">A domicilio</option>
-        </select>
-      </div>
+        <div className="servicios-box">
+          <label>Modalidad</label>
+          <select value={modalidad} onChange={(e) => setModalidad(e.target.value)}>
+            <option value="presencial">Presencial</option>
+            <option value="online">Online</option>
+            <option value="a domicilio">A domicilio</option>
+          </select>
+        </div>
+      </section>
 
-      {/* Horas */}
-      {fecha && (
-        <div className="horas-box">
-          <h3>Horas disponibles – {humanDate(fecha)}</h3>
+      {/* ================= AGENDA DIARIA ================= */}
+      <section>
+        <h3>Agenda diaria</h3>
 
-          {loadingHoras ? (
-            <p>Cargando disponibilidad…</p>
-          ) : (
+        <div className="servicios-box">
+          <label>Fecha</label>
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+          />
+        </div>
+
+        {fecha && (
+          <>
+            <p>{humanDate(fecha)}</p>
+
             <div className="horas-grid">
-              {HOURS.map(h => {
-                const t = typeof h === "number" ? `${String(h).padStart(2, "0")}:00` : h;
-                const disabled = horasNoDisp.includes(t);
+              {HOURS.map((h) => {
+                const hora =
+                  typeof h === "number"
+                    ? `${String(h).padStart(2, "0")}:00`
+                    : h;
+
+                const reserva = reservaPorHora(hora);
+                const bloqueada = bloqueosDia.includes(hora);
+
+                if (reserva) {
+                  return (
+                    <div key={hora} className="hora-ocupada">
+                      <strong>{hora}</strong>
+                      <div>
+                        {reserva.clienteNombre || "Cliente"} ·{" "}
+                        {reserva.servicioTitulo || "Servicio"}
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (bloqueada) {
+                  return (
+                    <button
+                      key={hora}
+                      className="hora-bloqueada"
+                      onClick={() => desbloquearHora(hora)}
+                    >
+                      {hora} · Desbloquear
+                    </button>
+                  );
+                }
 
                 return (
                   <button
-                    key={t}
-                    className={disabled ? "hora-disabled" : "hora"}
-                    disabled={disabled}
-                    onClick={() => crearReserva(t)}
+                    key={hora}
+                    className="hora"
+                    onClick={() => bloquearHora(hora)}
                   >
-                    {t}
+                    {hora} · Bloquear
                   </button>
                 );
               })}
             </div>
-          )}
-        </div>
-      )}
+          </>
+        )}
+      </section>
     </div>
   );
 }
