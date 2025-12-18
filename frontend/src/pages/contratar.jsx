@@ -144,7 +144,7 @@ export default function Contratar() {
     if (!allowedModalities.includes(modalidad)) {
       setModalidad(allowedModalities[0]);
     }
-  }, [allowedModalities, modalidadParam]);
+  }, [allowedModalities, modalidadParam]); // eslint-disable-line
 
   /* ===== wizard ===== */
   const [step, setStep] = useState(servicioParam ? 1 : 0);
@@ -183,6 +183,7 @@ export default function Contratar() {
 
   useEffect(() => {
     if (fecha) cargarDisponibilidad(fecha);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha, durationMin]);
 
   const isSlotBusy = (t) => {
@@ -272,7 +273,7 @@ export default function Contratar() {
       const body = {
         nombre: nuevoPerro.nombre.trim(),
         raza: nuevoPerro.razaTamaño.trim() || '',
-        nacimiento: new Date().toISOString().slice(0, 10), // <--- obligatorio en backend
+        nacimiento: new Date().toISOString().slice(0, 10),
         notas: nuevoPerro.observaciones.trim() || '',
         castrado: !!nuevoPerro.castrado,
         avatarURL: '',
@@ -318,9 +319,61 @@ export default function Contratar() {
   const domicilio = modalidad === 'a domicilio';
 
   const telefonoValido = contacto.telefono.trim().length >= 6;
-  const direccionValida =
-    !domicilio || contacto.direccion.trim().length > 5;
+  const direccionValida = !domicilio || contacto.direccion.trim().length > 5;
   const perroValido = perro.nombre.trim().length > 0;
+
+  /* =====================================================
+         ADIESTRADORES COMPATIBLES (NUEVO)
+  ====================================================== */
+  const [trainers, setTrainers] = useState([]);
+  const [loadingTrainers, setLoadingTrainers] = useState(false);
+  const [trainerChoice, setTrainerChoice] = useState('any'); // 'any' | '<uid>'
+  const [trainersErr, setTrainersErr] = useState('');
+
+  const canLoadTrainers = !!servicioSel?.id && !!modalidad && authReady;
+
+  const loadEligibleTrainers = async () => {
+    if (!canLoadTrainers) return;
+
+    setLoadingTrainers(true);
+    setTrainersErr('');
+    try {
+      const qs = new URLSearchParams({
+        servicioId: String(servicioSel.id),
+        modalidad: String(modalidad || '')
+      });
+      const data = await http(`/api/trainers/eligible?${qs.toString()}`, { auth: true });
+
+      const arr = Array.isArray(data) ? data : data?.items || [];
+      setTrainers(arr);
+
+      // si había elegido uno y ya no está, vuelve a "any"
+      if (trainerChoice !== 'any') {
+        const ok = arr.some((t) => String(t.uid) === String(trainerChoice));
+        if (!ok) setTrainerChoice('any');
+      }
+    } catch (e) {
+      console.error('Error cargando trainers elegibles', e);
+      setTrainers([]);
+      setTrainersErr('No se pudo cargar la lista de adiestradores disponibles.');
+      setTrainerChoice('any');
+    } finally {
+      setLoadingTrainers(false);
+    }
+  };
+
+  useEffect(() => {
+    // recargar cuando cambie servicio o modalidad
+    if (!canLoadTrainers) return;
+    loadEligibleTrainers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canLoadTrainers, servicioSel?.id, modalidad]);
+
+  const hasAnyEligibleTrainer = useMemo(() => {
+    // Si backend usa asignación automática, basta con que exista al menos 1 elegible.
+    // Si no hay ninguno, no deberíamos dejar confirmar.
+    return trainers.length > 0;
+  }, [trainers]);
 
   /* =====================================================
          CONFIRMAR RESERVA
@@ -336,6 +389,11 @@ export default function Contratar() {
     if (!perroValido) return setMsg('El perro necesita nombre.');
     if (domicilio && !direccionValida)
       return setMsg('Indica dirección para modalidad a domicilio.');
+
+    // NUEVO: no permitir si no hay trainers elegibles (para evitar 409 del backend)
+    if (!hasAnyEligibleTrainer) {
+      return setMsg('❌ No hay adiestradores disponibles para este servicio y modalidad.');
+    }
 
     setGuardando(true);
 
@@ -354,7 +412,12 @@ export default function Contratar() {
         perro,
         telefono: contacto.telefono,
         direccion: contacto.direccion,
-        pricing: {}
+        pricing: {},
+
+        // NUEVO: elección de trainer
+        // - 'any' => backend asigna automático
+        // - '<uid>' => backend valida compatible
+        trainerId: trainerChoice
       };
 
       const res = await http('/api/reservas', {
@@ -370,7 +433,15 @@ export default function Contratar() {
       setTimeout(() => navigate('/reservas', { replace: true }), 800);
     } catch (e) {
       console.error('Error creando reserva', e);
-      setMsg('❌ No se pudo crear la reserva.');
+      const serverMsg =
+        e?.response?.data?.error ||
+        e?.error ||
+        '';
+      if (String(serverMsg).toLowerCase().includes('adiestradores')) {
+        setMsg(`❌ ${serverMsg}`);
+      } else {
+        setMsg('❌ No se pudo crear la reserva.');
+      }
     } finally {
       setGuardando(false);
     }
@@ -502,8 +573,7 @@ export default function Contratar() {
           <div className="month-grid">
             {(() => {
               const first = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
-              const startOffset =
-                (first.getDay() + 6) % 7; // lunes = 0
+              const startOffset = (first.getDay() + 6) % 7;
 
               const lastDay = new Date(
                 mesBase.getFullYear(),
@@ -592,9 +662,7 @@ export default function Contratar() {
                                 </button>
                               );
                             }
-                            if (!rows.length)
-                              return <div className="hint">Sin horas.</div>;
-
+                            if (!rows.length) return <div className="hint">Sin horas.</div>;
                             return rows;
                           })()}
                         </div>
@@ -610,11 +678,7 @@ export default function Contratar() {
 
           <div className="actions" style={{ marginTop: 14 }}>
             <button onClick={atras}>Atrás</button>
-            <button
-              className="btn-primary"
-              disabled={!hora}
-              onClick={() => setStep(2)}
-            >
+            <button className="btn-primary" disabled={!hora} onClick={() => setStep(2)}>
               Continuar
             </button>
           </div>
@@ -633,13 +697,7 @@ export default function Contratar() {
             <>
               <p>No tienes perros guardados. Crea uno para asociarlo a la reserva.</p>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gap: 8,
-                  gridTemplateColumns: '1fr 1fr'
-                }}
-              >
+              <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
                 <label>
                   Nombre (obligatorio)
                   <input
@@ -665,29 +723,17 @@ export default function Contratar() {
                   <input
                     value={nuevoPerro.observaciones}
                     onChange={(e) =>
-                      setNuevoPerro({
-                        ...nuevoPerro,
-                        observaciones: e.target.value
-                      })
+                      setNuevoPerro({ ...nuevoPerro, observaciones: e.target.value })
                     }
                   />
                 </label>
 
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}
-                >
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input
                     type="checkbox"
                     checked={nuevoPerro.castrado}
                     onChange={(e) =>
-                      setNuevoPerro({
-                        ...nuevoPerro,
-                        castrado: e.target.checked
-                      })
+                      setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })
                     }
                   />
                   Castrado/esterilizado
@@ -747,10 +793,7 @@ export default function Contratar() {
             <>
               <label>
                 Selecciona perro:
-                <select
-                  value={perroId}
-                  onChange={(e) => setPerroId(e.target.value)}
-                >
+                <select value={perroId} onChange={(e) => setPerroId(e.target.value)}>
                   <option value="">— Selecciona —</option>
                   {perros.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -760,21 +803,12 @@ export default function Contratar() {
                 </select>
               </label>
 
-              <div
-                style={{
-                  marginTop: 10,
-                  display: 'grid',
-                  gap: 8,
-                  gridTemplateColumns: '1fr 1fr'
-                }}
-              >
+              <div style={{ marginTop: 10, display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
                 <label>
                   Nombre
                   <input
                     value={perro.nombre}
-                    onChange={(e) =>
-                      setPerro({ ...perro, nombre: e.target.value })
-                    }
+                    onChange={(e) => setPerro({ ...perro, nombre: e.target.value })}
                   />
                 </label>
 
@@ -798,13 +832,7 @@ export default function Contratar() {
                   />
                 </label>
 
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}
-                >
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input
                     type="checkbox"
                     checked={perro.castrado}
@@ -832,25 +860,16 @@ export default function Contratar() {
       )}
 
       {/* ===============================================
-            PASO 3 — CONTACTO
+            PASO 3 — CONTACTO (incluye elección de adiestrador)
       =============================================== */}
       {step === 3 && (
         <section>
           <h2>5) Datos de contacto</h2>
 
-          <div
-            style={{
-              display: 'grid',
-              gap: 8,
-              gridTemplateColumns: '1fr 1fr'
-            }}
-          >
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
             <label>
               Modalidad
-              <select
-                value={modalidad}
-                onChange={(e) => setModalidad(e.target.value)}
-              >
+              <select value={modalidad} onChange={(e) => setModalidad(e.target.value)}>
                 {allowedModalities.map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -859,13 +878,43 @@ export default function Contratar() {
               </select>
             </label>
 
+            {/* NUEVO: Adiestrador */}
+            <label>
+              Adiestrador
+              <select
+                value={trainerChoice}
+                onChange={(e) => setTrainerChoice(e.target.value)}
+                disabled={!canLoadTrainers || loadingTrainers}
+              >
+                <option value="any">Cualquiera disponible</option>
+                {trainers.map((t) => (
+                  <option key={t.uid} value={t.uid}>
+                    {t.nombre ? t.nombre : t.email}
+                  </option>
+                ))}
+              </select>
+              {loadingTrainers && (
+                <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
+                  Cargando adiestradores…
+                </div>
+              )}
+              {trainersErr && (
+                <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>
+                  {trainersErr}
+                </div>
+              )}
+              {canLoadTrainers && !loadingTrainers && !trainersErr && trainers.length === 0 && (
+                <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>
+                  No hay adiestradores disponibles para este servicio/modalidad.
+                </div>
+              )}
+            </label>
+
             <label>
               Teléfono
               <input
                 value={contacto.telefono}
-                onChange={(e) =>
-                  setContacto({ ...contacto, telefono: e.target.value })
-                }
+                onChange={(e) => setContacto({ ...contacto, telefono: e.target.value })}
               />
             </label>
 
@@ -874,9 +923,7 @@ export default function Contratar() {
               <input
                 value={contacto.direccion}
                 required={modalidad === 'a domicilio'}
-                onChange={(e) =>
-                  setContacto({ ...contacto, direccion: e.target.value })
-                }
+                onChange={(e) => setContacto({ ...contacto, direccion: e.target.value })}
               />
             </label>
           </div>
@@ -891,7 +938,7 @@ export default function Contratar() {
             <button onClick={atras}>Atrás</button>
             <button
               className="btn-primary"
-              disabled={!telefonoValido || !direccionValida}
+              disabled={!telefonoValido || !direccionValida || !hasAnyEligibleTrainer}
               onClick={() => setStep(4)}
             >
               Continuar
@@ -925,6 +972,17 @@ export default function Contratar() {
               <div>
                 <b>Modalidad:</b> {modalidad}
               </div>
+
+              {/* NUEVO: resumen trainer */}
+              <div>
+                <b>Adiestrador:</b>{' '}
+                {trainerChoice === 'any'
+                  ? 'Cualquiera disponible'
+                  : (trainers.find((t) => String(t.uid) === String(trainerChoice))?.nombre ||
+                      trainers.find((t) => String(t.uid) === String(trainerChoice))?.email ||
+                      trainerChoice)}
+              </div>
+
               <div>
                 <b>Precio:</b> {formatEUR(servicioSel.price, servicioSel.currency)}
               </div>
@@ -958,7 +1016,8 @@ export default function Contratar() {
                 !telefonoValido ||
                 !direccionValida ||
                 !perroValido ||
-                guardando
+                guardando ||
+                !hasAnyEligibleTrainer
               }
               onClick={confirmar}
             >
