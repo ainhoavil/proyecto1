@@ -1,4 +1,3 @@
-// frontend/src/App.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 
 // Layout
@@ -16,34 +15,36 @@ import RoleRoute from "./components/RoleRoute";
 // Páginas públicas
 import Home from "./pages/home.jsx";
 import Servicios from "./pages/servicios.jsx";
-import Reservas from "./pages/reservas.jsx";
 import Contacto from "./pages/contacto.jsx";
 import Videos from "./pages/videos.jsx";
 import Login from "./pages/login.jsx";
 import Register from "./pages/register.jsx";
 import Contratar from "./pages/contratar.jsx";
+import TrainersList from "./pages/TrainersList.jsx";
+import TrainerPublicProfile from "./pages/TrainerPublicProfile.jsx";
 
 // Páginas protegidas
+import Reservas from "./pages/reservas.jsx";
 import Perfil from "./pages/perfil.jsx";
 import AdminPanel from "./pages/admin.jsx";
-import TrainerAgenda from "./pages/trainerAgenda.jsx"; // 👈 Agenda adiestrador
+import TrainerAgenda from "./pages/trainer-Agenda.jsx";
 
-// Import global styles
+// Styles
 import "./styles/global.scss";
 
 export default function App() {
   return (
     <AuthProvider>
-      {/* Layout superior */}
       <Topbar />
       <Navbar />
 
-      {/* Contenido principal */}
       <main className="container">
         <Routes>
           {/* ===== PÚBLICAS ===== */}
           <Route path="/" element={<Home />} />
           <Route path="/servicios" element={<Servicios />} />
+          <Route path="/adiestradores" element={<TrainersList />} />
+          <Route path="/adiestradores/:id" element={<TrainerPublicProfile />} />
           <Route path="/contratar" element={<Contratar />} />
           <Route path="/multimedia" element={<Videos />} />
           <Route path="/contacto" element={<Contacto />} />
@@ -69,7 +70,7 @@ export default function App() {
             }
           />
 
-          {/* ===== PANEL ADMIN (solo admin) ===== */}
+          {/* ===== PANEL ADMIN ===== */}
           <Route
             path="/admin/*"
             element={
@@ -81,7 +82,7 @@ export default function App() {
             }
           />
 
-          {/* ===== AGENDA ADIESTRADOR (adiestrador + admin) ===== */}
+          {/* ===== AGENDA ADIESTRADOR ===== */}
           <Route
             path="/trainer-agenda"
             element={
@@ -93,12 +94,11 @@ export default function App() {
             }
           />
 
-          {/* ===== CATCH-ALL ===== */}
+          {/* ===== CATCH ALL ===== */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
-      {/* Footer siempre al final */}
       <Footer />
     </AuthProvider>
   );

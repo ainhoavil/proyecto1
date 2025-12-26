@@ -1,0 +1,72 @@
+.trainer-public {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.trainer-card {
+  display: flex;
+  gap: 32px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+.trainer-photo img {
+  width: 200px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.photo-placeholder {
+  width: 200px;
+  height: 200px;
+  border-radius: 12px;
+  background: #eee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #777;
+}
+
+.trainer-info h1 {
+  margin: 0 0 8px;
+}
+
+.experience {
+  font-weight: 600;
+  color: #176700;
+}
+
+.bio {
+  margin: 16px 0;
+  line-height: 1.6;
+}
+
+.specialties ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+
+.specialties li {
+  background: #f0f0f0;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+}
+
+.cta a {
+  display: inline-block;
+  margin-top: 24px;
+  background: #176700;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+}

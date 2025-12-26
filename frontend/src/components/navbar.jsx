@@ -1,4 +1,3 @@
-// src/components/navbar.jsx
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/auth";
@@ -8,9 +7,8 @@ export default function Navbar() {
   const { isAuthenticated, user, role, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Roles normalizados
   const esAdmin = role === "admin" || user?.isAdmin;
-  const esTrainer = role === "adiestrador"; // Coincide con la BD
+  const esTrainer = role === "adiestrador";
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -24,9 +22,8 @@ export default function Navbar() {
 
   return (
     <nav className={`navbar ${menuOpen ? "open" : ""}`}>
-      {/* Barra superior (desktop + toggle) */}
       <div className="navbar__inner container">
-        {/* LEFT: Logo + links desktop */}
+        {/* IZQUIERDA */}
         <div className="navbar__left">
           <Link to="/" className="navbar__logo" onClick={closeMenu}>
             <span className="navbar__logo-circle">
@@ -40,7 +37,10 @@ export default function Navbar() {
               <Link to="/servicios">Servicios</Link>
             </li>
 
-            {/* Enlace genérico de Reservas (visible para usuarios y admins, no trainers) */}
+            <li>
+              <Link to="/adiestradores">Adiestradores</Link>
+            </li>
+
             {isAuthenticated && !esTrainer && (
               <li>
                 <Link to="/reservas">Reservas</Link>
@@ -51,14 +51,12 @@ export default function Navbar() {
               <Link to="/contacto">Contacto</Link>
             </li>
 
-            {/* Si es adiestrador, le mostramos "Agenda" (que va a /reservas donde está su vista) */}
             {esTrainer && (
               <li>
                 <Link to="/reservas">Agenda</Link>
               </li>
             )}
 
-            {/* Si es Admin, mostramos el Panel */}
             {esAdmin && (
               <li>
                 <Link to="/admin">Panel admin</Link>
@@ -67,7 +65,7 @@ export default function Navbar() {
           </ul>
         </div>
 
-        {/* RIGHT: Auth desktop */}
+        {/* DERECHA */}
         <ul className="navbar__right">
           {isAuthenticated ? (
             <>
@@ -94,7 +92,7 @@ export default function Navbar() {
           )}
         </ul>
 
-        {/* HAMBURGER ICON */}
+        {/* TOGGLE */}
         <button
           className="navbar__toggle"
           onClick={() => setMenuOpen(!menuOpen)}
@@ -106,7 +104,7 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* MOBILE MENU (overlay bajo el nav) */}
+      {/* MOBILE */}
       <div className="navbar__mobile">
         <button
           className="close-mobile"
@@ -120,6 +118,12 @@ export default function Navbar() {
           <li>
             <Link to="/servicios" onClick={closeMenu}>
               Servicios
+            </Link>
+          </li>
+
+          <li>
+            <Link to="/adiestradores" onClick={closeMenu}>
+              Adiestradores
             </Link>
           </li>
 
