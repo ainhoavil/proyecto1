@@ -7,8 +7,8 @@ const router = express.Router();
 /* ============================================================
    GET /api/trainers/eligible
    - Si NO hay servicioId → devuelve todos los adiestradores
-   - Si hay servicioId (+ modalidad) → intenta filtrar por trainer_servicios
-     y si falla o no hay datos → fallback a todos los adiestradores
+   - Si hay servicioId (+ modalidad) → filtra por trainer_servicios
+     y si no hay datos → fallback a todos
    Roles: admin / client / user / adiestrador
 ============================================================ */
 router.get(
@@ -21,18 +21,19 @@ router.get(
       const mod = modalidad ? String(modalidad) : null;
 
       const getAll = async () => {
-        const rows = await query(
-          `SELECT id AS uid, email
-             FROM usuarios
-            WHERE rol = 'adiestrador'
-            ORDER BY email ASC`
-        );
+        const rows = await query(`
+          SELECT
+            u.id AS uid,
+            u.email
+          FROM usuarios u
+          WHERE u.rol = 'adiestrador'
+          ORDER BY u.email ASC
+        `);
         return rows;
       };
 
       if (!servicioId) {
-        const rows = await getAll();
-        return res.json(rows);
+        return res.json(await getAll());
       }
 
       let rows = [];
@@ -62,9 +63,8 @@ router.get(
         rows = [];
       }
 
-      if (!rows || rows.length === 0) {
-        const fallback = await getAll();
-        return res.json(fallback);
+      if (!rows.length) {
+        return res.json(await getAll());
       }
 
       return res.json(rows);
@@ -88,7 +88,7 @@ router.get(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const trainerId = String(req.user?.uid || req.user?.id || "");
+      const trainerId = String(req.user?.id || "");
       if (!trainerId) {
         return res.status(401).json({ error: "No autorizado" });
       }
@@ -121,28 +121,54 @@ router.get(
 
 /* ============================================================
    GET /api/trainers/public
-   Listado público de adiestradores (COMPATIBLE CON DB ACTUAL)
+   Listado público de adiestradores (DB REAL)
+   - usuarios → auth + rol
+   - trainer_profiles → info pública
 ============================================================ */
 router.get("/public", async (_req, res) => {
   try {
     const rows = await query(`
       SELECT
-        id AS trainerId,
-        email AS displayName
-      FROM usuarios
-      WHERE rol = 'adiestrador'
-      ORDER BY email ASC
+        u.id AS trainerId,
+        u.email AS email,
+        COALESCE(NULLIF(tp.display_name, ''), u.email) AS displayName,
+        tp.bio AS bio,
+        tp.photo_url AS photoUrl,
+        tp.experience_years AS experienceYears,
+        tp.specialties AS specialties
+      FROM usuarios u
+      LEFT JOIN trainer_profiles tp
+        ON tp.trainer_id = u.id
+      WHERE u.rol = 'adiestrador'
+      ORDER BY displayName ASC, u.email ASC
     `);
 
-    res.json(
-      rows.map((r) => ({
+    const data = rows.map((r) => {
+      let specialties = [];
+      if (r.specialties) {
+        try {
+          const parsed = JSON.parse(r.specialties);
+          specialties = Array.isArray(parsed) ? parsed : [String(parsed)];
+        } catch {
+          specialties = [String(r.specialties)];
+        }
+      }
+
+      return {
         trainerId: r.trainerId,
         displayName: r.displayName,
-        photoUrl: null,
-        experienceYears: null,
-        specialties: [],
-      }))
-    );
+        email: r.email,
+        bio: r.bio || "",
+        photoUrl: r.photoUrl || "",
+        experienceYears:
+          r.experienceYears === null || r.experienceYears === undefined
+            ? null
+            : Number(r.experienceYears),
+        specialties,
+      };
+    });
+
+    res.json(data);
   } catch (err) {
     console.error("GET /api/trainers/public error:", err);
     res.status(500).json({ error: "No se pudo cargar el listado" });

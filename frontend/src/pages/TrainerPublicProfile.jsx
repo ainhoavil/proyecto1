@@ -1,20 +1,24 @@
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+// @ts-nocheck
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import "../styles/trainer-public-profile.scss";
 
 export default function TrainerPublicProfile() {
   const { id } = useParams();
+  const navigate = useNavigate();
 
-  const [profile, setProfile] = useState(null);
+  const [trainer, setTrainer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadTrainer = async () => {
       try {
+        setLoading(true);
+        setError("");
         const data = await http(`/api/trainers/${id}/profile`);
-        setProfile(data);
+        setTrainer(data);
       } catch {
         setError("No se pudo cargar el perfil del adiestrador.");
       } finally {
@@ -22,60 +26,119 @@ export default function TrainerPublicProfile() {
       }
     };
 
-    loadProfile();
+    loadTrainer();
   }, [id]);
 
+  const nombre = useMemo(() => {
+    if (!trainer) return "";
+    return trainer.displayName || trainer.email || `Adiestrador ${id}`;
+  }, [trainer, id]);
+
+  const yearsText = useMemo(() => {
+    const y = trainer?.experienceYears;
+    if (y === null || y === undefined || Number.isNaN(Number(y))) return "";
+    const n = Number(y);
+    return `${n} ${n === 1 ? "año" : "años"} de experiencia`;
+  }, [trainer]);
+
+  const specialties =
+    Array.isArray(trainer?.specialties) ? trainer.specialties : [];
+
+  const bio = String(trainer?.bio || "").trim();
+
+  const handleContratar = () => {
+    navigate(`/contratar?trainerId=${id}`);
+  };
+
   if (loading) {
-    return <div className="trainer-public loading">Cargando perfil…</div>;
+    return (
+      <div className="trainer-public">
+        <p className="trainer-public__state">Cargando perfil…</p>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="trainer-public error">{error}</div>;
+    return (
+      <div className="trainer-public">
+        <p className="trainer-public__state trainer-public__state--error">
+          {error}
+        </p>
+      </div>
+    );
   }
 
-  if (!profile) {
-    return <div className="trainer-public error">Perfil no encontrado.</div>;
+  if (!trainer) {
+    return (
+      <div className="trainer-public">
+        <p className="trainer-public__state">Perfil no encontrado.</p>
+      </div>
+    );
   }
 
   return (
     <div className="trainer-public">
-      <div className="trainer-card">
-        <div className="trainer-photo">
-          {profile.photoUrl ? (
-            <img src={profile.photoUrl} alt={profile.displayName} />
-          ) : (
-            <div className="photo-placeholder">Sin foto</div>
-          )}
-        </div>
-
-        <div className="trainer-info">
-          <h1>{profile.displayName}</h1>
-
-          {profile.experienceYears !== null && (
-            <p className="experience">
-              {profile.experienceYears} años de experiencia
-            </p>
-          )}
-
-          {profile.bio && <p className="bio">{profile.bio}</p>}
-
-          {profile.specialties?.length > 0 && (
-            <div className="specialties">
-              <h3>Especialidades</h3>
-              <ul>
-                {profile.specialties.map((s, idx) => (
-                  <li key={idx}>{s}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="cta">
-            <Link to={`/contratar?trainerId=${profile.trainerId}`}>
-              Reservar con este adiestrador
-            </Link>
+      <div className="trainer-public__card">
+        <header className="trainer-public__header">
+          <div className="trainer-public__photo">
+            {trainer.photoUrl ? (
+              <img src={trainer.photoUrl} alt={nombre} />
+            ) : (
+              <div className="trainer-public__photoPlaceholder">Sin foto</div>
+            )}
           </div>
-        </div>
+
+          <div className="trainer-public__headline">
+            <h1 className="trainer-public__name">{nombre}</h1>
+
+            {yearsText && (
+              <div className="trainer-public__meta">
+                <span className="trainer-public__pill">{yearsText}</span>
+              </div>
+            )}
+
+            <div className="trainer-public__actions">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleContratar}
+              >
+                Reservar con este adiestrador
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <section className="trainer-public__body">
+          <div className="trainer-public__section">
+            <h2 className="trainer-public__sectionTitle">Sobre el adiestrador</h2>
+            {bio ? (
+              <p className="trainer-public__bio">{bio}</p>
+            ) : (
+              <p className="trainer-public__muted">
+                Este adiestrador aún no ha añadido una descripción.
+              </p>
+            )}
+          </div>
+
+          <div className="trainer-public__section">
+            <h2 className="trainer-public__sectionTitle">Especialidades</h2>
+
+            {specialties.length > 0 ? (
+              <div className="trainer-public__chips">
+                {specialties.map((s, i) => (
+                  <span key={i} className="trainer-public__chip">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="trainer-public__muted">
+                No hay especialidades registradas.
+              </p>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

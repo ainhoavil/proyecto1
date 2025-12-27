@@ -1,72 +1,141 @@
 .trainer-public {
-  max-width: 900px;
-  margin: 0 auto;
   padding: 40px 20px;
+  max-width: 980px;
+  margin: 0 auto;
 }
 
-.trainer-card {
-  display: flex;
-  gap: 32px;
+.trainer-public__state {
+  opacity: 0.85;
+}
+
+.trainer-public__state--error {
+  color: #b00020;
+  font-weight: 700;
+}
+
+.trainer-public__card {
   background: #fff;
-  border-radius: 12px;
-  padding: 32px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+  padding: 22px;
 }
 
-.trainer-photo img {
-  width: 200px;
-  height: 200px;
-  object-fit: cover;
-  border-radius: 12px;
+.trainer-public__header {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 18px;
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.photo-placeholder {
-  width: 200px;
-  height: 200px;
-  border-radius: 12px;
+.trainer-public__photo {
+  width: 160px;
+  height: 160px;
+  border-radius: 16px;
+  overflow: hidden;
   background: #eee;
+}
+
+.trainer-public__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.trainer-public__photoPlaceholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #777;
+  font-weight: 700;
 }
 
-.trainer-info h1 {
-  margin: 0 0 8px;
+.trainer-public__headline {
+  min-width: 0;
 }
 
-.experience {
-  font-weight: 600;
+.trainer-public__name {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.trainer-public__meta {
+  margin-top: 10px;
+}
+
+.trainer-public__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(23, 103, 0, 0.10);
   color: #176700;
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
 }
 
-.bio {
-  margin: 16px 0;
+.trainer-public__actions {
+  margin-top: 14px;
+}
+
+.trainer-public__body {
+  padding-top: 18px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.trainer-public__sectionTitle {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.trainer-public__bio {
+  margin: 0;
   line-height: 1.6;
+  opacity: 0.9;
+  white-space: pre-line;
 }
 
-.specialties ul {
+.trainer-public__muted {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.trainer-public__chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  list-style: none;
-  padding: 0;
 }
 
-.specialties li {
-  background: #f0f0f0;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 14px;
+.trainer-public__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+  line-height: 1;
 }
 
-.cta a {
-  display: inline-block;
-  margin-top: 24px;
-  background: #176700;
-  color: white;
-  padding: 12px 20px;
-  border-radius: 8px;
-  text-decoration: none;
-  font-weight: 600;
+/* Responsive */
+@media (max-width: 640px) {
+  .trainer-public__header {
+    grid-template-columns: 1fr;
+  }
+
+  .trainer-public__photo {
+    width: 100%;
+    height: 220px;
+  }
+
+  .trainer-public__name {
+    font-size: 24px;
+  }
 }

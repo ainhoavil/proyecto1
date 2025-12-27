@@ -16,11 +16,12 @@ router.get("/:id/profile", async (req, res) => {
       `
       SELECT
         u.id AS trainerId,
-        COALESCE(tp.display_name, u.nombre) AS displayName,
-        tp.bio,
+        u.email AS email,
+        COALESCE(NULLIF(tp.display_name, ''), u.email) AS displayName,
+        tp.bio AS bio,
         tp.photo_url AS photoUrl,
         tp.experience_years AS experienceYears,
-        tp.specialties
+        tp.specialties AS specialties
       FROM usuarios u
       LEFT JOIN trainer_profiles tp
         ON tp.trainer_id = u.id
@@ -28,7 +29,7 @@ router.get("/:id/profile", async (req, res) => {
         AND u.rol = 'adiestrador'
       LIMIT 1
       `,
-      [id]
+      [String(id)]
     );
 
     if (!rows.length) {
@@ -37,19 +38,31 @@ router.get("/:id/profile", async (req, res) => {
 
     const profile = rows[0];
 
+    // Parse specialties
+    let specialties = [];
     if (profile.specialties) {
       try {
-        profile.specialties = JSON.parse(profile.specialties);
+        const parsed = JSON.parse(profile.specialties);
+        specialties = Array.isArray(parsed) ? parsed : [String(parsed)];
       } catch {
-        profile.specialties = [profile.specialties];
+        specialties = [String(profile.specialties)];
       }
-    } else {
-      profile.specialties = [];
     }
 
-    res.json(profile);
+    res.json({
+      trainerId: profile.trainerId,
+      email: profile.email,
+      displayName: profile.displayName,
+      bio: profile.bio || "",
+      photoUrl: profile.photoUrl || "",
+      experienceYears:
+        profile.experienceYears === null || profile.experienceYears === undefined
+          ? null
+          : Number(profile.experienceYears),
+      specialties,
+    });
   } catch (e) {
-    console.error("GET /trainers/:id/profile", e);
+    console.error("GET /api/trainers/:id/profile", e);
     res.status(500).json({ error: "No se pudo cargar el perfil" });
   }
 });
@@ -64,7 +77,11 @@ router.get(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const trainerId = req.user?.id;
+      const trainerId = String(req.user?.id || req.user?.uid || "");
+
+      if (!trainerId) {
+        return res.status(401).json({ error: "No autorizado" });
+      }
 
       const rows = await query(
         `
@@ -90,25 +107,36 @@ router.get(
           photoUrl: "",
           experienceYears: null,
           specialties: [],
-          exists: false
+          exists: false,
         });
       }
 
       const profile = rows[0];
 
+      let specialties = [];
       if (profile.specialties) {
         try {
-          profile.specialties = JSON.parse(profile.specialties);
+          const parsed = JSON.parse(profile.specialties);
+          specialties = Array.isArray(parsed) ? parsed : [String(parsed)];
         } catch {
-          profile.specialties = [profile.specialties];
+          specialties = [String(profile.specialties)];
         }
-      } else {
-        profile.specialties = [];
       }
 
-      res.json({ ...profile, exists: true });
+      res.json({
+        trainerId: profile.trainerId,
+        displayName: profile.displayName || "",
+        bio: profile.bio || "",
+        photoUrl: profile.photoUrl || "",
+        experienceYears:
+          profile.experienceYears === null || profile.experienceYears === undefined
+            ? null
+            : Number(profile.experienceYears),
+        specialties,
+        exists: true,
+      });
     } catch (e) {
-      console.error("GET /trainers/me/profile", e);
+      console.error("GET /api/trainers/me/profile", e);
       res.status(500).json({ error: "No se pudo cargar tu perfil" });
     }
   }
@@ -124,24 +152,36 @@ router.post(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const trainerId = req.user?.id;
+      const trainerId = String(req.user?.id || req.user?.uid || "");
+
+      if (!trainerId) {
+        return res.status(401).json({ error: "No autorizado" });
+      }
 
       const {
         displayName = "",
         bio = "",
         photoUrl = "",
         experienceYears = null,
-        specialties = []
+        specialties = [],
       } = req.body;
 
-      // Seguridad mínima de entrada
+      // Validación mínima (no forzar number si te llega string desde forms)
+      const exp =
+        experienceYears === null || experienceYears === undefined || experienceYears === ""
+          ? null
+          : Number(experienceYears);
+
       if (typeof displayName !== "string" || typeof bio !== "string") {
+        return res.status(400).json({ error: "Datos inválidos" });
+      }
+      if (exp !== null && Number.isNaN(exp)) {
         return res.status(400).json({ error: "Datos inválidos" });
       }
 
       const specialtiesStr = Array.isArray(specialties)
         ? JSON.stringify(specialties)
-        : null;
+        : JSON.stringify([]);
 
       await query(
         `
@@ -164,19 +204,12 @@ router.post(
           specialties = excluded.specialties,
           updated_at = datetime('now')
         `,
-        [
-          trainerId,
-          displayName,
-          bio,
-          photoUrl,
-          experienceYears,
-          specialtiesStr
-        ]
+        [trainerId, displayName, bio, photoUrl, exp, specialtiesStr]
       );
 
       res.json({ ok: true });
     } catch (e) {
-      console.error("POST /trainers/me/profile", e);
+      console.error("POST /api/trainers/me/profile", e);
       res.status(500).json({ error: "No se pudo guardar el perfil" });
     }
   }

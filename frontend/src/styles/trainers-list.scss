@@ -2,47 +2,193 @@
   padding: 40px 20px;
 }
 
-.trainers-list .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 24px;
+.trainers-list__head {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
 }
 
-.trainer-card {
-  background: #fff;
+.trainers-list h1 {
+  margin: 0;
+}
+
+.trainers-list__subtitle {
+  margin: 8px 0 0;
+  opacity: 0.75;
+}
+
+.trainers-list__search {
+  min-width: 260px;
+  flex: 1;
+  max-width: 420px;
+}
+
+.trainers-list__search input {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 12px;
-  padding: 20px;
+  padding: 12px 14px;
+  outline: none;
+  background: #fff;
+}
+
+.trainers-list__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.trainers-list__card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.trainers-list__cardLink {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 14px;
+  padding: 14px;
   text-decoration: none;
   color: inherit;
-  box-shadow: 0 6px 20px rgba(0,0,0,.08);
+  height: 100%;
+  transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
-.trainer-card img {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-  border-radius: 8px;
+.trainers-list__cardLink:hover {
+  transform: translateY(-2px);
 }
 
-.placeholder {
-  height: 180px;
+.trainers-list__photo {
+  width: 120px;
+  height: 120px;
+  border-radius: 14px;
+  overflow: hidden;
   background: #eee;
-  border-radius: 8px;
+}
+
+.trainers-list__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.trainers-list__placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-weight: 700;
+  color: #777;
 }
 
-.experience {
-  font-weight: 600;
+.trainers-list__content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trainers-list__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trainers-list__name {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trainers-list__pill {
+  font-size: 12px;
+  line-height: 1;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(23, 103, 0, 0.10);
+  color: #176700;
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+.trainers-list__bio,
+.trainers-list__muted {
+  margin: 10px 0 0;
+  line-height: 1.45;
+}
+
+.trainers-list__bio {
+  opacity: 0.88;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trainers-list__muted {
+  opacity: 0.7;
+}
+
+.trainers-list__chips {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trainers-list__chip {
+  font-size: 12px;
+  line-height: 1;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.trainers-list__ctaRow {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.trainers-list__cta {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 900;
   color: #176700;
 }
 
-.specialties span {
-  display: inline-block;
-  background: #f2f2f2;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  margin-right: 6px;
+.trainers-list__empty {
+  padding: 20px 0;
+  opacity: 0.8;
+}
+
+@media (max-width: 420px) {
+  .trainers-list__cardLink {
+    grid-template-columns: 1fr;
+  }
+
+  .trainers-list__photo {
+    width: 100%;
+    height: 190px;
+  }
+
+  .trainers-list__top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .trainers-list__name {
+    white-space: normal;
+  }
 }
