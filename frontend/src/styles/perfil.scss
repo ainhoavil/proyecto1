@@ -528,3 +528,97 @@
     padding-inline: 16px;
   }
 }
+/* ================================
+   PERFIL ADIESTRADOR (solo rol adiestrador)
+================================ */
+
+.perfil-card--trainer {
+  margin-top: 18px;
+}
+
+.perfil-trainer-grid {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 12px;
+  align-items: end;
+}
+
+@media (max-width: 900px) {
+  .perfil-trainer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Especialidades */
+
+.perfil-specialties {
+  margin-top: 14px;
+}
+
+.perfil-specialties__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.perfil-specialties__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #3a312b;
+}
+
+.perfil-specialties__hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #8d7c70;
+}
+
+.perfil-specialties__add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 260px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.perfil-specialties__add input {
+  width: 100%;
+  max-width: 340px;
+  border-radius: 999px;
+  border: 1px solid #f1d4c2;
+  padding: 8px 12px;
+  font-size: 13px;
+  background-color: #fdf2e9;
+  outline: none;
+}
+
+.perfil-specialties__chips {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.perfil-specialties__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+}
+
+.perfil-specialties__remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  color: #7f6e62;
+}

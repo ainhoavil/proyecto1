@@ -4,9 +4,25 @@ import { verifyToken, allowRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
+/* ===================== helpers ===================== */
+const parseSpecialties = (raw) => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [String(parsed)];
+  } catch {
+    return [String(raw)];
+  }
+};
+
 /* ============================================================
    GET /api/trainers/:id/profile
    PERFIL PÚBLICO (SIN AUTH)
+
+   PRIORIDAD DE DATOS:
+   1) trainer_profiles
+   2) users (perfil usuario)
+   3) email
 ============================================================ */
 router.get("/:id/profile", async (req, res) => {
   try {
@@ -15,18 +31,40 @@ router.get("/:id/profile", async (req, res) => {
     const rows = await query(
       `
       SELECT
-        u.id AS trainerId,
-        u.email AS email,
-        COALESCE(NULLIF(tp.display_name, ''), u.email) AS displayName,
-        tp.bio AS bio,
-        tp.photo_url AS photoUrl,
+        au.id AS trainerId,
+        au.email AS email,
+
+        -- nombre público
+        COALESCE(
+          NULLIF(tp.display_name, ''),
+          NULLIF(up.nombre, ''),
+          au.email
+        ) AS displayName,
+
+        -- bio
+        COALESCE(
+          NULLIF(tp.bio, ''),
+          NULLIF(up.notas, ''),
+          ''
+        ) AS bio,
+
+        -- foto
+        COALESCE(
+          NULLIF(tp.photo_url, ''),
+          NULLIF(up.foto, ''),
+          ''
+        ) AS photoUrl,
+
         tp.experience_years AS experienceYears,
         tp.specialties AS specialties
-      FROM usuarios u
+
+      FROM usuarios au
       LEFT JOIN trainer_profiles tp
-        ON tp.trainer_id = u.id
-      WHERE u.id = ?
-        AND u.rol = 'adiestrador'
+        ON tp.trainer_id = au.id
+      LEFT JOIN users up
+        ON up.uid = au.id
+      WHERE au.id = ?
+        AND au.rol = 'adiestrador'
       LIMIT 1
       `,
       [String(id)]
@@ -36,30 +74,19 @@ router.get("/:id/profile", async (req, res) => {
       return res.status(404).json({ error: "Adiestrador no encontrado" });
     }
 
-    const profile = rows[0];
-
-    // Parse specialties
-    let specialties = [];
-    if (profile.specialties) {
-      try {
-        const parsed = JSON.parse(profile.specialties);
-        specialties = Array.isArray(parsed) ? parsed : [String(parsed)];
-      } catch {
-        specialties = [String(profile.specialties)];
-      }
-    }
+    const r = rows[0];
 
     res.json({
-      trainerId: profile.trainerId,
-      email: profile.email,
-      displayName: profile.displayName,
-      bio: profile.bio || "",
-      photoUrl: profile.photoUrl || "",
+      trainerId: r.trainerId,
+      email: r.email,
+      displayName: r.displayName,
+      bio: r.bio || "",
+      photoUrl: r.photoUrl || "",
       experienceYears:
-        profile.experienceYears === null || profile.experienceYears === undefined
+        r.experienceYears === null || r.experienceYears === undefined
           ? null
-          : Number(profile.experienceYears),
-      specialties,
+          : Number(r.experienceYears),
+      specialties: parseSpecialties(r.specialties),
     });
   } catch (e) {
     console.error("GET /api/trainers/:id/profile", e);
@@ -70,6 +97,7 @@ router.get("/:id/profile", async (req, res) => {
 /* ============================================================
    GET /api/trainers/me/profile
    PERFIL PRIVADO (adiestrador / admin)
+   → también con fallback a users
 ============================================================ */
 router.get(
   "/me/profile",
@@ -78,7 +106,6 @@ router.get(
   async (req, res) => {
     try {
       const trainerId = String(req.user?.id || req.user?.uid || "");
-
       if (!trainerId) {
         return res.status(401).json({ error: "No autorizado" });
       }
@@ -86,14 +113,23 @@ router.get(
       const rows = await query(
         `
         SELECT
-          trainer_id AS trainerId,
-          display_name AS displayName,
-          bio,
-          photo_url AS photoUrl,
-          experience_years AS experienceYears,
-          specialties
-        FROM trainer_profiles
-        WHERE trainer_id = ?
+          au.id AS trainerId,
+
+          COALESCE(NULLIF(tp.display_name, ''), NULLIF(up.nombre, ''), au.email) AS displayName,
+          COALESCE(NULLIF(tp.bio, ''), NULLIF(up.notas, ''), '') AS bio,
+          COALESCE(NULLIF(tp.photo_url, ''), NULLIF(up.foto, ''), '') AS photoUrl,
+
+          tp.experience_years AS experienceYears,
+          tp.specialties AS specialties,
+
+          CASE WHEN tp.trainer_id IS NULL THEN 0 ELSE 1 END AS exists
+
+        FROM usuarios au
+        LEFT JOIN trainer_profiles tp
+          ON tp.trainer_id = au.id
+        LEFT JOIN users up
+          ON up.uid = au.id
+        WHERE au.id = ?
         LIMIT 1
         `,
         [trainerId]
@@ -111,29 +147,19 @@ router.get(
         });
       }
 
-      const profile = rows[0];
-
-      let specialties = [];
-      if (profile.specialties) {
-        try {
-          const parsed = JSON.parse(profile.specialties);
-          specialties = Array.isArray(parsed) ? parsed : [String(parsed)];
-        } catch {
-          specialties = [String(profile.specialties)];
-        }
-      }
+      const r = rows[0];
 
       res.json({
-        trainerId: profile.trainerId,
-        displayName: profile.displayName || "",
-        bio: profile.bio || "",
-        photoUrl: profile.photoUrl || "",
+        trainerId: r.trainerId,
+        displayName: r.displayName || "",
+        bio: r.bio || "",
+        photoUrl: r.photoUrl || "",
         experienceYears:
-          profile.experienceYears === null || profile.experienceYears === undefined
+          r.experienceYears === null || r.experienceYears === undefined
             ? null
-            : Number(profile.experienceYears),
-        specialties,
-        exists: true,
+            : Number(r.experienceYears),
+        specialties: parseSpecialties(r.specialties),
+        exists: Boolean(r.exists),
       });
     } catch (e) {
       console.error("GET /api/trainers/me/profile", e);
@@ -144,7 +170,7 @@ router.get(
 
 /* ============================================================
    POST /api/trainers/me/profile
-   CREAR / ACTUALIZAR PERFIL (UPSERT)
+   UPSERT trainer_profiles
 ============================================================ */
 router.post(
   "/me/profile",
@@ -153,7 +179,6 @@ router.post(
   async (req, res) => {
     try {
       const trainerId = String(req.user?.id || req.user?.uid || "");
-
       if (!trainerId) {
         return res.status(401).json({ error: "No autorizado" });
       }
@@ -166,7 +191,6 @@ router.post(
         specialties = [],
       } = req.body;
 
-      // Validación mínima (no forzar number si te llega string desde forms)
       const exp =
         experienceYears === null || experienceYears === undefined || experienceYears === ""
           ? null
