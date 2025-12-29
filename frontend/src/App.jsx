@@ -29,6 +29,9 @@ import Perfil from "./pages/perfil.jsx";
 import AdminPanel from "./pages/admin.jsx";
 import TrainerAgenda from "./pages/trainer-Agenda.jsx";
 
+// ✅ Chat
+import ChatPage from "./pages/ChatPage.jsx";
+
 // Styles
 import "./styles/global.scss";
 
@@ -66,6 +69,16 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Reservas />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ✅ CHAT POR RESERVA (PROTEGIDA) */}
+          <Route
+            path="/chat/:conversationId"
+            element={
+              <ProtectedRoute>
+                <ChatPage />
               </ProtectedRoute>
             }
           />

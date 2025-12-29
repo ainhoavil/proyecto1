@@ -1,0 +1,269 @@
+/* =========================================================
+   CHAT – DogForm (estilo profesional tipo Facebook)
+   ========================================================= */
+
+/* ===== Variables locales (no rompen tu theme global) ===== */
+:root {
+  --chat-bg: #ffffff;
+  --chat-border: rgba(0, 0, 0, 0.1);
+  --chat-border-soft: rgba(0, 0, 0, 0.06);
+  --chat-text: rgba(0, 0, 0, 0.88);
+  --chat-muted: rgba(0, 0, 0, 0.55);
+
+  --chat-primary: #f47f2c;
+  --chat-primary-dark: #ea6f18;
+  --chat-primary-soft: rgba(244, 127, 44, 0.18);
+
+  --chat-neutral: rgba(0, 0, 0, 0.05);
+
+  --chat-shadow: 0 12px 26px rgba(0, 0, 0, 0.08);
+
+  --chat-radius: 16px;
+  --chat-radius-pill: 999px;
+}
+
+/* =========================================================
+   CONTENEDOR PRINCIPAL
+   ========================================================= */
+
+.df-chat {
+  max-width: 980px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.df-chat__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--chat-bg);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius);
+  box-shadow: var(--chat-shadow);
+}
+
+.df-chat__title {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.df-chat__subtitle {
+  font-size: 12px;
+  color: var(--chat-muted);
+}
+
+.df-chat__meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--chat-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================
+   PANEL DE MENSAJES
+   ========================================================= */
+
+.df-chat__panel {
+  background: var(--chat-bg);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius);
+  box-shadow: var(--chat-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.df-chat__messages {
+  height: 520px;
+  padding: 16px;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(244,127,44,.08), transparent 45%),
+    radial-gradient(circle at 90% 70%, rgba(0,0,0,.04), transparent 45%),
+    #fff;
+}
+
+.df-chat__empty {
+  color: var(--chat-muted);
+  font-weight: 700;
+}
+
+/* =========================================================
+   MENSAJES
+   ========================================================= */
+
+.df-msg {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: flex-end;
+}
+
+.df-msg--mine {
+  justify-content: flex-end;
+}
+
+.df-msg--theirs {
+  justify-content: flex-start;
+}
+
+/* Avatar circular */
+.df-msg__avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--chat-radius-pill);
+  background: var(--chat-neutral);
+  border: 1px solid var(--chat-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--chat-muted);
+  flex-shrink: 0;
+}
+
+.df-msg__avatar--mine {
+  background: var(--chat-primary-soft);
+  border-color: rgba(244,127,44,.3);
+}
+
+/* Burbuja */
+.df-msg__bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: var(--chat-neutral);
+  border: 1px solid var(--chat-border-soft);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.06);
+}
+
+.df-msg--mine .df-msg__bubble {
+  background: linear-gradient(
+    180deg,
+    rgba(244,127,44,.25),
+    rgba(244,127,44,.12)
+  );
+  border-color: rgba(244,127,44,.25);
+}
+
+.df-msg__text {
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--chat-text);
+}
+
+.df-msg__meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--chat-muted);
+  text-align: right;
+}
+
+/* =========================================================
+   COMPOSER (INPUT + BOTÓN)
+   ========================================================= */
+
+.df-chat__composer {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--chat-border);
+  background: #fff;
+}
+
+.df-chat__input {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: var(--chat-radius-pill);
+  border: 1px solid var(--chat-border);
+  outline: none;
+  font-size: 14px;
+}
+
+.df-chat__input:focus {
+  border-color: var(--chat-primary);
+  box-shadow: 0 0 0 4px rgba(244,127,44,.15);
+}
+
+/* =========================================================
+   BOTONES
+   ========================================================= */
+
+.df-btn {
+  border-radius: var(--chat-radius-pill);
+  padding: 10px 18px;
+  font-weight: 900;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.df-btn--primary {
+  background: linear-gradient(
+    180deg,
+    var(--chat-primary),
+    var(--chat-primary-dark)
+  );
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(244,127,44,.35);
+}
+
+.df-btn--primary:hover {
+  box-shadow: 0 14px 30px rgba(244,127,44,.45);
+}
+
+.df-btn--primary:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.df-btn--ghost {
+  background: #fff;
+  border-color: var(--chat-border);
+  color: var(--chat-text);
+}
+
+.df-btn--ghost:hover {
+  background: rgba(0,0,0,.04);
+}
+
+/* =========================================================
+   FOOTNOTE
+   ========================================================= */
+
+.df-chat__footnote {
+  font-size: 12px;
+  color: var(--chat-muted);
+  padding: 8px 12px 12px;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 640px) {
+  .df-chat__messages {
+    height: 440px;
+    padding: 12px;
+  }
+
+  .df-msg__bubble {
+    max-width: 85%;
+  }
+
+  .df-chat__meta {
+    display: none;
+  }
+}

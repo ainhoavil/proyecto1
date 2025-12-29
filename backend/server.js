@@ -1,4 +1,3 @@
-// backend/server.js
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -20,9 +19,10 @@ import perfilRoutes from "./routes/perfil.js";
 import perrosRoutes from "./routes/perros.js";
 import filesRoutes from "./routes/files.js";
 import trainersRoutes from "./routes/trainers.js";
-
-// 🔹 NUEVO: perfiles públicos de adiestrador
 import trainerProfilesRoutes from "./routes/trainerProfiles.js";
+
+// ✅ Chat
+import chatsRoutes from "./routes/chat.js";
 
 // ==== __dirname (ESM) ====
 const __filename = fileURLToPath(import.meta.url);
@@ -92,8 +92,11 @@ app.use("/api/perros", perrosRoutes);
 app.use("/api", filesRoutes);
 
 // Rutas de adiestradores
-app.use("/api/trainers", trainersRoutes);          // existentes
-app.use("/api/trainers", trainerProfilesRoutes);  // 🔹 NUEVO: perfiles públicos
+app.use("/api/trainers", trainersRoutes);
+app.use("/api/trainers", trainerProfilesRoutes);
+
+// ✅ Rutas de chat
+app.use("/api/chats", chatsRoutes);
 
 // ==== 404 ====
 app.use((_req, res) => {

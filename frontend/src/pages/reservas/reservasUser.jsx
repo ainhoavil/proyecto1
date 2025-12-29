@@ -1,14 +1,15 @@
 // frontend/src/pages/reservas/reservasUser.jsx
-import { useEffect, useMemo, useState } from 'react';
-import { http } from '../../helpers/http';
-import { useAuth } from '../../context/auth';
-import '../../styles/contratar.scss'; // reutilizamos estilos de botones / card
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { http } from "../../helpers/http";
+import { useAuth } from "../../context/auth";
+import "../../styles/contratar.scss"; // reutilizamos estilos de botones / card
 
 // ==== utilidades básicas ====
-function formatEUR(value, currency = 'EUR') {
-  if (value == null) return 'A consultar';
+function formatEUR(value, currency = "EUR") {
+  if (value == null) return "A consultar";
   try {
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(
       value
     );
   } catch {
@@ -18,8 +19,8 @@ function formatEUR(value, currency = 'EUR') {
 
 function ymd(d) {
   const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
 }
 
@@ -28,15 +29,15 @@ function todayYMD() {
 }
 
 function renderFecha(fecha) {
-  if (!fecha) return '';
+  if (!fecha) return "";
   try {
     const d = new Date(fecha);
     if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString('es-ES', {
-        weekday: 'short',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
+      return d.toLocaleDateString("es-ES", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
       });
     }
   } catch {
@@ -46,8 +47,8 @@ function renderFecha(fecha) {
 }
 
 function renderPerro(perro) {
-  if (!perro) return '(sin datos)';
-  if (typeof perro === 'string') {
+  if (!perro) return "(sin datos)";
+  if (typeof perro === "string") {
     try {
       const obj = JSON.parse(perro);
       return renderPerro(obj);
@@ -55,35 +56,35 @@ function renderPerro(perro) {
       return perro;
     }
   }
-  if (typeof perro === 'object') {
+  if (typeof perro === "object") {
     const nombre = perro.nombre || perro.name;
-    const raza = perro.razaTamaño || perro.raza || '';
-    const edad = perro.edad ? `${perro.edad} años` : '';
-    const castrado = perro.castrado ? 'castrado' : '';
+    const raza = perro.razaTamaño || perro.raza || "";
+    const edad = perro.edad ? `${perro.edad} años` : "";
+    const castrado = perro.castrado ? "castrado" : "";
     const parts = [nombre, raza, edad, castrado].filter(Boolean);
-    return parts.length ? parts.join(' · ') : '(sin datos)';
+    return parts.length ? parts.join(" · ") : "(sin datos)";
   }
   return String(perro);
 }
 
 function statusLabel(status) {
-  const s = String(status || '').toLowerCase();
-  if (s === 'pending' || s === 'pendiente') return 'Pendiente centro';
-  if (s === 'confirmed' || s === 'confirmada') return 'Confirmada';
-  if (s === 'cancelled' || s === 'cancelada') return 'Cancelada';
-  if (s === 'rejected' || s === 'rechazada') return 'Rechazada';
-  if (s === 'pending_user') return 'Pendiente (tu aceptación)';
-  return s || 'Estado';
+  const s = String(status || "").toLowerCase();
+  if (s === "pending" || s === "pendiente") return "Pendiente centro";
+  if (s === "confirmed" || s === "confirmada") return "Confirmada";
+  if (s === "cancelled" || s === "cancelada") return "Cancelada";
+  if (s === "rejected" || s === "rechazada") return "Rechazada";
+  if (s === "pending_user") return "Pendiente (tu aceptación)";
+  return s || "Estado";
 }
 
 function statusClass(status) {
-  const s = String(status || '').toLowerCase();
-  if (s === 'pending' || s === 'pendiente') return 'badge badge-pending';
-  if (s === 'confirmed' || s === 'confirmada') return 'badge badge-confirmed';
-  if (s === 'cancelled' || s === 'cancelada') return 'badge badge-cancelled';
-  if (s === 'rejected' || s === 'rechazada') return 'badge badge-rejected';
-  if (s === 'pending_user') return 'badge badge-pending-user';
-  return 'badge';
+  const s = String(status || "").toLowerCase();
+  if (s === "pending" || s === "pendiente") return "badge badge-pending";
+  if (s === "confirmed" || s === "confirmada") return "badge badge-confirmed";
+  if (s === "cancelled" || s === "cancelada") return "badge badge-cancelled";
+  if (s === "rejected" || s === "rechazada") return "badge badge-rejected";
+  if (s === "pending_user") return "badge badge-pending-user";
+  return "badge";
 }
 
 // ==== card de reserva ====
@@ -92,6 +93,11 @@ function ReservaCard({
   onCancel,
   onToggleNotes,
   onUserDecision,
+
+  // chat
+  onOpenChat,
+  openingChatId,
+
   // notas
   isNotesOpen,
   notes,
@@ -101,18 +107,21 @@ function ReservaCard({
   onAddNote,
   onDeleteNote,
 }) {
-  const normalizedStatus = String(r.status || '').toLowerCase();
+  const normalizedStatus = String(r.status || "").toLowerCase();
 
   const puedeCancelar =
-    normalizedStatus === 'pending' ||
-    normalizedStatus === 'confirmada' ||
-    normalizedStatus === 'confirmed' ||
-    normalizedStatus === 'pending_user';
+    normalizedStatus === "pending" ||
+    normalizedStatus === "confirmada" ||
+    normalizedStatus === "confirmed" ||
+    normalizedStatus === "pending_user";
 
-  const puedeAceptarRechazar = normalizedStatus === 'pending_user';
+  const puedeAceptarRechazar = normalizedStatus === "pending_user";
+
+  // ✅ Chat SOLO después de la reserva -> alineado con backend (solo confirmed)
+  const puedeChat = normalizedStatus === "confirmed" || normalizedStatus === "confirmada";
 
   const countNotas =
-    typeof r.notesCount === 'number'
+    typeof r.notesCount === "number"
       ? r.notesCount
       : isNotesOpen && Array.isArray(notes)
       ? notes.length
@@ -120,65 +129,82 @@ function ReservaCard({
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div>
-          <div style={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
-            {r.servicioTitulo || r.servicioId || 'Reserva'}
+          <div style={{ fontWeight: "bold", textTransform: "capitalize" }}>
+            {r.servicioTitulo || r.servicioId || "Reserva"}
           </div>
+
           <div style={{ fontSize: 14, marginTop: 4 }}>
-            <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{' '}
+            <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{" "}
             {r.modalidad && (
               <>
                 · <i>{r.modalidad}</i>
               </>
             )}
           </div>
+
           {r.perro && (
             <div style={{ fontSize: 14, marginTop: 2 }}>
               <b>Perro:</b> {renderPerro(r.perro)}
             </div>
           )}
+
           {r.price != null && (
             <div style={{ fontSize: 14, marginTop: 2 }}>
-              <b>Precio:</b> {formatEUR(r.price, r.currency || 'EUR')}
+              <b>Precio:</b> {formatEUR(r.price, r.currency || "EUR")}
             </div>
           )}
+
           {r.adminNote && (
             <div style={{ fontSize: 12, marginTop: 4 }}>
               <b>Nota centro:</b> {r.adminNote}
             </div>
           )}
+
           {r.cancelReason && (
             <div style={{ fontSize: 12, marginTop: 4 }}>
               <b>Motivo cancelación:</b> {r.cancelReason}
             </div>
           )}
         </div>
-        <div style={{ textAlign: 'right' }}>
+
+        <div style={{ textAlign: "right" }}>
           <span className={statusClass(r.status)}>{statusLabel(r.status)}</span>
         </div>
       </div>
 
       <div
-        style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}
+        style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
         className="reservas-actions-row"
       >
         <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
-          📝 Notas
-          {countNotas != null ? ` (${countNotas})` : ''}
+          📝 Notas{countNotas != null ? ` (${countNotas})` : ""}
         </button>
+
+        {/* ✅ BOTÓN CHAT */}
+        {puedeChat && (
+          <button
+            className="btn-primary"
+            onClick={() => onOpenChat?.(r)}
+            disabled={openingChatId === r.id}
+            title="Abrir chat relacionado con esta reserva"
+          >
+            {openingChatId === r.id ? "Abriendo chat…" : "💬 Abrir chat"}
+          </button>
+        )}
 
         {puedeAceptarRechazar && (
           <>
             <button
               className="btn-primary"
-              onClick={() => onUserDecision?.(r, 'confirm')}
+              onClick={() => onUserDecision?.(r, "confirm")}
             >
               Aceptar
             </button>
             <button
               className="btn-outline"
-              onClick={() => onUserDecision?.(r, 'reject')}
+              onClick={() => onUserDecision?.(r, "reject")}
             >
               Rechazar
             </button>
@@ -205,22 +231,20 @@ function ReservaCard({
                 <div key={n.id} className="reservas-notes__item">
                   <div>
                     <div className="reservas-notes__meta">
-                      <b>{n.author || 'Centro'}</b>{' '}
+                      <b>{n.author || "Centro"}</b>{" "}
                       {n.createdAt && (
                         <span>
-                          ·{' '}
-                          {new Date(n.createdAt).toLocaleString('es-ES', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            day: '2-digit',
-                            month: '2-digit',
+                          ·{" "}
+                          {new Date(n.createdAt).toLocaleString("es-ES", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            day: "2-digit",
+                            month: "2-digit",
                           })}
                         </span>
                       )}
                     </div>
-                    <div className="reservas-notes__text">
-                      {n.text || n.nota}
-                    </div>
+                    <div className="reservas-notes__text">{n.text || n.nota}</div>
                   </div>
                   {onDeleteNote && (
                     <button
@@ -261,11 +285,16 @@ function ReservaCard({
 // ==== componente principal ====
 export default function ReservasUser() {
   const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+
   const [reservas, setReservas] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // chat
+  const [openingChatId, setOpeningChatId] = useState(null);
+
   // buscador
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
 
   // calendario
   const [mesBase, setMesBase] = useState(
@@ -273,21 +302,21 @@ export default function ReservasUser() {
   );
   const [selectedDate, setSelectedDate] = useState(todayYMD());
 
-  // notas (controladas desde el padre, pero mostradas en cada card)
+  // notas
   const [openNotesId, setOpenNotesId] = useState(null);
   const [notes, setNotes] = useState([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
-  const [newNote, setNewNote] = useState('');
+  const [newNote, setNewNote] = useState("");
 
   const cargarReservas = async () => {
     if (!isAuthenticated) return;
     setLoading(true);
     try {
-      const data = await http('/api/reservas/mias', { auth: true });
+      const data = await http("/api/reservas/mias", { auth: true });
       const arr = Array.isArray(data) ? data : data?.items || [];
       setReservas(arr);
     } catch (e) {
-      console.error('Error cargando reservas', e);
+      console.error("Error cargando reservas", e);
       setReservas([]);
     } finally {
       setLoading(false);
@@ -299,6 +328,34 @@ export default function ReservasUser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  // ✅ abrir chat por reserva
+  const handleOpenChat = async (r) => {
+    if (!r?.id) return;
+    if (openingChatId === r.id) return;
+
+    try {
+      setOpeningChatId(r.id);
+
+      const resp = await http(`/api/chats/by-reserva/${r.id}`, {
+        method: "POST",
+        auth: true,
+      });
+
+      const conversationId = resp?.conversationId || resp?.id;
+      if (!conversationId) {
+        alert("No se pudo abrir el chat (no se recibió conversationId).");
+        return;
+      }
+
+      navigate(`/chat/${conversationId}`);
+    } catch (e) {
+      console.error("Error abriendo chat:", e);
+      alert("No se pudo abrir el chat para esta reserva.");
+    } finally {
+      setOpeningChatId(null);
+    }
+  };
+
   // texto de filtro
   const filtro = search.trim().toLowerCase();
 
@@ -307,8 +364,7 @@ export default function ReservasUser() {
     if (!filtro) return reservas;
 
     return reservas.filter((r) => {
-      const perroStr =
-        typeof r.perro === 'string' ? r.perro : renderPerro(r.perro);
+      const perroStr = typeof r.perro === "string" ? r.perro : renderPerro(r.perro);
       const campos = [
         r.servicioTitulo,
         r.servicioId,
@@ -318,9 +374,7 @@ export default function ReservasUser() {
         statusLabel(r.status),
       ];
 
-      return campos.some((v) =>
-        String(v || '').toLowerCase().includes(filtro)
-      );
+      return campos.some((v) => String(v || "").toLowerCase().includes(filtro));
     });
   }, [reservas, filtro]);
 
@@ -342,12 +396,12 @@ export default function ReservasUser() {
     return fechasConReservas.get(selectedDate) || [];
   }, [fechasConReservas, selectedDate]);
 
-  // agrupaciones por estado (también usando filtradas)
+  // agrupaciones por estado
   const pendientesCentro = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || '').toLowerCase();
-        return s === 'pending' || s === 'pendiente';
+        const s = String(r.status || "").toLowerCase();
+        return s === "pending" || s === "pendiente";
       }),
     [reservasFiltradas]
   );
@@ -355,8 +409,8 @@ export default function ReservasUser() {
   const pendientesUsuario = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || '').toLowerCase();
-        return s === 'pending_user';
+        const s = String(r.status || "").toLowerCase();
+        return s === "pending_user";
       }),
     [reservasFiltradas]
   );
@@ -364,8 +418,8 @@ export default function ReservasUser() {
   const confirmadas = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || '').toLowerCase();
-        return s === 'confirmed' || s === 'confirmada';
+        const s = String(r.status || "").toLowerCase();
+        return s === "confirmed" || s === "confirmada";
       }),
     [reservasFiltradas]
   );
@@ -373,12 +427,12 @@ export default function ReservasUser() {
   const canceladasRechazadas = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || '').toLowerCase();
+        const s = String(r.status || "").toLowerCase();
         return (
-          s === 'cancelled' ||
-          s === 'cancelada' ||
-          s === 'rejected' ||
-          s === 'rechazada'
+          s === "cancelled" ||
+          s === "cancelada" ||
+          s === "rejected" ||
+          s === "rechazada"
         );
       }),
     [reservasFiltradas]
@@ -386,41 +440,38 @@ export default function ReservasUser() {
 
   // cancelar reserva
   const handleCancel = async (r) => {
-    if (!window.confirm(`¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`))
-      return;
+    if (!window.confirm(`¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`)) return;
     try {
       await http(`/api/reservas/${r.id}/cancel`, {
-        method: 'PATCH',
-        data: { reason: 'Cancelada por el cliente' },
+        method: "PATCH",
+        data: { reason: "Cancelada por el cliente" },
         auth: true,
       });
       await cargarReservas();
     } catch (e) {
-      console.error('Error cancelando reserva', e);
-      alert('No se pudo cancelar la reserva.');
+      console.error("Error cancelando reserva", e);
+      alert("No se pudo cancelar la reserva.");
     }
   };
 
   // aceptar / rechazar cuando está en pending_user
   const handleUserDecision = async (r, action) => {
-    const verb = action === 'confirm' ? 'aceptar' : 'rechazar';
+    const verb = action === "confirm" ? "aceptar" : "rechazar";
     if (
-      !window.confirm(
-        `¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`
-      )
+      !window.confirm(`¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`)
     ) {
       return;
     }
     try {
       await http(`/api/reservas/${r.id}/user-confirm`, {
-        method: 'PATCH',
+        method: "PATCH",
         data: { action },
         auth: true,
       });
       await cargarReservas();
     } catch (e) {
-      console.error('Error actualizando reserva (user-confirm)', e);
-      alert('No se pudo actualizar la reserva.');
+      console.error("Error actualizando reserva (user-confirm)", e);
+      alert("No se pudo actualizar la reserva.");
     }
   };
 
@@ -428,12 +479,10 @@ export default function ReservasUser() {
   const loadNotes = async (reserva) => {
     setLoadingNotes(true);
     try {
-      const data = await http(`/api/reservas/${reserva.id}/notes`, {
-        auth: true,
-      });
+      const data = await http(`/api/reservas/${reserva.id}/notes`, { auth: true });
       setNotes(Array.isArray(data) ? data : data?.items || []);
     } catch (e) {
-      console.error('Error cargando notas', e);
+      console.error("Error cargando notas", e);
       setNotes([]);
     } finally {
       setLoadingNotes(false);
@@ -444,11 +493,11 @@ export default function ReservasUser() {
     if (openNotesId === r.id) {
       setOpenNotesId(null);
       setNotes([]);
-      setNewNote('');
+      setNewNote("");
       return;
     }
     setOpenNotesId(r.id);
-    setNewNote('');
+    setNewNote("");
     loadNotes(r);
   };
 
@@ -456,38 +505,35 @@ export default function ReservasUser() {
     if (!openNotesId || !newNote.trim()) return;
     try {
       await http(`/api/reservas/${openNotesId}/notes`, {
-        method: 'POST',
+        method: "POST",
         data: {
-          // mando varios nombres posibles para encajar con el backend
           text: newNote.trim(),
           nota: newNote.trim(),
           userNote: newNote.trim(),
         },
         auth: true,
       });
-      setNewNote('');
+      setNewNote("");
       await loadNotes({ id: openNotesId });
     } catch (e) {
-      console.error('Error guardando nota', e);
-      alert(
-        'No se pudo guardar la nota (revisa qué campo espera el backend).'
-      );
+      console.error("Error guardando nota", e);
+      alert("No se pudo guardar la nota (revisa qué campo espera el backend).");
     }
   };
 
   const handleDeleteNote = async (noteId) => {
     if (!openNotesId) return;
-    if (!window.confirm('¿Eliminar esta nota?')) return;
+    if (!window.confirm("¿Eliminar esta nota?")) return;
     try {
       await http(`/api/reservas/${openNotesId}/notes/${noteId}`, {
-        method: 'DELETE',
+        method: "DELETE",
         auth: true,
       });
       await loadNotes({ id: openNotesId });
     } catch (e) {
-      console.error('Error eliminando nota', e);
+      console.error("Error eliminando nota", e);
       alert(
-        'No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).'
+        "No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón)."
       );
     }
   };
@@ -516,9 +562,8 @@ export default function ReservasUser() {
       <p className="reservas-eyebrow">Sesión iniciada</p>
       <h1>Reservas</h1>
       <p className="reservas-subtitle">
-        Consulta tu calendario de reservas y gestiona su estado. Puedes
-        comunicarte con el centro directamente desde cada reserva usando el
-        sistema de notas.
+        Consulta tu calendario de reservas y gestiona su estado. Puedes comunicarte con el centro
+        directamente desde cada reserva usando el sistema de notas.
       </p>
 
       {/* Buscador */}
@@ -538,27 +583,20 @@ export default function ReservasUser() {
             className="btn-ghost"
             type="button"
             onClick={() =>
-              setMesBase(
-                new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1)
-              )
+              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
             }
           >
             ‹
           </button>
           <div className="month-label">
-            Calendario de reservas ·{' '}
-            {mesBase.toLocaleString('es-ES', {
-              month: 'long',
-              year: 'numeric',
-            })}
+            Calendario de reservas ·{" "}
+            {mesBase.toLocaleString("es-ES", { month: "long", year: "numeric" })}
           </div>
           <button
             className="btn-ghost"
             type="button"
             onClick={() =>
-              setMesBase(
-                new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1)
-              )
+              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
             }
           >
             ›
@@ -566,7 +604,7 @@ export default function ReservasUser() {
         </div>
 
         <div className="weekdays">
-          {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
+          {["L", "M", "X", "J", "V", "S", "D"].map((d) => (
             <div key={d}>{d}</div>
           ))}
         </div>
@@ -575,28 +613,18 @@ export default function ReservasUser() {
           {(() => {
             const first = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
             const startOffset = (first.getDay() + 6) % 7; // lunes = 0
-            const lastDay = new Date(
-              mesBase.getFullYear(),
-              mesBase.getMonth() + 1,
-              0
-            ).getDate();
+            const lastDay = new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 0).getDate();
             const cells = [];
             for (let i = 0; i < 42; i++) {
               const dayNum = i - startOffset + 1;
               const inMonth = dayNum >= 1 && dayNum <= lastDay;
-              let f = '';
-              let disabled = true;
+              let f = "";
               let isSelected = false;
               let hasReserva = false;
 
               if (inMonth) {
-                const d = new Date(
-                  mesBase.getFullYear(),
-                  mesBase.getMonth(),
-                  dayNum
-                );
+                const d = new Date(mesBase.getFullYear(), mesBase.getMonth(), dayNum);
                 f = ymd(d);
-                disabled = false;
                 isSelected = f === selectedDate;
                 hasReserva = fechasConReservas.has(f);
               }
@@ -605,16 +633,16 @@ export default function ReservasUser() {
                 <button
                   key={i}
                   type="button"
-                  className={`daycell ${inMonth ? '' : 'out'} ${
-                    isSelected ? 'selected' : ''
-                  } ${hasReserva ? 'has-reserva' : ''}`}
+                  className={`daycell ${inMonth ? "" : "out"} ${isSelected ? "selected" : ""} ${
+                    hasReserva ? "has-reserva" : ""
+                  }`}
                   onClick={() => {
                     if (!inMonth) return;
-                    setSelectedDate(f === selectedDate ? '' : f);
+                    setSelectedDate(f === selectedDate ? "" : f);
                   }}
                   disabled={!inMonth}
                 >
-                  {inMonth ? dayNum : ''}
+                  {inMonth ? dayNum : ""}
                 </button>
               );
             }
@@ -630,8 +658,7 @@ export default function ReservasUser() {
             <span className="legend-dot legend-dot--confirmed" /> Confirmada
           </span>
           <span>
-            <span className="legend-dot legend-dot--cancelled" /> Cancelada /
-            rechazada
+            <span className="legend-dot legend-dot--cancelled" /> Cancelada / rechazada
           </span>
         </div>
 
@@ -649,6 +676,8 @@ export default function ReservasUser() {
                     onCancel={handleCancel}
                     onToggleNotes={handleToggleNotes}
                     onUserDecision={handleUserDecision}
+                    onOpenChat={handleOpenChat}
+                    openingChatId={openingChatId}
                     isNotesOpen={openNotesId === r.id}
                     notes={notes}
                     loadingNotes={loadingNotes}
@@ -664,7 +693,7 @@ export default function ReservasUser() {
         )}
       </section>
 
-      {/* ==== Listas por estado, todas seguidas ==== */}
+      {/* ==== Listas por estado ==== */}
       <section className="reservas-section">
         <h2>Pendientes por confirmar por el centro</h2>
         {pendientesCentro.length === 0 ? (
@@ -678,6 +707,8 @@ export default function ReservasUser() {
                 onCancel={handleCancel}
                 onToggleNotes={handleToggleNotes}
                 onUserDecision={handleUserDecision}
+                onOpenChat={handleOpenChat}
+                openingChatId={openingChatId}
                 isNotesOpen={openNotesId === r.id}
                 notes={notes}
                 loadingNotes={loadingNotes}
@@ -694,9 +725,7 @@ export default function ReservasUser() {
       <section className="reservas-section">
         <h2>Pendientes por confirmar por el usuario</h2>
         {pendientesUsuario.length === 0 ? (
-          <p className="reservas-empty">
-            No tienes reservas pendientes de tu aceptación.
-          </p>
+          <p className="reservas-empty">No tienes reservas pendientes de tu aceptación.</p>
         ) : (
           <div className="reservas-list">
             {pendientesUsuario.map((r) => (
@@ -706,6 +735,8 @@ export default function ReservasUser() {
                 onCancel={handleCancel}
                 onToggleNotes={handleToggleNotes}
                 onUserDecision={handleUserDecision}
+                onOpenChat={handleOpenChat}
+                openingChatId={openingChatId}
                 isNotesOpen={openNotesId === r.id}
                 notes={notes}
                 loadingNotes={loadingNotes}
@@ -732,6 +763,8 @@ export default function ReservasUser() {
                 onCancel={handleCancel}
                 onToggleNotes={handleToggleNotes}
                 onUserDecision={handleUserDecision}
+                onOpenChat={handleOpenChat}
+                openingChatId={openingChatId}
                 isNotesOpen={openNotesId === r.id}
                 notes={notes}
                 loadingNotes={loadingNotes}
@@ -748,9 +781,7 @@ export default function ReservasUser() {
       <section className="reservas-section">
         <h2>Canceladas / Rechazadas</h2>
         {canceladasRechazadas.length === 0 ? (
-          <p className="reservas-empty">
-            No tienes reservas canceladas ni rechazadas.
-          </p>
+          <p className="reservas-empty">No tienes reservas canceladas ni rechazadas.</p>
         ) : (
           <div className="reservas-list">
             {canceladasRechazadas.map((r) => (
@@ -760,6 +791,8 @@ export default function ReservasUser() {
                 onCancel={handleCancel}
                 onToggleNotes={handleToggleNotes}
                 onUserDecision={handleUserDecision}
+                onOpenChat={handleOpenChat}
+                openingChatId={openingChatId}
                 isNotesOpen={openNotesId === r.id}
                 notes={notes}
                 loadingNotes={loadingNotes}
