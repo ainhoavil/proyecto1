@@ -1,8 +1,8 @@
 // backend/routes/reservas.js
-import express from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { query } from '../db.js';
-import { verifyToken, requireAdmin, allowRoles } from '../middleware/auth.js';
+import express from "express";
+import { v4 as uuidv4 } from "uuid";
+import { query } from "../db.js";
+import { verifyToken, requireAdmin, allowRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -14,14 +14,11 @@ const nowISO = () => new Date().toISOString();
 const MS_24H = 24 * 60 * 60 * 1000;
 
 const toMin = (hhmm) => {
-  const [h, m = 0] = String(hhmm).split(':').map(Number);
+  const [h, m = 0] = String(hhmm).split(":").map(Number);
   return h * 60 + m;
 };
 const fromMin = (t) =>
-  `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(
-    2,
-    '0'
-  )}`;
+  `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 const overlaps = (aStart, aDur, bStart, bDur) => {
   const a1 = toMin(aStart),
     a2 = a1 + Number(aDur || 60);
@@ -31,7 +28,7 @@ const overlaps = (aStart, aDur, bStart, bDur) => {
 };
 const parseJSONSafe = (v, fb = {}) => {
   try {
-    return typeof v === 'string' ? JSON.parse(v) : v ?? fb;
+    return typeof v === "string" ? JSON.parse(v) : v ?? fb;
   } catch {
     return fb;
   }
@@ -39,8 +36,8 @@ const parseJSONSafe = (v, fb = {}) => {
 
 function buildDateFromFechaHora(fecha, hora) {
   if (!fecha) return null;
-  const [Y, M, D] = String(fecha).split('-').map(Number);
-  const [h, m = 0] = String(hora || '00:00').split(':').map(Number);
+  const [Y, M, D] = String(fecha).split("-").map(Number);
+  const [h, m = 0] = String(hora || "00:00").split(":").map(Number);
   if (!Y || !M || !D) return null;
   return new Date(Y, (M || 1) - 1, D, h || 0, m || 0);
 }
@@ -59,12 +56,12 @@ function puedeCancelar24h(fecha, hora) {
 
 async function autoExpireIfPast(rows) {
   for (const r of rows) {
-    const s = String(r.status || '').toLowerCase();
+    const s = String(r.status || "").toLowerCase();
     if (
-      (s === 'pending' ||
-        s === 'pendiente' ||
-        s === 'pending_user' ||
-        s === 'pendiente_usuario') &&
+      (s === "pending" ||
+        s === "pendiente" ||
+        s === "pending_user" ||
+        s === "pendiente_usuario") &&
       isPast(r.fecha, r.hora)
     ) {
       await query(
@@ -75,20 +72,20 @@ async function autoExpireIfPast(rows) {
          WHERE id=?`,
         [nowISO(), r.id]
       );
-      r.status = 'rejected';
-      if (!r.cancelReason) r.cancelReason = 'auto-expirada';
+      r.status = "rejected";
+      if (!r.cancelReason) r.cancelReason = "auto-expirada";
     }
   }
 }
 
 async function tx(run) {
   try {
-    await query('BEGIN IMMEDIATE');
+    await query("BEGIN IMMEDIATE");
     const r = await run();
-    await query('COMMIT');
+    await query("COMMIT");
     return r;
   } catch (e) {
-    await query('ROLLBACK').catch(() => {});
+    await query("ROLLBACK").catch(() => {});
     throw e;
   }
 }
@@ -107,10 +104,10 @@ async function canSeeReservation(req, reservaId) {
 
   if (!r) return { ok: false };
 
-  const rol = req.user?.rol || req.user?.role || 'user';
+  const rol = req.user?.rol || req.user?.role || "user";
 
-  const isAdmin = !!req.user?.isAdmin || rol === 'admin';
-  const isTrainer = rol === 'adiestrador';
+  const isAdmin = !!req.user?.isAdmin || rol === "admin";
+  const isTrainer = rol === "adiestrador";
   const isOwner =
     (r.uid && req.user?.uid && r.uid === req.user.uid) ||
     (r.email && req.user?.email && r.email === req.user.email);
@@ -128,8 +125,6 @@ async function canSeeReservation(req, reservaId) {
 
 // ✅ NUEVO: fallback a "todos los adiestradores" (coherente con /api/trainers/eligible actual)
 async function getAllTrainers() {
-  // OJO: si tu tabla usuarios NO tiene "nombre", esto NO rompe: lo usamos pero no es obligatorio
-  // Si te da error por columna inexistente, cambia a: SELECT id, email FROM usuarios ...
   try {
     return await query(
       `SELECT id, email, nombre
@@ -150,7 +145,6 @@ async function getAllTrainers() {
 async function getEligibleTrainers({ servicioId, modalidad }) {
   const mod = modalidad ? String(modalidad) : null;
 
-  // Si no hay servicioId, no bloqueamos el sistema: devolvemos todos
   if (!servicioId) {
     return await getAllTrainers();
   }
@@ -176,12 +170,10 @@ async function getEligibleTrainers({ servicioId, modalidad }) {
       `,
       [String(servicioId), mod, mod]
     );
-  } catch (e) {
-    // Si trainer_servicios no existe / columnas distintas / datos incompletos => no tiramos el flujo
+  } catch {
     rows = [];
   }
 
-  // ✅ FALLBACK: si no hay mapeos compatibles, usar todos los adiestradores
   if (!rows || rows.length === 0) {
     return await getAllTrainers();
   }
@@ -197,64 +189,55 @@ function pickRandomTrainer(eligibleRows) {
 
 async function validateTrainerExistsAndIsTrainer(trainerId) {
   const row = (
-    await query(`SELECT id, rol FROM usuarios WHERE id=? LIMIT 1`, [
-      String(trainerId),
-    ])
+    await query(`SELECT id, rol FROM usuarios WHERE id=? LIMIT 1`, [String(trainerId)])
   )[0];
-  return !!row && row.rol === 'adiestrador';
+  return !!row && row.rol === "adiestrador";
 }
 
 async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
-  const reqT = trainerId == null ? '' : String(trainerId).trim();
+  const reqT = trainerId == null ? "" : String(trainerId).trim();
 
-  // Cargamos elegibles con fallback automático
   const eligible = await getEligibleTrainers({ servicioId, modalidad });
 
-  // Si el usuario eligió uno concreto
-  if (reqT && reqT !== 'any') {
+  if (reqT && reqT !== "any") {
     const okTrainer = await validateTrainerExistsAndIsTrainer(reqT);
     if (!okTrainer) {
-      const err = new Error('Trainer inválido');
+      const err = new Error("Trainer inválido");
       err.statusCode = 400;
       throw err;
     }
-
-    // Si está en elegibles, perfecto. Si no, NO BLOQUEAMOS (coherencia con listado actual)
-    // Esto evita que el usuario no pueda reservar por falta de trainer_servicios.
     return reqT;
   }
 
-  // Auto (any/vacío)
   const chosen = pickRandomTrainer(eligible);
   if (!chosen) {
-    const err = new Error('No hay adiestradores disponibles');
+    const err = new Error("No hay adiestradores disponibles");
     err.statusCode = 409;
     throw err;
   }
   return chosen.id;
 }
 
-
 /* ===================== Disponibilidad ===================== */
 // GET /api/reservas/disponibilidad?fecha=YYYY-MM-DD&trainerId=&durationMin=
-router.get('/disponibilidad', async (req, res) => {
+router.get("/disponibilidad", async (req, res) => {
   try {
-    const { fecha, trainerId = '', durationMin = 60 } = req.query;
+    const { fecha, trainerId = "", durationMin = 60 } = req.query;
     if (!fecha) {
-      return res.status(400).json({ error: 'Falta fecha (YYYY-MM-DD)' });
+      return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
     }
 
     const slots = [];
     for (let h = BUSINESS_HOURS.start; h < BUSINESS_HOURS.end; h++) {
       if (BUSINESS_HOURS.skipHours.has(h)) continue;
-      slots.push(`${String(h).padStart(2, '0')}:00`);
+      slots.push(`${String(h).padStart(2, "0")}:00`);
     }
 
     const params = [fecha];
-    let whereTrainer = '';
+    let whereTrainer = "";
 
-    if (trainerId && trainerId !== 'any') {
-      whereTrainer = ' AND trainer_id = ?';
+    if (trainerId && trainerId !== "any") {
+      whereTrainer = " AND trainer_id = ?";
       params.push(String(trainerId));
     }
 
@@ -269,10 +252,7 @@ router.get('/disponibilidad', async (req, res) => {
       params
     );
 
-    const bloqueos = await query(
-      `SELECT hora FROM bloqueos WHERE fecha = ?`,
-      [fecha]
-    );
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [fecha]);
 
     const ocupadas = new Set();
 
@@ -284,9 +264,7 @@ router.get('/disponibilidad', async (req, res) => {
       }
     }
 
-    for (const b of bloqueos) {
-      ocupadas.add(String(b.hora));
-    }
+    for (const b of bloqueos) ocupadas.add(String(b.hora));
 
     const libres = slots.filter((slot) => {
       const start = toMin(slot);
@@ -297,21 +275,16 @@ router.get('/disponibilidad', async (req, res) => {
       return true;
     });
 
-    res.json({
-      fecha,
-      libres,
-      ocupadas: Array.from(ocupadas),
-    });
+    res.json({ fecha, libres, ocupadas: Array.from(ocupadas) });
   } catch (e) {
-    console.error('GET /reservas/disponibilidad', e);
-    res.status(500).json({ error: 'No se pudo calcular disponibilidad' });
+    console.error("GET /reservas/disponibilidad", e);
+    res.status(500).json({ error: "No se pudo calcular disponibilidad" });
   }
 });
 
-
 /* ===================== Crear (usuario) ===================== */
 // POST /api/reservas
-router.post('/', verifyToken, async (req, res) => {
+router.post("/", verifyToken, async (req, res) => {
   try {
     const {
       email,
@@ -330,17 +303,13 @@ router.post('/', verifyToken, async (req, res) => {
       pricing,
       paqueteId,
       userNote = null,
-
-      // NUEVO: elección de trainer
       trainerId, // '<id>' | 'any' | undefined
     } = req.body;
 
     const uid = req.user?.uid || null;
-    const emailNorm = String(email || req.user?.email || '').trim();
+    const emailNorm = String(email || req.user?.email || "").trim();
     if (!uid || !emailNorm || !fecha || !hora) {
-      return res
-        .status(400)
-        .json({ error: 'Faltan campos (login/email/fecha/hora)' });
+      return res.status(400).json({ error: "Faltan campos (login/email/fecha/hora)" });
     }
 
     // Fallback del servicio
@@ -367,41 +336,29 @@ router.post('/', verifyToken, async (req, res) => {
         WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
-      fecha,
-    ]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [fecha]);
 
     if (
       existentes.some((r) => String(r.hora) === String(hora)) ||
       bloqueos.some((b) => String(b.hora) === String(hora))
-    )
-      return res.status(409).json({ error: 'Hora ya reservada o bloqueada' });
+    ) {
+      return res.status(409).json({ error: "Hora ya reservada o bloqueada" });
+    }
 
     if (
       existentes.some((r) =>
-        overlaps(
-          String(hora),
-          Number(durationMin),
-          String(r.hora),
-          Number(r.durationMin || 60)
-        )
+        overlaps(String(hora), Number(durationMin), String(r.hora), Number(r.durationMin || 60))
       )
-    )
-      return res.status(409).json({ error: 'Franja solapada' });
+    ) {
+      return res.status(409).json({ error: "Franja solapada" });
+    }
 
-    // ===== Asignación trainer (2.2 / 2.3) =====
-    // - trainerId concreto => validar compatible
-    // - trainerId 'any' o vacío => auto (aleatorio entre compatibles)
-    const trainerIdFinal = await resolveTrainerIdOrFail({
-      trainerId,
-      servicioId,
-      modalidad,
-    });
+    const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
 
     const id = uuidv4();
     const ts = nowISO();
     const pricingJson = pricing ? JSON.stringify(pricing) : null;
-    const status = 'pending';
+    const status = "pending";
 
     if (paqueteId) {
       await tx(async () => {
@@ -411,22 +368,17 @@ router.post('/', verifyToken, async (req, res) => {
             WHERE id = ? LIMIT 1`,
           [String(paqueteId)]
         );
-        if (!pRows.length) throw new Error('Paquete no existe');
+        if (!pRows.length) throw new Error("Paquete no existe");
         const p = pRows[0];
-        if (p.status !== 'active') throw new Error('Paquete no activo');
-        if (p.userId && p.userId !== uid)
-          throw new Error('El paquete no pertenece al usuario');
+        if (p.status !== "active") throw new Error("Paquete no activo");
+        if (p.userId && p.userId !== uid) throw new Error("El paquete no pertenece al usuario");
 
-        const saldo = parseJSONSafe(p.saldo, {
-          total: 1,
-          usadas: 0,
-          pendientes: 0,
-        });
+        const saldo = parseJSONSafe(p.saldo, { total: 1, usadas: 0, pendientes: 0 });
         if (
-          Number(saldo.usadas || 0) + Number(saldo.pendientes || 0) >=
-          Number(saldo.total || 1)
-        )
-          throw new Error('Saldo agotado');
+          Number(saldo.usadas || 0) + Number(saldo.pendientes || 0) >= Number(saldo.total || 1)
+        ) {
+          throw new Error("Saldo agotado");
+        }
 
         await query(
           `INSERT INTO reservas
@@ -447,14 +399,14 @@ router.post('/', verifyToken, async (req, res) => {
             modalidad || null,
             duration || null,
             price ?? null,
-            currency || 'EUR',
+            currency || "EUR",
             perro || null,
             telefono || null,
             direccion || null,
             pricingJson,
             String(paqueteId),
             status,
-            'paquete',
+            "paquete",
             userNote,
             trainerIdFinal,
             ts,
@@ -490,14 +442,14 @@ router.post('/', verifyToken, async (req, res) => {
           modalidad || null,
           duration || null,
           price ?? null,
-          currency || 'EUR',
+          currency || "EUR",
           perro || null,
           telefono || null,
           direccion || null,
           pricingJson,
           null,
           status,
-          'directo',
+          "directo",
           userNote,
           trainerIdFinal,
           ts,
@@ -521,20 +473,17 @@ router.post('/', verifyToken, async (req, res) => {
     );
 
     const r = rows[0] || {};
-    res.status(201).json({
-      ...r,
-      pricing: parseJSONSafe(r.pricing, null),
-    });
+    res.status(201).json({ ...r, pricing: parseJSONSafe(r.pricing, null) });
   } catch (e) {
     const code = e?.statusCode || 500;
-    console.error('POST /reservas', e);
-    res.status(code).json({ error: e?.message || 'No se pudo crear la reserva' });
+    console.error("POST /reservas", e);
+    res.status(code).json({ error: e?.message || "No se pudo crear la reserva" });
   }
 });
 
 /* ===================== Crear reserva (admin) ===================== */
 // POST /api/reservas/admin
-router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
+router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
   try {
     const {
       email,
@@ -555,16 +504,14 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
       status: statusBody,
       adminNote = null,
       userNote = null,
-
-      // NUEVO (admin también puede asignar)
       trainerId,
     } = req.body;
 
-    const emailNorm = String(email || '').trim();
-    if (!emailNorm || !fecha || !hora)
-      return res.status(400).json({ error: 'Faltan campos (email/fecha/hora)' });
+    const emailNorm = String(email || "").trim();
+    if (!emailNorm || !fecha || !hora) {
+      return res.status(400).json({ error: "Faltan campos (email/fecha/hora)" });
+    }
 
-    // fallback del título
     let servicioTituloSafe = servicioTitulo || null;
     if (!servicioTituloSafe && servicioId) {
       try {
@@ -581,46 +528,35 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
       }
     }
 
-    // Colisiones
     const existentes = await query(
       `SELECT hora, COALESCE(duration_min,60) AS durationMin
          FROM reservas
         WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [
-      fecha,
-    ]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [fecha]);
 
     if (
       existentes.some((r) => String(r.hora) === String(hora)) ||
       bloqueos.some((b) => String(b.hora) === String(hora))
-    )
-      return res.status(409).json({ error: 'Hora ya reservada o bloqueada' });
+    ) {
+      return res.status(409).json({ error: "Hora ya reservada o bloqueada" });
+    }
 
     if (
       existentes.some((r) =>
-        overlaps(
-          String(hora),
-          Number(durationMin),
-          String(r.hora),
-          Number(r.durationMin || 60)
-        )
+        overlaps(String(hora), Number(durationMin), String(r.hora), Number(r.durationMin || 60))
       )
-    )
-      return res.status(409).json({ error: 'Franja solapada' });
+    ) {
+      return res.status(409).json({ error: "Franja solapada" });
+    }
 
-    // Trainer final (si admin no manda trainerId => any automático)
-    const trainerIdFinal = await resolveTrainerIdOrFail({
-      trainerId,
-      servicioId,
-      modalidad,
-    });
+    const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
 
     const id = uuidv4();
     const ts = nowISO();
     const pricingJson = pricing ? JSON.stringify(pricing) : null;
-    const status = statusBody || 'pending';
+    const status = statusBody || "pending";
 
     await query(
       `INSERT INTO reservas
@@ -642,14 +578,14 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
         modalidad || null,
         duration || null,
         price ?? null,
-        currency || 'EUR',
+        currency || "EUR",
         perro || null,
         telefono || null,
         direccion || null,
         pricingJson,
         paqueteId || null,
         status,
-        'admin',
+        "admin",
         userNote,
         adminNote,
         trainerIdFinal,
@@ -661,28 +597,24 @@ router.post('/admin', verifyToken, requireAdmin, async (req, res) => {
     res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
     const code = e?.statusCode || 500;
-    console.error('POST /reservas/admin', e);
-    res.status(code).json({ error: e?.message || 'No se pudo crear (admin)' });
+    console.error("POST /reservas/admin", e);
+    res.status(code).json({ error: e?.message || "No se pudo crear (admin)" });
   }
 });
 
 /* ===================== Agenda diaria del adiestrador ===================== */
 // GET /api/reservas/trainer/day?fecha=YYYY-MM-DD
 router.get(
-  '/trainer/day',
+  "/trainer/day",
   verifyToken,
-  allowRoles(['adiestrador', 'admin']),
+  allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
       const { fecha } = req.query;
-      const trainerId = req.user?.id;
+      const trainerId = req.user?.id || req.user?.uid;
 
-      if (!fecha) {
-        return res.status(400).json({ error: 'Falta fecha (YYYY-MM-DD)' });
-      }
-      if (!trainerId) {
-        return res.status(401).json({ error: 'No autorizado' });
-      }
+      if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+      if (!trainerId) return res.status(401).json({ error: "No autorizado" });
 
       const rows = await query(
         `
@@ -704,26 +636,85 @@ router.get(
           AND r.status IN ('pending','pending_user','confirmed')
         ORDER BY r.hora ASC
         `,
-        [trainerId, fecha]
+        [String(trainerId), String(fecha)]
       );
 
       res.json(rows);
     } catch (e) {
-      console.error('GET /reservas/trainer/day', e);
-      res.status(500).json({
-        error: 'No se pudo cargar la agenda del adiestrador',
-      });
+      console.error("GET /reservas/trainer/day", e);
+      res.status(500).json({ error: "No se pudo cargar la agenda del adiestrador" });
     }
   }
 );
 
+/* ===================== Mis reservas (adiestrador) ✅ NUEVO ===================== */
+// GET /api/reservas/mias-trainer
+router.get(
+  "/mias-trainer",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      const myId = String(req.user?.id || req.user?.uid || "");
+      if (!myId) return res.status(401).json({ error: "No autorizado" });
+
+      const rows = await query(
+        `
+        SELECT
+          id,
+          uid,
+          email,
+          fecha,
+          hora,
+          duration_min AS durationMin,
+          servicio_id AS servicioId,
+          servicio_titulo AS servicioTitulo,
+          modalidad,
+          duration,
+          price,
+          currency,
+          perro,
+          telefono,
+          direccion,
+          pricing,
+          paquete_id AS paqueteId,
+          status,
+          origin,
+          user_note AS userNote,
+          admin_note AS adminNote,
+          cancel_reason AS cancelReason,
+          trainer_id AS trainerId,
+          created_at AS createdAt,
+          updated_at AS updatedAt
+        FROM reservas
+        WHERE COALESCE(trainer_id, entrenador_id) = ?
+        ORDER BY fecha DESC, hora DESC
+        LIMIT 200
+        `,
+        [myId]
+      );
+
+      await autoExpireIfPast(rows);
+
+      res.json(
+        rows.map((r) => ({
+          ...r,
+          pricing: parseJSONSafe(r.pricing, null),
+        }))
+      );
+    } catch (e) {
+      console.error("GET /reservas/mias-trainer", e);
+      res.status(500).json({ error: "No se pudieron cargar las reservas" });
+    }
+  }
+);
 
 /* ===================== Mis reservas (usuario) ===================== */
 // GET /api/reservas/mias
-router.get('/mias', verifyToken, async (req, res) => {
+router.get("/mias", verifyToken, async (req, res) => {
   try {
     const { uid, email } = req.user || {};
-    if (!uid && !email) return res.status(401).json({ error: 'No autenticado' });
+    if (!uid && !email) return res.status(401).json({ error: "No autenticado" });
 
     const rows = await query(
       `SELECT id, uid, email, fecha, hora, duration_min AS durationMin,
@@ -750,29 +741,29 @@ router.get('/mias', verifyToken, async (req, res) => {
       }))
     );
   } catch (e) {
-    console.error('GET /reservas/mias', e);
-    res.status(500).json({ error: 'No se pudo obtener reservas' });
+    console.error("GET /reservas/mias", e);
+    res.status(500).json({ error: "No se pudo obtener reservas" });
   }
 });
 
 /* ===================== Listado ADMIN / ADIESTRADOR ===================== */
 // GET /api/reservas?status=...&email=...&limit=...
 router.get(
-  '/',
+  "/",
   verifyToken,
-  allowRoles(['admin', 'adiestrador']),
+  allowRoles(["admin", "adiestrador"]),
   async (req, res) => {
     try {
-      const { status = 'all', email = '', limit = 300 } = req.query;
+      const { status = "all", email = "", limit = 300 } = req.query;
       const where = [];
       const params = [];
 
-      if (status && status !== 'all') {
-        where.push('status = ?');
+      if (status && status !== "all") {
+        where.push("status = ?");
         params.push(String(status));
       }
       if (email) {
-        where.push('email = ?');
+        where.push("email = ?");
         params.push(String(email).trim());
       }
 
@@ -784,7 +775,7 @@ router.get(
              trainer_id AS trainerId,
              created_at AS createdAt, updated_at AS updatedAt
         FROM reservas
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
        ORDER BY fecha DESC, hora DESC
        LIMIT ?`;
       params.push(Math.min(Number(limit || 300), 1000));
@@ -800,8 +791,8 @@ router.get(
         }))
       );
     } catch (e) {
-      console.error('GET /reservas', e);
-      res.status(500).json({ error: 'No se pudo obtener reservas' });
+      console.error("GET /reservas", e);
+      res.status(500).json({ error: "No se pudo obtener reservas" });
     }
   }
 );
@@ -809,12 +800,12 @@ router.get(
 /* ===================== NOTAS TIPO HILO ===================== */
 
 // GET /api/reservas/:id/notes
-router.get('/:id/notes', verifyToken, async (req, res) => {
+router.get("/:id/notes", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
     const perm = await canSeeReservation(req, id);
-    if (!perm.ok) return res.status(403).json({ error: 'Sin permisos' });
+    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
 
     const rows = await query(
       `SELECT id, author, text, created_at AS createdAt
@@ -826,27 +817,27 @@ router.get('/:id/notes', verifyToken, async (req, res) => {
 
     res.json(rows);
   } catch (e) {
-    console.error('GET /reservas/:id/notes', e);
-    res.status(500).json({ error: 'No se pudieron obtener notas' });
+    console.error("GET /reservas/:id/notes", e);
+    res.status(500).json({ error: "No se pudieron obtener notas" });
   }
 });
 
 // POST /api/reservas/:id/notes
-router.post('/:id/notes', verifyToken, async (req, res) => {
+router.post("/:id/notes", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { text = '' } = req.body || {};
+    const { text = "" } = req.body || {};
 
     const perm = await canSeeReservation(req, id);
-    if (!perm.ok) return res.status(403).json({ error: 'Sin permisos' });
+    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
 
-    const rol = req.user?.rol || req.user?.role || 'user';
+    const rol = req.user?.rol || req.user?.role || "user";
 
-    let author = 'user';
-    if (rol === 'adiestrador') {
-      author = 'admin';
-    } else if (req.user?.isAdmin || rol === 'admin') {
-      author = 'admin';
+    let author = "user";
+    if (rol === "adiestrador") {
+      author = "admin";
+    } else if (req.user?.isAdmin || rol === "admin") {
+      author = "admin";
     }
 
     const nid = uuidv4();
@@ -858,25 +849,20 @@ router.post('/:id/notes', verifyToken, async (req, res) => {
       [nid, id, author, String(text).trim(), ts]
     );
 
-    res.status(201).json({
-      id: nid,
-      author,
-      text: String(text).trim(),
-      createdAt: ts,
-    });
+    res.status(201).json({ id: nid, author, text: String(text).trim(), createdAt: ts });
   } catch (e) {
-    console.error('POST /reservas/:id/notes', e);
-    res.status(500).json({ error: 'No se pudo crear nota' });
+    console.error("POST /reservas/:id/notes", e);
+    res.status(500).json({ error: "No se pudo crear nota" });
   }
 });
 
 // DELETE /api/reservas/:id/notes/:noteId
-router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
+router.delete("/:id/notes/:noteId", verifyToken, async (req, res) => {
   try {
     const { id, noteId } = req.params;
 
     const perm = await canSeeReservation(req, id);
-    if (!perm.ok) return res.status(403).json({ error: 'Sin permisos' });
+    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
 
     const row = (
       await query(
@@ -888,23 +874,21 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
       )
     )[0];
 
-    if (!row) return res.status(404).json({ error: 'Nota no encontrada' });
+    if (!row) return res.status(404).json({ error: "Nota no encontrada" });
 
-    const rol = req.user?.rol || req.user?.role || 'user';
-    const isStaff = req.user?.isAdmin || rol === 'admin' || rol === 'adiestrador';
+    const rol = req.user?.rol || req.user?.role || "user";
+    const isStaff = req.user?.isAdmin || rol === "admin" || rol === "adiestrador";
 
-    if (!(isStaff || row.author === 'user'))
-      return res.status(403).json({ error: 'No puedes borrar esta nota' });
+    if (!(isStaff || row.author === "user")) {
+      return res.status(403).json({ error: "No puedes borrar esta nota" });
+    }
 
-    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [
-      nowISO(),
-      noteId,
-    ]);
+    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [nowISO(), noteId]);
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('DELETE /reservas/:id/notes/:noteId', e);
-    res.status(500).json({ error: 'No se pudo borrar la nota' });
+    console.error("DELETE /reservas/:id/notes/:noteId", e);
+    res.status(500).json({ error: "No se pudo borrar la nota" });
   }
 });
 
@@ -912,13 +896,13 @@ router.delete('/:id/notes/:noteId', verifyToken, async (req, res) => {
 
 // PATCH /api/reservas/:id/confirm  (CONFIRMA EL CENTRO → pasa a pending_user)
 router.patch(
-  '/:id/confirm',
+  "/:id/confirm",
   verifyToken,
-  allowRoles(['admin', 'adiestrador']),
+  allowRoles(["admin", "adiestrador"]),
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { note = '' } = req.body || {};
+      const { note = "" } = req.body || {};
       await query(
         `UPDATE reservas
           SET status='pending_user',
@@ -929,28 +913,28 @@ router.patch(
       );
       res.json({ ok: true });
     } catch (e) {
-      console.error('PATCH /reservas/:id/confirm', e);
-      res.status(500).json({ error: 'No se pudo confirmar' });
+      console.error("PATCH /reservas/:id/confirm", e);
+      res.status(500).json({ error: "No se pudo confirmar" });
     }
   }
 );
 
 // PATCH /api/reservas/:id/reject (centro)
 router.patch(
-  '/:id/reject',
+  "/:id/reject",
   verifyToken,
-  allowRoles(['admin', 'adiestrador']),
+  allowRoles(["admin", "adiestrador"]),
   async (req, res) => {
     try {
       const { id } = req.params;
-      const { note = '' } = req.body || {};
+      const { note = "" } = req.body || {};
 
       const rRows = await query(
         `SELECT id, paquete_id AS paqueteId, status
          FROM reservas WHERE id=? LIMIT 1`,
         [id]
       );
-      if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+      if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
       const r = rRows[0];
 
       if (r.paqueteId) {
@@ -963,18 +947,14 @@ router.patch(
             WHERE id=?`,
             [note, nowISO(), id]
           );
-          const pRows = await query(
-            `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-            [r.paqueteId]
-          );
+          const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+            r.paqueteId,
+          ]);
           if (pRows.length) {
-            const saldo = parseJSONSafe(pRows[0].saldo, {
-              total: 1,
-              usadas: 0,
-              pendientes: 0,
-            });
-            if (['pending', 'pending_user', 'confirmed'].includes(r.status))
+            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+            if (["pending", "pending_user", "confirmed"].includes(r.status)) {
               saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+            }
             await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
               JSON.stringify(saldo),
               nowISO(),
@@ -995,8 +975,8 @@ router.patch(
 
       res.json({ ok: true });
     } catch (e) {
-      console.error('PATCH /reservas/:id/reject', e);
-      res.status(500).json({ error: 'No se pudo rechazar' });
+      console.error("PATCH /reservas/:id/reject", e);
+      res.status(500).json({ error: "No se pudo rechazar" });
     }
   }
 );
@@ -1004,7 +984,7 @@ router.patch(
 /* ===== Acciones del USUARIO después de que el centro confirma ===== */
 
 // PATCH /api/reservas/:id/user-confirm  (usuario acepta → confirmed)
-router.patch('/:id/user-confirm', verifyToken, async (req, res) => {
+router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1013,67 +993,60 @@ router.patch('/:id/user-confirm', verifyToken, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
 
     const r = rRows[0];
     const isOwner =
       (r.uid && req.user?.uid && r.uid === req.user.uid) ||
       (r.email && req.user?.email && r.email === req.user.email);
-    if (!isOwner) return res.status(403).json({ error: 'Sin permisos' });
+    if (!isOwner) return res.status(403).json({ error: "Sin permisos" });
 
-    if (String(r.status) !== 'pending_user') {
+    if (String(r.status) !== "pending_user") {
       return res.status(400).json({
-        error: 'La reserva no está pendiente de confirmación por el usuario',
+        error: "La reserva no está pendiente de confirmación por el usuario",
       });
     }
 
-    // 2.4: no permitir confirmed si no hay trainer asignado
     if (!r.trainerId) {
-      return res.status(400).json({ error: 'La reserva no tiene trainer asignado' });
+      return res.status(400).json({ error: "La reserva no tiene trainer asignado" });
     }
 
-    await query(
-      `UPDATE reservas
-         SET status='confirmed',
-             updated_at=?
-       WHERE id=?`,
-      [nowISO(), id]
-    );
+    await query(`UPDATE reservas SET status='confirmed', updated_at=? WHERE id=?`, [nowISO(), id]);
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('PATCH /reservas/:id/user-confirm', e);
-    res.status(500).json({ error: 'No se pudo confirmar la reserva' });
+    console.error("PATCH /reservas/:id/user-confirm", e);
+    res.status(500).json({ error: "No se pudo confirmar la reserva" });
   }
 });
 
 // PATCH /api/reservas/:id/user-reject  (usuario rechaza → cancelled)
-router.patch('/:id/user-reject', verifyToken, async (req, res) => {
+router.patch("/:id/user-reject", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason = '' } = req.body || {};
+    const { reason = "" } = req.body || {};
 
     const rRows = await query(
       `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
     const r = rRows[0];
 
     const isOwner =
       (r.uid && req.user?.uid && r.uid === req.user.uid) ||
       (r.email && req.user?.email && r.email === req.user.email);
-    if (!isOwner) return res.status(403).json({ error: 'Sin permisos' });
+    if (!isOwner) return res.status(403).json({ error: "Sin permisos" });
 
-    if (String(r.status) !== 'pending_user') {
+    if (String(r.status) !== "pending_user") {
       return res.status(400).json({
-        error: 'La reserva no está pendiente de confirmación por el usuario',
+        error: "La reserva no está pendiente de confirmación por el usuario",
       });
     }
 
     if (!puedeCancelar24h(r.fecha, r.hora)) {
-      return res.status(400).json({ error: 'No se puede rechazar con menos de 24h' });
+      return res.status(400).json({ error: "No se puede rechazar con menos de 24h" });
     }
 
     if (r.paqueteId) {
@@ -1084,20 +1057,16 @@ router.patch('/:id/user-reject', verifyToken, async (req, res) => {
                   cancel_reason=COALESCE(?,cancel_reason),
                   updated_at=?
             WHERE id=?`,
-          [reason || 'rechazado por usuario', nowISO(), id]
+          [reason || "rechazado por usuario", nowISO(), id]
         );
-        const pRows = await query(
-          `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-          [r.paqueteId]
-        );
+        const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+          r.paqueteId,
+        ]);
         if (pRows.length) {
-          const saldo = parseJSONSafe(pRows[0].saldo, {
-            total: 1,
-            usadas: 0,
-            pendientes: 0,
-          });
-          if (['pending', 'pending_user', 'confirmed'].includes(r.status))
+          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+          if (["pending", "pending_user", "confirmed"].includes(r.status)) {
             saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+          }
           await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
             JSON.stringify(saldo),
             nowISO(),
@@ -1112,42 +1081,43 @@ router.patch('/:id/user-reject', verifyToken, async (req, res) => {
                 cancel_reason=COALESCE(?,cancel_reason),
                 updated_at=?
          WHERE id=?`,
-        [reason || 'rechazado por usuario', nowISO(), id]
+        [reason || "rechazado por usuario", nowISO(), id]
       );
     }
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('PATCH /reservas/:id/user-reject', e);
-    res.status(500).json({ error: 'No se pudo rechazar la reserva' });
+    console.error("PATCH /reservas/:id/user-reject", e);
+    res.status(500).json({ error: "No se pudo rechazar la reserva" });
   }
 });
 
 /* ===================== Cancelar (owner o admin) ===================== */
 
 // PATCH /api/reservas/:id/cancel (owner o admin)
-router.patch('/:id/cancel', verifyToken, async (req, res) => {
+router.patch("/:id/cancel", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason = '' } = req.body || {};
+    const { reason = "" } = req.body || {};
 
     const rRows = await query(
       `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
     const r = rRows[0];
 
-    const isAdmin = !!req.user?.isAdmin;
+    const rol = req.user?.rol || req.user?.role || "user";
+    const isAdmin = !!req.user?.isAdmin || rol === "admin";
     const isOwner =
       (r.uid && req.user?.uid && r.uid === req.user.uid) ||
       (r.email && req.user?.email && r.email === req.user.email);
 
-    if (!isAdmin && !isOwner) return res.status(403).json({ error: 'Sin permisos' });
+    if (!isAdmin && !isOwner) return res.status(403).json({ error: "Sin permisos" });
 
     if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
-      return res.status(400).json({ error: 'No se puede cancelar con menos de 24h' });
+      return res.status(400).json({ error: "No se puede cancelar con menos de 24h" });
     }
 
     if (r.paqueteId) {
@@ -1160,18 +1130,14 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
             WHERE id=?`,
           [reason || null, nowISO(), id]
         );
-        const pRows = await query(
-          `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-          [r.paqueteId]
-        );
+        const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+          r.paqueteId,
+        ]);
         if (pRows.length) {
-          const saldo = parseJSONSafe(pRows[0].saldo, {
-            total: 1,
-            usadas: 0,
-            pendientes: 0,
-          });
-          if (['pending', 'pending_user', 'confirmed'].includes(r.status))
+          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+          if (["pending", "pending_user", "confirmed"].includes(r.status)) {
             saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+          }
           await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
             JSON.stringify(saldo),
             nowISO(),
@@ -1192,13 +1158,13 @@ router.patch('/:id/cancel', verifyToken, async (req, res) => {
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('PATCH /reservas/:id/cancel', e);
-    res.status(500).json({ error: 'No se pudo cancelar' });
+    console.error("PATCH /reservas/:id/cancel", e);
+    res.status(500).json({ error: "No se pudo cancelar" });
   }
 });
 
 // DELETE /api/reservas/:id (solo admin)
-router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
+router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1207,21 +1173,21 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
     const r = rRows[0];
 
-    const st = String(r.status || '').toLowerCase();
+    const st = String(r.status || "").toLowerCase();
     const puedeBorrar =
-      st === 'cancelled' ||
-      st === 'cancelada' ||
-      st === 'rejected' ||
-      st === 'rechazada' ||
-      st === 'deleted' ||
-      st === 'eliminada';
+      st === "cancelled" ||
+      st === "cancelada" ||
+      st === "rejected" ||
+      st === "rechazada" ||
+      st === "deleted" ||
+      st === "eliminada";
 
     if (!puedeBorrar) {
       return res.status(400).json({
-        error: 'Solo se pueden borrar reservas canceladas o rechazadas',
+        error: "Solo se pueden borrar reservas canceladas o rechazadas",
       });
     }
 
@@ -1229,14 +1195,14 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
 
     res.json({ ok: true, id });
   } catch (e) {
-    console.error('DELETE /reservas/:id', e);
-    res.status(500).json({ error: 'No se pudo eliminar' });
+    console.error("DELETE /reservas/:id", e);
+    res.status(500).json({ error: "No se pudo eliminar" });
   }
 });
 
 /* ===================== Admin: cambiar trainer asignado (2.5) ===================== */
 // PATCH /api/reservas/:id/trainer  (solo admin)
-router.patch('/:id/trainer', verifyToken, requireAdmin, async (req, res) => {
+router.patch("/:id/trainer", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { trainerId, mode } = req.body || {};
@@ -1250,16 +1216,12 @@ router.patch('/:id/trainer', verifyToken, requireAdmin, async (req, res) => {
       )
     )[0];
 
-    if (!r) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (!r) return res.status(404).json({ error: "Reserva no encontrada" });
 
     const servicioId = r.servicioId;
     const modalidad = mode ?? r.modalidad;
 
-    const trainerIdFinal = await resolveTrainerIdOrFail({
-      trainerId,
-      servicioId,
-      modalidad,
-    });
+    const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
 
     await query(`UPDATE reservas SET trainer_id=?, updated_at=? WHERE id=?`, [
       trainerIdFinal,
@@ -1270,44 +1232,42 @@ router.patch('/:id/trainer', verifyToken, requireAdmin, async (req, res) => {
     res.json({ ok: true, trainerId: trainerIdFinal });
   } catch (e) {
     const code = e?.statusCode || 500;
-    console.error('PATCH /reservas/:id/trainer', e);
-    res.status(code).json({ error: e?.message || 'No se pudo cambiar el trainer' });
+    console.error("PATCH /reservas/:id/trainer", e);
+    res.status(code).json({ error: e?.message || "No se pudo cambiar el trainer" });
   }
 });
 
 /* ===== PATCH genérico (para notas/admin desde el front) ===== */
-router.patch('/:id', verifyToken, async (req, res) => {
+router.patch("/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, adminNote = null, adminNoteAppend = false, cancelReason = null } =
-      req.body || {};
-    if (!status && adminNote === null) {
-      return res.status(400).json({ error: 'Nada que actualizar' });
-    }
+    const { status, adminNote = null, adminNoteAppend = false, cancelReason = null } = req.body || {};
+    if (!status && adminNote === null) return res.status(400).json({ error: "Nada que actualizar" });
 
-    const isAdmin = req.user?.isAdmin;
-    const isTrainer = (req.user?.rol || req.user?.role) === 'adiestrador';
+    const rol = req.user?.rol || req.user?.role || "user";
+    const isAdmin = !!req.user?.isAdmin || rol === "admin";
+    const isTrainer = rol === "adiestrador";
     const isStaff = isAdmin || isTrainer;
 
-    if (status === 'confirmed' && isStaff) {
+    if (status === "confirmed" && isStaff) {
       await query(
         `UPDATE reservas
             SET status='pending_user',
                 admin_note=COALESCE(?,admin_note),
                 updated_at=?
          WHERE id=?`,
-        [adminNote || '', nowISO(), id]
+        [adminNote || "", nowISO(), id]
       );
       return res.json({ ok: true });
     }
 
-    if (status === 'rejected' && isStaff) {
+    if (status === "rejected" && isStaff) {
       const rRows = await query(
         `SELECT id, paquete_id AS paqueteId, status
            FROM reservas WHERE id=? LIMIT 1`,
         [id]
       );
-      if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+      if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
       const r = rRows[0];
 
       if (r.paqueteId) {
@@ -1318,20 +1278,16 @@ router.patch('/:id', verifyToken, async (req, res) => {
                     admin_note=COALESCE(?,admin_note),
                     updated_at=?
              WHERE id=?`,
-            [adminNote || '', nowISO(), id]
+            [adminNote || "", nowISO(), id]
           );
-          const pRows = await query(
-            `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-            [r.paqueteId]
-          );
+          const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+            r.paqueteId,
+          ]);
           if (pRows.length) {
-            const saldo = parseJSONSafe(pRows[0].saldo, {
-              total: 1,
-              usadas: 0,
-              pendientes: 0,
-            });
-            if (['pending', 'pending_user', 'confirmed'].includes(r.status))
+            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+            if (["pending", "pending_user", "confirmed"].includes(r.status)) {
               saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+            }
             await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
               JSON.stringify(saldo),
               nowISO(),
@@ -1346,29 +1302,28 @@ router.patch('/:id', verifyToken, async (req, res) => {
                   admin_note=COALESCE(?,admin_note),
                   updated_at=?
            WHERE id=?`,
-          [adminNote || '', nowISO(), id]
+          [adminNote || "", nowISO(), id]
         );
       }
       return res.json({ ok: true });
     }
 
-    if (status === 'cancelled') {
+    if (status === "cancelled") {
       const rRows = await query(
         `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
            FROM reservas WHERE id=? LIMIT 1`,
         [id]
       );
-      if (!rRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
+      if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
       const r = rRows[0];
 
       const isOwner =
         (r.uid && req.user?.uid && r.uid === req.user.uid) ||
         (r.email && req.user?.email && r.email === req.user.email);
-      if (!isAdmin && !isOwner)
-        return res.status(403).json({ error: 'Sin permisos para cancelar' });
+      if (!isAdmin && !isOwner) return res.status(403).json({ error: "Sin permisos para cancelar" });
 
       if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
-        return res.status(400).json({ error: 'No se puede cancelar con menos de 24h' });
+        return res.status(400).json({ error: "No se puede cancelar con menos de 24h" });
       }
 
       if (r.paqueteId) {
@@ -1379,20 +1334,16 @@ router.patch('/:id', verifyToken, async (req, res) => {
                     cancel_reason=COALESCE(?,cancel_reason),
                     updated_at=?
              WHERE id=?`,
-            [cancelReason || '', nowISO(), id]
+            [cancelReason || "", nowISO(), id]
           );
-          const pRows = await query(
-            `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
-            [r.paqueteId]
-          );
+          const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+            r.paqueteId,
+          ]);
           if (pRows.length) {
-            const saldo = parseJSONSafe(pRows[0].saldo, {
-              total: 1,
-              usadas: 0,
-              pendientes: 0,
-            });
-            if (['pending', 'pending_user', 'confirmed'].includes(r.status))
+            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+            if (["pending", "pending_user", "confirmed"].includes(r.status)) {
               saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+            }
             await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
               JSON.stringify(saldo),
               nowISO(),
@@ -1407,7 +1358,7 @@ router.patch('/:id', verifyToken, async (req, res) => {
                   cancel_reason=COALESCE(?,cancel_reason),
                   updated_at=?
            WHERE id=?`,
-          [cancelReason || '', nowISO(), id]
+          [cancelReason || "", nowISO(), id]
         );
       }
       return res.json({ ok: true });
@@ -1434,61 +1385,57 @@ router.patch('/:id', verifyToken, async (req, res) => {
           [adminNote, adminNote, adminNote, nowISO(), id]
         );
       } else {
-        await query(
-          `UPDATE reservas
-              SET admin_note=?,
-                  updated_at=?
-           WHERE id=?`,
-          [adminNote, nowISO(), id]
-        );
+        await query(`UPDATE reservas SET admin_note=?, updated_at=? WHERE id=?`, [
+          adminNote,
+          nowISO(),
+          id,
+        ]);
       }
       return res.json({ ok: true });
     }
 
-    return res.status(400).json({ error: 'Status no permitido' });
+    return res.status(400).json({ error: "Status no permitido" });
   } catch (e) {
-    console.error('PATCH /reservas/:id (generic)', e);
-    res.status(500).json({ error: 'No se pudo actualizar' });
+    console.error("PATCH /reservas/:id (generic)", e);
+    res.status(500).json({ error: "No se pudo actualizar" });
   }
 });
 
 /* ===================== Bloqueos ===================== */
 // POST /api/reservas/bloqueos
-router.post('/bloqueos', verifyToken, requireAdmin, async (req, res) => {
+router.post("/bloqueos", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { fecha, hora } = req.body;
-    if (!fecha || !hora) return res.status(400).json({ error: 'Faltan campos' });
+    if (!fecha || !hora) return res.status(400).json({ error: "Faltan campos" });
 
-    await query(
-      `INSERT INTO bloqueos (id, fecha, hora, created_at)
-       VALUES (?,?,?,?)`,
-      [uuidv4(), fecha, hora, nowISO()]
-    );
+    await query(`INSERT INTO bloqueos (id, fecha, hora, created_at) VALUES (?,?,?,?)`, [
+      uuidv4(),
+      fecha,
+      hora,
+      nowISO(),
+    ]);
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('POST /reservas/bloqueos', e);
-    res.status(500).json({ error: 'No se pudo crear bloqueo' });
+    console.error("POST /reservas/bloqueos", e);
+    res.status(500).json({ error: "No se pudo crear bloqueo" });
   }
 });
 
 // DELETE /api/reservas/bloqueos?fecha=YYYY-MM-DD&hora=HH:MM
-router.delete('/bloqueos', verifyToken, requireAdmin, async (req, res) => {
+router.delete("/bloqueos", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { fecha, hora } = req.query;
-    if (!fecha || !hora) return res.status(400).json({ error: 'Faltan fecha y hora' });
+    if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha y hora" });
 
-    const rows = await query(`SELECT id FROM bloqueos WHERE fecha=? AND hora=?`, [
-      fecha,
-      hora,
-    ]);
-    if (!rows.length) return res.status(404).json({ error: 'Bloqueo no encontrado.' });
+    const rows = await query(`SELECT id FROM bloqueos WHERE fecha=? AND hora=?`, [fecha, hora]);
+    if (!rows.length) return res.status(404).json({ error: "Bloqueo no encontrado." });
 
     await query(`DELETE FROM bloqueos WHERE fecha=? AND hora=?`, [fecha, hora]);
     res.json({ ok: true });
   } catch (e) {
-    console.error('DELETE /reservas/bloqueos', e);
-    res.status(500).json({ error: 'No se pudo eliminar el bloqueo.' });
+    console.error("DELETE /reservas/bloqueos", e);
+    res.status(500).json({ error: "No se pudo eliminar el bloqueo." });
   }
 });
 
