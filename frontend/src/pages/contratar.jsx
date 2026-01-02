@@ -33,6 +33,16 @@ function addMinutes(hhmm, mins) {
 const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 /* ====================================================== */
 
+const EMPTY_PERRO = {
+  id: '',
+  nombre: '',
+  edad: '',
+  razaTamaño: '',
+  nacimiento: '',
+  castrado: false,
+  observaciones: ''
+};
+
 export default function Contratar() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -48,13 +58,12 @@ export default function Contratar() {
   useEffect(() => {
     if (loading) return;
     if (!isAuthenticated) {
-      const servicio = params.get('servicio') || '';
-      const next = servicio
-        ? `/contratar?servicio=${encodeURIComponent(servicio)}`
-        : '/contratar';
+      // Importante: conservar TODOS los query params al forzar login
+      // (por ejemplo trainerId preseleccionado).
+      const next = `${location.pathname}${location.search || ''}` || '/contratar';
       navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
     }
-  }, [loading, isAuthenticated, params, navigate]);
+  }, [loading, isAuthenticated, navigate, location.pathname, location.search]);
 
   /* ===================== cargar servicios ===================== */
   const [servicios, setServicios] = useState([]);
@@ -83,6 +92,7 @@ export default function Contratar() {
   /* ===== servicio / modalidad inicial ===== */
   const servicioParam = params.get('servicio') || location.state?.servicio || '';
   const modalidadParam = params.get('modalidad') || location.state?.modalidad || '';
+  const trainerParam = params.get('trainerId') || location.state?.trainerId || '';
 
   const [servicioId, setServicioId] = useState(servicioParam);
 
@@ -155,12 +165,21 @@ export default function Contratar() {
   const atras = () => setStep((s) => Math.max(s - 1, 0));
 
   /* =====================================================
-         ADIESTRADORES COMPATIBLES (NUEVO)
+         ADIESTRADORES COMPATIBLES
+         (Block A: preselección desde /contratar?trainerId=...)
   ====================================================== */
   const [trainers, setTrainers] = useState([]);
   const [loadingTrainers, setLoadingTrainers] = useState(false);
-  const [trainerChoice, setTrainerChoice] = useState('any'); // 'any' | '<id>'
+
+  // ✅ Si vienes desde un perfil público de adiestrador (/contratar?trainerId=...),
+  // dejamos el adiestrador preseleccionado.
+  const [trainerChoice, setTrainerChoice] = useState(() => {
+    const tid = String(trainerParam || '').trim();
+    return tid ? tid : 'any';
+  }); // 'any' | '<id>'
+
   const [trainersErr, setTrainersErr] = useState('');
+  const [trainerHint, setTrainerHint] = useState('');
 
   const canLoadTrainers = !!servicioIdResolved && !!modalidad && authReady;
 
@@ -169,6 +188,8 @@ export default function Contratar() {
 
     setLoadingTrainers(true);
     setTrainersErr('');
+    setTrainerHint('');
+
     try {
       const qs = new URLSearchParams({
         servicioId: String(servicioIdResolved),
@@ -176,20 +197,25 @@ export default function Contratar() {
       });
 
       const data = await http(`/api/trainers/eligible?${qs.toString()}`, { auth: true });
-
       const arr = Array.isArray(data) ? data : data?.items || [];
       setTrainers(arr);
 
       // Si tenía elegido uno y ya no está, volver a any
       if (trainerChoice !== 'any') {
         const ok = arr.some((t) => getTrainerId(t) === String(trainerChoice));
-        if (!ok) setTrainerChoice('any');
+        if (!ok) {
+          setTrainerChoice('any');
+          setTrainerHint(
+            'El adiestrador seleccionado no está disponible para este servicio/modalidad. Se ha cambiado a “Cualquiera disponible”.'
+          );
+        }
       }
     } catch (e) {
       console.error('Error cargando trainers elegibles', e);
       setTrainers([]);
       setTrainersErr('No se pudo cargar la lista de adiestradores disponibles.');
       setTrainerChoice('any');
+      setTrainerHint('');
     } finally {
       setLoadingTrainers(false);
     }
@@ -202,6 +228,16 @@ export default function Contratar() {
   }, [canLoadTrainers, servicioIdResolved, modalidad]);
 
   const hasAnyEligibleTrainer = useMemo(() => trainers.length > 0, [trainers]);
+
+  const selectedTrainerInList = useMemo(() => {
+    if (trainerChoice === 'any') return true;
+    return trainers.some((t) => getTrainerId(t) === String(trainerChoice));
+  }, [trainers, trainerChoice]);
+
+  const selectedTrainer = useMemo(() => {
+    if (trainerChoice === 'any') return null;
+    return trainers.find((t) => getTrainerId(t) === String(trainerChoice)) || null;
+  }, [trainers, trainerChoice]);
 
   /* =====================================================
         CALENDARIO + DISPONIBILIDAD
@@ -254,25 +290,28 @@ export default function Contratar() {
 
   /* =====================================================
          PERROS — GET /perros
+         Requisito adicional: si ya tiene perros, poder reservar para uno existente
+         o añadir uno nuevo desde el flujo.
   ====================================================== */
   const [perros, setPerros] = useState([]);
   const [perroId, setPerroId] = useState('');
 
+  // 'existing' -> reservar para perro registrado
+  // 'new'      -> reservar añadiendo perro nuevo (disponible incluso si ya hay perros)
+  const [dogMode, setDogMode] = useState('new');
+
   const [nuevoPerro, setNuevoPerro] = useState({
     nombre: '',
-    edad: '',
+    nacimiento: '',
     razaTamaño: '',
     castrado: false,
     observaciones: ''
   });
 
-  const [perro, setPerro] = useState({
-    nombre: '',
-    edad: '',
-    razaTamaño: '',
-    castrado: false,
-    observaciones: ''
-  });
+  const [perro, setPerro] = useState(EMPTY_PERRO);
+
+  const [savingDog, setSavingDog] = useState(false);
+  const [dogMsg, setDogMsg] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -288,52 +327,94 @@ export default function Contratar() {
         const activos = arr.filter((p) => !p.archived);
         setPerros(activos);
 
-        if (activos.length === 1) {
-          const p = activos[0];
-          setPerroId(p.id);
-          setPerro({
-            nombre: p.nombre,
-            edad: '',
-            razaTamaño: p.raza,
-            castrado: !!p.castrado,
-            observaciones: p.notas || ''
-          });
+        if (activos.length > 0) {
+          // Por defecto: reservar para un perro existente (más rápido)
+          setDogMode('existing');
+
+          // Si hay exactamente 1 perro, lo preseleccionamos (evita clicks extra)
+          if (activos.length === 1) {
+            const p = activos[0];
+            setPerroId(p.id);
+            setPerro({
+              id: p.id,
+              nombre: p.nombre,
+              edad: '',
+              razaTamaño: p.raza,
+              nacimiento: p.nacimiento || '',
+              castrado: !!p.castrado,
+              observaciones: p.notas || ''
+            });
+          } else {
+            // Con varios perros, no preseleccionamos para evitar errores.
+            setPerroId('');
+            setPerro(EMPTY_PERRO);
+          }
+        } else {
+          setDogMode('new');
+          setPerroId('');
+          setPerro(EMPTY_PERRO);
         }
       } catch (e) {
         console.error('Error cargando perros', e);
         setPerros([]);
+        setDogMode('new');
+        setPerroId('');
+        setPerro(EMPTY_PERRO);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady]);
 
   useEffect(() => {
-    if (!perroId) return;
+    if (dogMode !== 'existing') return;
+
+    if (!perroId) {
+      setPerro(EMPTY_PERRO);
+      return;
+    }
+
     const p = perros.find((x) => x.id === perroId);
     if (!p) return;
 
     setPerro({
+      id: p.id,
       nombre: p.nombre,
       edad: '',
       razaTamaño: p.raza,
+      nacimiento: p.nacimiento || '',
       castrado: !!p.castrado,
       observaciones: p.notas || ''
     });
-  }, [perroId, perros]);
+  }, [perroId, perros, dogMode]);
 
-  /* =====================================================
-         CREAR PERRO — POST /perros
-  ====================================================== */
+  const canSaveNewDog = useMemo(() => {
+    // Backend exige nombre, raza y nacimiento.
+    const nombreOk = !!nuevoPerro.nombre.trim();
+    const razaOk = !!nuevoPerro.razaTamaño.trim();
+    const nacOk = !!String(nuevoPerro.nacimiento || '').trim();
+    return nombreOk && razaOk && nacOk;
+  }, [nuevoPerro.nombre, nuevoPerro.razaTamaño, nuevoPerro.nacimiento]);
+
+  const canContinueNewDogWithoutSaving = useMemo(() => {
+    // Para continuar sin guardar en perfil, exigimos al menos un nombre.
+    return !!nuevoPerro.nombre.trim();
+  }, [nuevoPerro.nombre]);
+
   const crearPerro = async () => {
-    if (!nuevoPerro.nombre.trim()) {
-      alert('El nombre del perro es obligatorio.');
-      return;
+    setDogMsg('');
+
+    if (!canSaveNewDog) {
+      setDogMsg('⚠️ Para guardar el perro necesitas nombre, raza/tamaño y fecha de nacimiento.');
+      return null;
     }
+
+    setSavingDog(true);
 
     try {
       const body = {
         nombre: nuevoPerro.nombre.trim(),
-        raza: nuevoPerro.razaTamaño.trim() || '',
-        nacimiento: new Date().toISOString().slice(0, 10),
+        raza: nuevoPerro.razaTamaño.trim(),
+        nacimiento: String(nuevoPerro.nacimiento || '').trim(),
         notas: nuevoPerro.observaciones.trim() || '',
         castrado: !!nuevoPerro.castrado,
         avatarURL: '',
@@ -349,28 +430,67 @@ export default function Contratar() {
       const createdItem = created?.item || { id: created?.id, ...body };
 
       setPerros((prev) => [...prev, createdItem]);
-      setPerroId(createdItem.id);
+      setPerroId(createdItem.id || '');
 
+      // Al crear uno nuevo, lo seleccionamos para la reserva
+      setDogMode('existing');
       setPerro({
+        id: createdItem.id || '',
         nombre: createdItem.nombre,
         edad: '',
         razaTamaño: createdItem.raza,
+        nacimiento: createdItem.nacimiento || body.nacimiento,
         castrado: !!createdItem.castrado,
-        observaciones: createdItem.notas || ''
+        observaciones: createdItem.notas || body.notas || ''
       });
 
+      // limpiar formulario
       setNuevoPerro({
         nombre: '',
-        edad: '',
+        nacimiento: '',
         razaTamaño: '',
         castrado: false,
         observaciones: ''
       });
+
+      const name = String(createdItem?.nombre || '').trim();
+      setDogMsg(name ? `✅ ${name} añadido a tu perfil.` : '✅ Perro añadido a tu perfil.');
+      return createdItem;
     } catch (e) {
       console.error('Error creando perro', e);
-      alert('No se pudo crear el perro');
+      setDogMsg('❌ No se pudo guardar el perro.');
+      return null;
+    } finally {
+      setSavingDog(false);
     }
   };
+
+  const continuarSinGuardarPerro = () => {
+    setDogMsg('');
+
+    if (!canContinueNewDogWithoutSaving) {
+      setDogMsg('⚠️ Indica al menos el nombre del perro para continuar.');
+      return;
+    }
+
+    setPerro({
+      id: '',
+      nombre: nuevoPerro.nombre.trim(),
+      edad: '',
+      razaTamaño: nuevoPerro.razaTamaño,
+      nacimiento: nuevoPerro.nacimiento,
+      castrado: !!nuevoPerro.castrado,
+      observaciones: nuevoPerro.observaciones
+    });
+
+    setStep(3);
+  };
+
+  const canContinueExistingDog = useMemo(() => {
+    if (perros.length === 0) return false;
+    if (perros.length === 1) return !!perro?.nombre?.trim();
+    return !!perroId && !!perro?.nombre?.trim();
+  }, [perros.length, perroId, perro?.nombre]);
 
   /* =====================================================
          CONTACTO
@@ -378,9 +498,48 @@ export default function Contratar() {
   const [contacto, setContacto] = useState({ telefono: '', direccion: '' });
   const domicilio = modalidad === 'a domicilio';
 
+  // =====================================================
+  // PREFILL: si el usuario tiene teléfono/dirección en su perfil,
+  // rellenamos por defecto estos campos.
+  // Importante: NO pisamos lo que el usuario ya haya escrito.
+  // =====================================================
+  useEffect(() => {
+    if (!authReady) return;
+
+    let cancel = false;
+
+    (async () => {
+      try {
+        const data = await http('/perfil', { auth: true });
+        if (cancel) return;
+
+        const prof = data?.profile || data || {};
+	        const prefix = String(prof.prefix || '').trim();
+	        const phone = String(prof.phone || prof.telefono || '').trim();
+        const address = String(prof.address || prof.direccion || '').trim();
+
+	        // Solo prefill de teléfono si existe número (evita que se rellene solo el prefijo)
+	        const tel = phone ? [prefix, phone].filter(Boolean).join(' ').trim() : '';
+
+        if (!tel && !address) return;
+
+        setContacto((prev) => ({
+          telefono: String(prev?.telefono || '').trim() ? prev.telefono : tel,
+          direccion: String(prev?.direccion || '').trim() ? prev.direccion : address
+        }));
+      } catch (e) {
+        // Prefill opcional: si falla, no bloquea el flujo
+      }
+    })();
+
+    return () => {
+      cancel = true;
+    };
+  }, [authReady]);
+
   const telefonoValido = contacto.telefono.trim().length >= 6;
   const direccionValida = !domicilio || contacto.direccion.trim().length > 5;
-  const perroValido = perro.nombre.trim().length > 0;
+  const perroValido = String(perro?.nombre || '').trim().length > 0;
 
   /* =====================================================
          CONFIRMAR RESERVA
@@ -404,6 +563,14 @@ export default function Contratar() {
     setGuardando(true);
 
     try {
+      // Guardamos el perro como JSON string (compatible con BD y con reservasUser.jsx que parsea JSON).
+      let perroToSend = null;
+      try {
+        perroToSend = perro ? JSON.stringify(perro) : null;
+      } catch {
+        perroToSend = perro?.nombre ? String(perro.nombre) : null;
+      }
+
       const payload = {
         email: userEmail,
         fecha,
@@ -418,7 +585,8 @@ export default function Contratar() {
         durationMin,
         price: servicioSel?.price ?? null,
         currency: servicioSel?.currency || 'EUR',
-        perro,
+
+        perro: perroToSend,
         telefono: contacto.telefono,
         direccion: contacto.direccion,
         pricing: {},
@@ -619,47 +787,6 @@ export default function Contratar() {
                     disabled={!inMonth || disabled}
                   >
                     {inMonth ? dayNum : ''}
-
-                    {inMonth && f === fecha && (
-                      <div className="popover" onClick={(e) => e.stopPropagation()}>
-                        <div className="pop-title">
-                          {new Date(fecha).toLocaleDateString('es-ES', {
-                            weekday: 'short',
-                            day: '2-digit',
-                            month: 'short'
-                          })}
-                        </div>
-
-                        <div className="pop-hours">
-                          {(() => {
-                            const rows = [];
-                            for (let h = 9; h <= 20; h++) {
-                              if (h === 14 || h === 15) continue;
-
-                              const t = `${String(h).padStart(2, '0')}:00`;
-                              const busy = isSlotBusy(t);
-
-                              rows.push(
-                                <button
-                                  key={t}
-                                  className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
-                                  disabled={busy}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!busy) setHora(t);
-                                  }}
-                                  title={busy ? 'Ocupada' : 'Seleccionar'}
-                                >
-                                  {t}–{addMinutes(t, durationMin)}
-                                </button>
-                              );
-                            }
-                            if (!rows.length) return <div className="hint">Sin horas.</div>;
-                            return rows;
-                          })()}
-                        </div>
-                      </div>
-                    )}
                   </button>
                 );
               }
@@ -667,6 +794,63 @@ export default function Contratar() {
               return cells;
             })()}
           </div>
+
+	          {/*
+	            IMPORTANTE (bug fix):
+	            Antes se renderizaban botones de horas DENTRO de cada botón del día (button dentro de button).
+	            Eso es HTML inválido y provoca comportamientos erráticos (por ejemplo, al seleccionar una hora,
+	            se "clicaba" el día que hay debajo).
+	
+	            Ahora las horas se muestran en un panel separado, fuera del grid.
+	          */}
+	          <div className="slots-panel">
+	            <div className="slots-title">
+	              {fecha
+	                ? `Selecciona una hora para ${new Date(`${fecha}T00:00:00`).toLocaleDateString('es-ES', {
+	                    weekday: 'long',
+	                    day: '2-digit',
+	                    month: 'long'
+	                  })}`
+	                : 'Selecciona un día para ver las horas disponibles'}
+	            </div>
+
+	            {fecha ? (
+	              <div className="slots-grid">
+	                {(() => {
+	                  const rows = [];
+	                  for (let h = 9; h <= 20; h++) {
+	                    if (h === 14 || h === 15) continue;
+	
+	                    const t = `${String(h).padStart(2, '0')}:00`;
+	                    const busy = isSlotBusy(t);
+
+	                    rows.push(
+	                      <button
+	                        key={t}
+	                        type="button"
+	                        className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
+	                        disabled={busy}
+	                        onClick={() => {
+	                          if (!busy) setHora(t);
+	                        }}
+	                        title={busy ? 'Ocupada' : 'Seleccionar'}
+	                      >
+	                        {t}–{addMinutes(t, durationMin)}
+	                      </button>
+	                    );
+	                  }
+
+	                  if (!rows.length) {
+	                    return <div className="hint">Sin horas disponibles.</div>;
+	                  }
+
+	                  return rows;
+	                })()}
+	              </div>
+	            ) : (
+	              <div className="hint">Selecciona un día para continuar.</div>
+	            )}
+	          </div>
 
           <div className="actions" style={{ marginTop: 14 }}>
             <button onClick={atras}>Atrás</button>
@@ -684,9 +868,99 @@ export default function Contratar() {
         <section>
           <h2>3) Datos del perro</h2>
 
-          {perros.length === 0 && (
+	          {perros.length > 0 && (
+	            <div style={{ marginBottom: 12 }}>
+	              <p style={{ margin: '8px 0' }}>¿Para qué perro es la reserva?</p>
+	
+	              <div className="dog-choice-list">
+	                {perros.map((p) => {
+	                  const pid = String(p.id || '').trim();
+	                  const name = String(p.nombre || '').trim() || 'Perro';
+	                  const raza = String(p.raza || '').trim();
+	
+	                  return (
+	                    <label key={pid} className="dog-choice">
+	                      <input
+	                        type="radio"
+	                        name="dogPick"
+	                        value={pid}
+	                        checked={dogMode === 'existing' && perroId === pid}
+	                        onChange={() => {
+	                          setDogMode('existing');
+	                          setDogMsg('');
+	                          setPerroId(pid);
+	                        }}
+	                      />
+	                      <span>
+	                        <b>{name}</b>
+	                        {raza ? ` · ${raza}` : ''}
+	                      </span>
+	                    </label>
+	                  );
+	                })}
+	
+	                <label className="dog-choice">
+	                  <input
+	                    type="radio"
+	                    name="dogPick"
+	                    value="__new"
+	                    checked={dogMode === 'new'}
+	                    onChange={() => {
+	                      setDogMode('new');
+	                      setDogMsg('');
+	                    }}
+	                  />
+	                  <span>Añadir un perro nuevo</span>
+	                </label>
+	              </div>
+	            </div>
+	          )}
+
+	          {/* ====== MODO EXISTING ====== */}
+	          {dogMode === 'existing' && perros.length > 0 && (
+	            <>
+	              {!perroId && perros.length > 1 && (
+	                <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+	                  Selecciona un perro para continuar.
+	                </p>
+	              )}
+
+	              {perroId && (
+	                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+	                  <div>
+	                    <b>Perro:</b> {perro.nombre}
+	                    {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
+	                    {perro.castrado ? ' · castrado' : ''}
+	                  </div>
+	                  {perro.observaciones && (
+	                    <div style={{ marginTop: 4 }}>
+	                      <b>Observaciones:</b> {perro.observaciones}
+	                    </div>
+	                  )}
+	                </div>
+	              )}
+
+	              <div className="actions" style={{ marginTop: 10 }}>
+	                <button onClick={atras}>Atrás</button>
+	                <button
+	                  className="btn-primary"
+	                  disabled={!canContinueExistingDog}
+	                  onClick={() => setStep(3)}
+	                >
+	                  Continuar
+	                </button>
+	              </div>
+	            </>
+	          )}
+
+          {/* ====== MODO NEW ====== */}
+          {(dogMode === 'new' || perros.length === 0) && (
             <>
-              <p>No tienes perros guardados. Crea uno para asociarlo a la reserva.</p>
+              {perros.length === 0 ? (
+                <p>No tienes perros guardados. Puedes añadir uno nuevo o continuar sin guardarlo.</p>
+              ) : (
+                <p>Añade un perro nuevo para esta reserva (opcionalmente guardándolo en tu perfil).</p>
+              )}
 
               <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
                 <label>
@@ -698,11 +972,30 @@ export default function Contratar() {
                 </label>
 
                 <label>
-                  Raza/Tamaño (opcional)
+                  Raza/Tamaño
                   <input
                     value={nuevoPerro.razaTamaño}
                     onChange={(e) => setNuevoPerro({ ...nuevoPerro, razaTamaño: e.target.value })}
+                    placeholder="Ej.: mestizo mediano, pastor alemán…"
                   />
+                </label>
+
+                <label>
+                  Fecha de nacimiento (aprox.)
+                  <input
+                    type="date"
+                    value={nuevoPerro.nacimiento}
+                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, nacimiento: e.target.value })}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 22 }}>
+                  <input
+                    type="checkbox"
+                    checked={nuevoPerro.castrado}
+                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })}
+                  />
+                  Castrado/esterilizado
                 </label>
 
                 <label style={{ gridColumn: '1 / -1' }}>
@@ -714,121 +1007,36 @@ export default function Contratar() {
                     }
                   />
                 </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={nuevoPerro.castrado}
-                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })}
-                  />
-                  Castrado/esterilizado
-                </label>
               </div>
+
+              {dogMsg && (
+                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.95 }}>
+                  {dogMsg}
+                </div>
+              )}
 
               <div className="actions" style={{ marginTop: 10 }}>
                 <button onClick={atras}>Atrás</button>
 
                 <button
-                  className="btn-secondary"
-                  disabled={!nuevoPerro.nombre.trim()}
-                  onClick={crearPerro}
-                >
-                  Guardar perro
-                </button>
-
-                <button
                   className="btn-primary"
-                  disabled={!nuevoPerro.nombre.trim()}
-                  onClick={() => {
-                    setPerro({
-                      nombre: nuevoPerro.nombre.trim(),
-                      edad: '',
-                      razaTamaño: nuevoPerro.razaTamaño,
-                      castrado: nuevoPerro.castrado,
-                      observaciones: nuevoPerro.observaciones
-                    });
-                    setStep(3);
+                  disabled={!canSaveNewDog || savingDog}
+                  onClick={async () => {
+                    const created = await crearPerro();
+                    if (created) setStep(3);
                   }}
+                  title="Guarda el perro en tu perfil y continúa"
                 >
-                  Continuar
+                  {savingDog ? 'Guardando…' : 'Guardar y continuar'}
                 </button>
-              </div>
-            </>
-          )}
 
-          {perros.length === 1 && (
-            <>
-              <p>
-                Perro seleccionado: <b>{perro.nombre}</b>{' '}
-                {perro.razaTamaño ? `· ${perro.razaTamaño}` : ''}
-              </p>
-
-              <div className="actions">
-                <button onClick={atras}>Atrás</button>
-                <button className="btn-primary" onClick={() => setStep(3)}>
-                  Continuar
-                </button>
-              </div>
-            </>
-          )}
-
-          {perros.length > 1 && (
-            <>
-              <label>
-                Selecciona perro:
-                <select value={perroId} onChange={(e) => setPerroId(e.target.value)}>
-                  <option value="">— Selecciona —</option>
-                  {perros.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre} {p.raza ? `· ${p.raza}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div style={{ marginTop: 10, display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
-                <label>
-                  Nombre
-                  <input
-                    value={perro.nombre}
-                    onChange={(e) => setPerro({ ...perro, nombre: e.target.value })}
-                  />
-                </label>
-
-                <label>
-                  Raza/Tamaño
-                  <input
-                    value={perro.razaTamaño}
-                    onChange={(e) => setPerro({ ...perro, razaTamaño: e.target.value })}
-                  />
-                </label>
-
-                <label style={{ gridColumn: '1 / -1' }}>
-                  Observaciones
-                  <input
-                    value={perro.observaciones}
-                    onChange={(e) => setPerro({ ...perro, observaciones: e.target.value })}
-                  />
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={perro.castrado}
-                    onChange={(e) => setPerro({ ...perro, castrado: e.target.checked })}
-                  />
-                  Castrado/esterilizado
-                </label>
-              </div>
-
-              <div className="actions">
-                <button onClick={atras}>Atrás</button>
                 <button
-                  className="btn-primary"
-                  disabled={!perro.nombre.trim()}
-                  onClick={() => setStep(3)}
+                  className="btn-secondary"
+                  disabled={!canContinueNewDogWithoutSaving}
+                  onClick={continuarSinGuardarPerro}
+                  title="Continuar sin guardar el perro en tu perfil"
                 >
-                  Continuar
+                  Continuar sin guardar
                 </button>
               </div>
             </>
@@ -859,15 +1067,22 @@ export default function Contratar() {
               Adiestrador
               <select
                 value={trainerChoice}
-                onChange={(e) => setTrainerChoice(e.target.value)}
+                onChange={(e) => {
+                  setTrainerChoice(e.target.value);
+                  setTrainerHint('');
+                }}
                 disabled={!canLoadTrainers || loadingTrainers}
               >
                 <option value="any">Cualquiera disponible</option>
+                {trainerChoice !== 'any' && !selectedTrainerInList && (
+                  <option value={trainerChoice}>Adiestrador seleccionado</option>
+                )}
                 {trainers.map((t) => {
                   const tid = getTrainerId(t);
+                  const label = t.displayName || t.nombre || t.email || tid;
                   return (
                     <option key={tid} value={tid}>
-                      {t.nombre ? t.nombre : t.email}
+                      {label}
                     </option>
                   );
                 })}
@@ -881,6 +1096,11 @@ export default function Contratar() {
               {trainersErr && (
                 <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>
                   {trainersErr}
+                </div>
+              )}
+              {!trainersErr && trainerHint && (
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+                  {trainerHint}
                 </div>
               )}
               {canLoadTrainers && !loadingTrainers && !trainersErr && trainers.length === 0 && (
@@ -957,8 +1177,9 @@ export default function Contratar() {
                 <b>Adiestrador:</b>{' '}
                 {trainerChoice === 'any'
                   ? 'Cualquiera disponible'
-                  : (trainers.find((t) => getTrainerId(t) === String(trainerChoice))?.nombre ||
-                    trainers.find((t) => getTrainerId(t) === String(trainerChoice))?.email ||
+                  : (selectedTrainer?.displayName ||
+                    selectedTrainer?.nombre ||
+                    selectedTrainer?.email ||
                     trainerChoice)}
               </div>
 

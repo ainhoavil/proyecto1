@@ -147,6 +147,96 @@
   }
 }
 
+/* =========================================
+   CONTRATAR – Selector de horas (fuera del grid)
+   Evita el bug de click en el día de debajo.
+   ========================================= */
+
+.slots-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid #f3d8c6;
+  background-color: #fffdfb;
+}
+
+.slots-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #7b5b45;
+}
+
+.slots-grid {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slot {
+  border: 1px solid #f0d7c7;
+  background-color: #ffffff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #7b5b45;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background-color: #ffe8d7;
+    border-color: #f08a3c;
+  }
+
+  &.active {
+    background-color: #f08a3c;
+    border-color: #f08a3c;
+    color: #ffffff;
+  }
+
+  &.busy {
+    opacity: 0.55;
+    cursor: not-allowed;
+    text-decoration: line-through;
+
+    &:hover {
+      background-color: #ffffff;
+      border-color: #f0d7c7;
+      color: #7b5b45;
+    }
+  }
+}
+
+.hint {
+  font-size: 12px;
+  color: #a08168;
+}
+
+/* =========================================
+   CONTRATAR – Selector de perro
+   ========================================= */
+
+.dog-choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dog-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #f0d7c7;
+  background-color: #fffdfb;
+  border-radius: 14px;
+  cursor: pointer;
+  color: #3b281c;
+
+  input {
+    cursor: pointer;
+  }
+}
+
 .month-legend {
   display: flex;
   flex-wrap: wrap;
