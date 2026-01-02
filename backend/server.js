@@ -8,7 +8,6 @@ import { query } from "./db.js";
 
 // ==== Rutas ====
 import authRoutes from "./routes/auth.js";
-import videoRoutes from "./routes/videos.js";
 import reservasRoutes from "./routes/reservas.js";
 import contactoRoutes from "./routes/contacto.js";
 import settingsRoutes from "./routes/settings.js";
@@ -21,7 +20,7 @@ import filesRoutes from "./routes/files.js";
 import trainersRoutes from "./routes/trainers.js";
 import trainerProfilesRoutes from "./routes/trainerProfiles.js";
 
-// ✅ Chat
+// Chat
 import chatsRoutes from "./routes/chat.js";
 
 // ==== __dirname (ESM) ====
@@ -80,7 +79,6 @@ app.get("/api/health", async (_req, res) => {
 
 // ==== Montar rutas principales ====
 app.use("/api/auth", authRoutes);
-app.use("/api/videos", videoRoutes);
 app.use("/api/reservas", reservasRoutes);
 app.use("/api/contacto", contactoRoutes);
 app.use("/api/settings", settingsRoutes);
@@ -95,7 +93,7 @@ app.use("/api", filesRoutes);
 app.use("/api/trainers", trainersRoutes);
 app.use("/api/trainers", trainerProfilesRoutes);
 
-// ✅ Rutas de chat
+// Rutas de chat
 app.use("/api/chats", chatsRoutes);
 
 // ==== 404 ====

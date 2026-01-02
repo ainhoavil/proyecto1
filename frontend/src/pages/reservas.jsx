@@ -1,5 +1,5 @@
+import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/auth";
-import ReservasAdmin from "./reservas/reservasAdmin";
 import ReservasUser from "./reservas/reservasUser";
 import TrainerAgenda from "./trainer-Agenda.jsx";
 
@@ -21,6 +21,11 @@ export default function Reservas() {
     );
   }
 
+  //  Unificamos el admin en /admin (evita duplicidad de paneles).
+  if (esAdmin) {
+    return <Navigate to="/admin?tab=reservas" replace />;
+  }
+
   return (
     <div className="card contratar-page">
       <h1>
@@ -31,13 +36,7 @@ export default function Reservas() {
           : "Mis Reservas"}
       </h1>
 
-      {esAdmin ? (
-        <ReservasAdmin />
-      ) : esAdiestrador ? (
-        <TrainerAgenda />
-      ) : (
-        <ReservasUser />
-      )}
+      {esAdiestrador ? <TrainerAgenda /> : <ReservasUser />}
     </div>
   );
 }

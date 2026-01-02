@@ -181,6 +181,25 @@
   padding: 12px;
   border-top: 1px solid var(--chat-border);
   background: #fff;
+  align-items: flex-end;
+}
+
+.df-chat__composerLeft {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.df-chat__composerMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.df-chat__file {
+  display: none;
 }
 
 .df-chat__input {
@@ -237,6 +256,170 @@
 
 .df-btn--ghost:hover {
   background: rgba(0,0,0,.04);
+}
+
+.df-btn--icon {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* =========================================================
+   ADJUNTOS EN MENSAJE
+   ========================================================= */
+
+.df-msg__attachments {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.df-attach {
+  border: 1px solid var(--chat-border-soft);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--chat-text);
+}
+
+.df-attach--image .df-attach__img {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  display: block;
+}
+
+.df-attach--video {
+  padding: 10px;
+}
+
+.df-attach__video {
+  width: 100%;
+  max-height: 220px;
+  display: block;
+  border-radius: 12px;
+  background: rgba(0,0,0,.04);
+}
+
+.df-attach__caption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--chat-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.df-attach--file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.df-attach__icon {
+  font-size: 16px;
+}
+
+.df-attach__name {
+  font-weight: 800;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.df-attach__size {
+  font-size: 12px;
+  color: var(--chat-muted);
+  white-space: nowrap;
+}
+
+/* =========================================================
+   EMOJI PICKER
+   ========================================================= */
+
+.df-emoji {
+  position: absolute;
+  bottom: 54px;
+  left: 0;
+  z-index: 10;
+  width: 280px;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid var(--chat-border);
+  border-radius: 14px;
+  box-shadow: var(--chat-shadow);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+
+.df-emoji__btn {
+  border: 1px solid transparent;
+  background: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px 0;
+}
+
+.df-emoji__btn:hover {
+  background: rgba(0,0,0,.04);
+  border-color: var(--chat-border-soft);
+}
+
+/* =========================================================
+   ADJUNTOS PENDIENTES (ANTES DE ENVIAR)
+   ========================================================= */
+
+.df-pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.df-pending__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--chat-border-soft);
+  background: rgba(0,0,0,.03);
+  border-radius: 999px;
+  max-width: 100%;
+}
+
+.df-pending__label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--chat-text);
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.df-pending__remove {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 900;
+  color: var(--chat-muted);
+}
+
+.df-chat__uploadErr {
+  font-size: 12px;
+  color: #b00020;
+  font-weight: 800;
 }
 
 /* =========================================================

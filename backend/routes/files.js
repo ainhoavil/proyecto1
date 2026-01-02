@@ -9,6 +9,39 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 
+// ============================================================
+// Asegurar tabla files (BLOB en BD)
+// ============================================================
+async function ensureFilesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      owner_uid TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      bytes BLOB NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_uid)`);
+
+  // Si la tabla existía de antes sin created_at, lo añadimos.
+  try {
+    const cols = await query(`PRAGMA table_info(files)`);
+    const hasCreatedAt = Array.isArray(cols)
+      ? cols.some((c) => String(c.name || "").toLowerCase() === "created_at")
+      : false;
+    if (!hasCreatedAt) {
+      await query(`ALTER TABLE files ADD COLUMN created_at TEXT`);
+    }
+  } catch (e) {
+    console.warn("[files] No se pudo asegurar columna created_at:", e?.message || e);
+  }
+}
+
+// Ejecutamos al cargar el router
+await ensureFilesTable();
+
 // --- auth middleware (igual que en perfil) ---
 function auth(req, res, next) {
   const h = req.headers.authorization;
@@ -28,11 +61,13 @@ router.post("/upload-db", auth, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Falta file" });
 
-    const MAX = 5 * 1024 * 1024; // 5MB; ajusta a tu gusto
+    // Nota: guardar vídeos en BD puede crecer rápido.
+    // Para MVP lo dejamos en 25MB (ajusta si lo necesitas).
+    const MAX = 25 * 1024 * 1024; // 25MB
     if (req.file.size > MAX) {
       return res
         .status(413)
-        .json({ error: "Archivo demasiado grande (máx 5MB)" });
+        .json({ error: "Archivo demasiado grande (máx 25MB)" });
     }
 
     // Validación MIME (ampliada)
@@ -45,6 +80,16 @@ router.post("/upload-db", auth, upload.single("file"), async (req, res) => {
       "image/svg+xml",
       "image/avif",
       "image/x-icon",
+
+      // Vídeo (chat)
+      "video/mp4",
+      "video/webm",
+      "video/quicktime", // .mov
+      "video/ogg",
+
+      // Documentos comunes (chat)
+      "application/pdf",
+      "text/plain",
     ]);
 
     const mime = (req.file.mimetype || "application/octet-stream").toLowerCase();
@@ -58,12 +103,12 @@ router.post("/upload-db", auth, upload.single("file"), async (req, res) => {
     const bytes = req.file.buffer; // Buffer (Node) -> libsql acepta Buffer/Uint8Array
 
     await query(
-      `INSERT INTO files(id, owner_uid, mime, bytes) VALUES(?, ?, ?, ?)`,
+      `INSERT INTO files(id, owner_uid, mime, bytes, created_at) VALUES(?, ?, ?, ?, datetime('now'))`,
       [id, req.user.sub, mime, bytes]
     );
 
     const url = `/api/files/${id}`;
-    res.json({ id, url, mime });
+    res.json({ id, url, mime, size: req.file.size, name: req.file.originalname || null });
   } catch (err) {
     console.error("POST /api/upload-db error:", err);
     res.status(500).json({ error: "Error interno" });

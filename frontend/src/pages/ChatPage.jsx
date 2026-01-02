@@ -1,10 +1,23 @@
 // frontend/src/pages/ChatPage.jsx
+// ============================================================
+// Chat Cliente–Adiestrador
+// ✅ 1 chat por adiestrador (1 conversación por pareja trainer+client)
+// ✅ Soporta adjuntos: fotos / vídeos / archivos (vía /api/upload-db)
+// ✅ Emoticonos (picker simple)
+// ============================================================
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { http } from "../helpers/http";
 import { isLogged } from "../helpers/auth";
 import "../styles/contratar.scss";
 import "../styles/chat.scss";
+
+// API base para construir URLs de archivos (no usa fetch helper)
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
+  /\/+$/,
+  ""
+);
 
 // util
 function fmt(ts) {
@@ -29,6 +42,60 @@ function initials(id = "") {
   return s.slice(0, 2).toUpperCase();
 }
 
+function isImage(mime = "") {
+  return String(mime).toLowerCase().startsWith("image/");
+}
+
+function isVideo(mime = "") {
+  return String(mime).toLowerCase().startsWith("video/");
+}
+
+function fileUrl(fileId) {
+  return `${API_BASE}/api/files/${fileId}`;
+}
+
+function niceFileName(a) {
+  const name = String(a?.name || "").trim();
+  if (name) return name;
+  const id = String(a?.id || "");
+  if (!id) return "Archivo";
+  return `Archivo ${id.slice(0, 6)}…`;
+}
+
+function niceSize(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n < 1024) return `${n} B`;
+  const kb = n / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+const EMOJIS = [
+  "😀",
+  "😅",
+  "😂",
+  "😊",
+  "😍",
+  "😎",
+  "🤔",
+  "😴",
+  "😭",
+  "😡",
+  "👍",
+  "🙏",
+  "👏",
+  "✅",
+  "⚠️",
+  "❤️",
+  "🎉",
+  "📅",
+  "📎",
+  "🐶",
+  "🐾",
+];
+
 export default function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
@@ -39,18 +106,28 @@ export default function ChatPage() {
   const [text, setText] = useState("");
   const [errMsg, setErrMsg] = useState("");
 
+  // adjuntos
+  const [attachments, setAttachments] = useState([]); // [{id,mime,name,size}]
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
+
+  // emoji
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
   const myUserId = useMemo(() => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return "";
       const payload = JSON.parse(atob(token.split(".")[1] || ""));
-      return String(payload?.id || payload?.uid || "");
+      return String(payload?.id || payload?.uid || payload?.sub || "");
     } catch {
       return "";
     }
   }, []);
 
   const listRef = useRef(null);
+  const inputRef = useRef(null);
+  const fileRef = useRef(null);
 
   const scrollToBottom = (smooth = false) => {
     const el = listRef.current;
@@ -65,13 +142,17 @@ export default function ChatPage() {
     }
   };
 
-  const loadMessages = async () => {
+  const loadMessages = async ({ silent = false } = {}) => {
     if (!conversationId) return;
     setErrMsg("");
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const data = await http(`/api/chats/${conversationId}/messages`, { auth: true });
-      const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const arr = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+        ? data
+        : [];
       setItems(arr);
       setTimeout(() => scrollToBottom(false), 0);
     } catch (e) {
@@ -83,7 +164,7 @@ export default function ChatPage() {
       else setErrMsg("No se pudieron cargar los mensajes.");
       setItems([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -92,14 +173,114 @@ export default function ChatPage() {
       navigate(`/login?next=/chat/${conversationId || ""}`, { replace: true });
       return;
     }
-    loadMessages();
+    loadMessages({ silent: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  // Polling ligero para refrescar el chat
+  useEffect(() => {
+    if (!conversationId) return;
+    const t = setInterval(() => {
+      // refresco ligero sin parpadeo
+      loadMessages({ silent: true });
+    }, 4500);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  const insertEmoji = (emoji) => {
+    const el = inputRef.current;
+    if (!el) {
+      setText((t) => `${t}${emoji}`);
+      return;
+    }
+
+    const start = Number.isFinite(el.selectionStart) ? el.selectionStart : text.length;
+    const end = Number.isFinite(el.selectionEnd) ? el.selectionEnd : text.length;
+    const next = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+
+    setText(next);
+    setEmojiOpen(false);
+
+    // re-poner cursor
+    requestAnimationFrame(() => {
+      try {
+        el.focus();
+        const pos = start + emoji.length;
+        el.setSelectionRange(pos, pos);
+      } catch {
+        // ignore
+      }
+    });
+  };
+
+  const onPickFiles = async (files) => {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    if (uploading) return;
+
+    setUploadErr("");
+    setUploading(true);
+
+    try {
+      // límite total por mensaje
+      const maxTotal = 5;
+      const availableSlots = Math.max(0, maxTotal - attachments.length);
+      const slice = list.slice(0, availableSlots);
+
+      for (const file of slice) {
+        const form = new FormData();
+        form.append("file", file);
+
+        const resp = await http("/api/upload-db", {
+          method: "POST",
+          auth: true,
+          data: form,
+          timeoutMs: 60000,
+        });
+
+        const id = String(resp?.id || "").trim();
+        const mime = String(resp?.mime || file.type || "application/octet-stream")
+          .toLowerCase()
+          .trim();
+        if (!id) throw new Error("No se recibió id del archivo");
+
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id,
+            mime,
+            name: resp?.name || file.name || null,
+            size: resp?.size ?? file.size ?? null,
+          },
+        ]);
+      }
+
+      if (list.length > availableSlots) {
+        setUploadErr("Has adjuntado el máximo de 5 archivos por mensaje.");
+      }
+    } catch (e) {
+      console.error("Error subiendo archivo:", e);
+      const msg =
+        e?.data?.error || e?.message || "No se pudo subir el archivo. Revisa el tipo o el tamaño.";
+      setUploadErr(msg);
+    } finally {
+      setUploading(false);
+      // reset input para poder re-seleccionar el mismo archivo
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (id) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
   const send = async () => {
     if (!conversationId) return;
-    const body = text.trim();
-    if (!body || sending) return;
+    if (sending) return;
+
+    const bodyTrim = text.trim();
+    if (!bodyTrim && attachments.length === 0) return;
 
     setSending(true);
     setErrMsg("");
@@ -107,10 +288,15 @@ export default function ChatPage() {
       await http(`/api/chats/${conversationId}/messages`, {
         method: "POST",
         auth: true,
-        data: { body },
+        data: {
+          body: bodyTrim,
+          attachments,
+        },
       });
 
       setText("");
+      setAttachments([]);
+      setEmojiOpen(false);
       await loadMessages();
       setTimeout(() => scrollToBottom(true), 0);
     } catch (e) {
@@ -118,7 +304,7 @@ export default function ChatPage() {
       const status = e?.status || e?.response?.status;
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para enviar mensajes aquí.");
-      else setErrMsg("No se pudo enviar el mensaje.");
+      else setErrMsg(e?.data?.error || "No se pudo enviar el mensaje.");
     } finally {
       setSending(false);
     }
@@ -139,7 +325,9 @@ export default function ChatPage() {
 
         <div className="df-chat__titleWrap">
           <div className="df-chat__title">Chat</div>
-          <div className="df-chat__subtitle">Conversación vinculada a una reserva</div>
+          <div className="df-chat__subtitle">
+            Conversación privada entre cliente y adiestrador
+          </div>
         </div>
 
         <div className="df-chat__meta">
@@ -160,6 +348,7 @@ export default function ChatPage() {
           ) : (
             items.map((m) => {
               const mine = myUserId && String(m.senderId) === String(myUserId);
+              const atts = Array.isArray(m.attachments) ? m.attachments : [];
 
               return (
                 <div key={m.id} className={`df-msg ${mine ? "df-msg--mine" : "df-msg--theirs"}`}>
@@ -170,7 +359,60 @@ export default function ChatPage() {
                   )}
 
                   <div className="df-msg__bubble">
-                    <div className="df-msg__text">{m.body}</div>
+                    {m.body ? <div className="df-msg__text">{m.body}</div> : null}
+
+                    {atts.length > 0 && (
+                      <div className="df-msg__attachments">
+                        {atts.map((a) => {
+                          const url = fileUrl(a.id);
+                          const name = niceFileName(a);
+                          const size = niceSize(a.size);
+
+                          if (isImage(a.mime)) {
+                            return (
+                              <a
+                                key={a.id}
+                                className="df-attach df-attach--image"
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={name}
+                              >
+                                <img className="df-attach__img" src={url} alt={name} />
+                              </a>
+                            );
+                          }
+
+                          if (isVideo(a.mime)) {
+                            return (
+                              <div key={a.id} className="df-attach df-attach--video">
+                                <video className="df-attach__video" src={url} controls />
+                                <div className="df-attach__caption">
+                                  {name}
+                                  {size ? <span> · {size}</span> : null}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <a
+                              key={a.id}
+                              className="df-attach df-attach--file"
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={name}
+                            >
+                              <span className="df-attach__icon">📎</span>
+                              <span className="df-attach__name">{name}</span>
+                              {size ? <span className="df-attach__size">{size}</span> : null}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     <div className="df-msg__meta">{fmt(m.createdAt)}</div>
                   </div>
 
@@ -187,20 +429,93 @@ export default function ChatPage() {
 
         {/* Composer */}
         <form className="df-chat__composer" onSubmit={onSubmit}>
-          <input
-            className="df-chat__input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Escribe un mensaje…"
-          />
-          <button className="df-btn df-btn--primary" type="submit" disabled={sending || !text.trim()}>
-            {sending ? "Enviando…" : "Enviar"}
+          <div className="df-chat__composerLeft">
+            <button
+              className="df-btn df-btn--ghost df-btn--icon"
+              type="button"
+              onClick={() => setEmojiOpen((v) => !v)}
+              title="Emoticonos"
+            >
+              🙂
+            </button>
+
+            <button
+              className="df-btn df-btn--ghost df-btn--icon"
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              title="Adjuntar archivo"
+            >
+              📎
+            </button>
+
+            <input
+              ref={fileRef}
+              className="df-chat__file"
+              type="file"
+              multiple
+              accept="image/*,video/*,application/pdf,text/plain"
+              onChange={(e) => onPickFiles(e.target.files)}
+            />
+          </div>
+
+          <div className="df-chat__composerMain">
+            {emojiOpen && (
+              <div className="df-emoji">
+                {EMOJIS.map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    className="df-emoji__btn"
+                    onClick={() => insertEmoji(em)}
+                    title={em}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <input
+              ref={inputRef}
+              className="df-chat__input"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Escribe un mensaje…"
+            />
+
+            {/* Adjuntos pendientes */}
+            {attachments.length > 0 && (
+              <div className="df-pending">
+                {attachments.map((a) => (
+                  <div key={a.id} className="df-pending__item">
+                    <span className="df-pending__label">{niceFileName(a)}</span>
+                    <button
+                      type="button"
+                      className="df-pending__remove"
+                      onClick={() => removeAttachment(a.id)}
+                      title="Quitar"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {uploadErr && <div className="df-chat__uploadErr">{uploadErr}</div>}
+          </div>
+
+          <button
+            className="df-btn df-btn--primary"
+            type="submit"
+            disabled={sending || uploading || (!text.trim() && attachments.length === 0)}
+          >
+            {sending ? "Enviando…" : uploading ? "Subiendo…" : "Enviar"}
           </button>
         </form>
 
-        <div className="df-chat__footnote">
-          Solo participan el cliente y el adiestrador (y admin).
-        </div>
+        <div className="df-chat__footnote">Solo participan el cliente y el adiestrador (y admin).</div>
       </div>
     </div>
   );

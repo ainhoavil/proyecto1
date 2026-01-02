@@ -16,7 +16,6 @@ import RoleRoute from "./components/RoleRoute";
 import Home from "./pages/home.jsx";
 import Servicios from "./pages/servicios.jsx";
 import Contacto from "./pages/contacto.jsx";
-import Videos from "./pages/videos.jsx";
 import Login from "./pages/login.jsx";
 import Register from "./pages/register.jsx";
 import Contratar from "./pages/contratar.jsx";
@@ -49,7 +48,6 @@ export default function App() {
           <Route path="/adiestradores" element={<TrainersList />} />
           <Route path="/adiestradores/:id" element={<TrainerPublicProfile />} />
           <Route path="/contratar" element={<Contratar />} />
-          <Route path="/multimedia" element={<Videos />} />
           <Route path="/contacto" element={<Contacto />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
