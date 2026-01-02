@@ -559,7 +559,6 @@ export default function ReservasUser() {
   // ==== render ====
   return (
     <div className="card contratar-page">
-      <p className="reservas-eyebrow">Sesión iniciada</p>
       <h1>Reservas</h1>
       <p className="reservas-subtitle">
         Consulta tu calendario de reservas y gestiona su estado. Puedes comunicarte con el centro

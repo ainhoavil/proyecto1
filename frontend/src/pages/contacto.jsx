@@ -92,7 +92,6 @@ function Contacto() {
       <div className="contact-page__container">
         {/* ENCABEZADO */}
         <header className="contact-header">
-          <span className="contact-header__eyebrow">CONTACTO</span>
           <h1 className="contact-header__title">
             Hablemos sobre el bienestar de tu perro
           </h1>

@@ -305,12 +305,15 @@ export default function Servicios() {
   };
 
   if (cargando) {
-    return (
-      <div className="servicios page-wrapper">
+  return (
+    <div className="servicios">
+      <div className="page-wrapper">
         <div className="servicios__loading card">Cargando…</div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
 
   // Imagen: soporta tanto nombres antiguos como URLs completas (/files/xxx, http, etc.)
   const getImgSrc = (imageUrl) => {
@@ -333,7 +336,6 @@ export default function Servicios() {
     <div className="servicios page-wrapper">
       {/* ===== HEADER DE PÁGINA ===== */}
       <header className="servicios__header">
-        <p className="servicios__eyebrow">Sesión iniciada</p>
         <h1 className="servicios__title">Servicios de Adiestramiento</h1>
         <p className="servicios__subtitle">
           Elige el tipo de servicio que mejor encaja con tu perro y contrátalo
