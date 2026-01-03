@@ -2,7 +2,7 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
-import { verifyToken, requireAdmin } from "../middleware/auth.js";
+import { verifyToken, requireAdmin, allowRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 const TABLE = "perros";
@@ -109,6 +109,71 @@ router.get("/", verifyToken, async (req, res) => {
   } catch (e) {
     console.error("GET /perros:", e);
     res.status(500).json({ error: "No se pudo listar" });
+  }
+});
+
+/* =====================================================
+   GET /api/perros/user/:userId  (admin / adiestrador)
+   Devuelve perros activos (archived=0) del usuario indicado.
+====================================================== */
+router.get("/user/:userId", verifyToken, allowRoles(["admin", "adiestrador"]), async (req, res) => {
+  try {
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const rows = await query(
+      `SELECT id, user_id AS userId, nombre, raza, nacimiento, castrado, notas,
+              COALESCE(avatar_url, avatarURL) AS avatarURL,
+              archived,
+              created_at AS createdAt, updated_at AS updatedAt
+         FROM ${TABLE}
+        WHERE user_id = ?
+          AND COALESCE(archived,0) = 0
+        ORDER BY nombre COLLATE NOCASE ASC`,
+      [userId]
+    );
+
+    res.json({ items: rows.map((r) => ({ ...r, castrado: !!r.castrado })) });
+  } catch (e) {
+    console.error("GET /perros/user/:userId:", e);
+    res.status(500).json({ error: "No se pudo listar perros del usuario" });
+  }
+});
+
+/* =====================================================
+   GET /api/perros/by-email?email=...
+   (admin) Resuelve usuario por email y devuelve sus perros activos.
+   Respuesta: { userId, items: [...] }
+====================================================== */
+router.get("/by-email", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.query?.email || "").trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: "Falta email" });
+
+    const u = await query(
+      `SELECT id, email FROM usuarios WHERE lower(email) = lower(?) LIMIT 1`,
+      [email]
+    );
+
+    const userId = u?.[0]?.id || null;
+    if (!userId) return res.json({ userId: null, items: [] });
+
+    const rows = await query(
+      `SELECT id, user_id AS userId, nombre, raza, nacimiento, castrado, notas,
+              COALESCE(avatar_url, avatarURL) AS avatarURL,
+              archived,
+              created_at AS createdAt, updated_at AS updatedAt
+         FROM ${TABLE}
+        WHERE user_id = ?
+          AND COALESCE(archived,0) = 0
+        ORDER BY nombre COLLATE NOCASE ASC`,
+      [userId]
+    );
+
+    res.json({ userId, items: rows.map((r) => ({ ...r, castrado: !!r.castrado })) });
+  } catch (e) {
+    console.error("GET /perros/by-email:", e);
+    res.status(500).json({ error: "No se pudo resolver perros por email" });
   }
 });
 

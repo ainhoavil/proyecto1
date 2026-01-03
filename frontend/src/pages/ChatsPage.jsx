@@ -3,6 +3,8 @@
 // Lista de chats del usuario
 // - UI lista + abrir chat + borrar (si el backend lo soporta)
 // - Buscador por nombre (filtra en frontend)
+// - Robusto con token id/uid/sub
+// - Robusto con backend: { items: [...] } + otherName/otherEmail/otherPhotoUrl
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +15,10 @@ import "../styles/contratar.scss";
 import "../styles/chat.scss";
 
 // API base para construir URLs de avatar si vienen como ruta relativa
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
+  /\/+$/,
+  ""
+);
 
 function normalizeAvatarUrl(url = "") {
   const s = String(url || "").trim();
@@ -57,16 +62,62 @@ function getClientId(c = {}) {
   return String(c?.clientId || c?.client_id || "").trim();
 }
 
-function pickOtherParty({ chat, myUserId }) {
+function safeStr(v) {
+  return String(v ?? "").trim();
+}
+
+function matchAny(myIds = [], candidate = "") {
+  const c = safeStr(candidate);
+  if (!c) return false;
+  return myIds.some((x) => safeStr(x) === c);
+}
+
+function pickOtherParty({ chat, myIds }) {
   const trainerId = getTrainerId(chat);
   const clientId = getClientId(chat);
 
-  const iAmTrainer = myUserId && trainerId && String(myUserId) === String(trainerId);
-  const iAmClient = myUserId && clientId && String(myUserId) === String(clientId);
+  const iAmTrainer = matchAny(myIds, trainerId);
+  const iAmClient = matchAny(myIds, clientId);
 
-  // Campos “enriquecidos” si el backend los devuelve (no asumimos que existan)
+  // Si el backend ya te pasa “other…”
+  const otherName =
+    chat?.otherName ??
+    chat?.other_name ??
+    chat?.otherUserName ??
+    chat?.other_user_name ??
+    "";
+  const otherEmail =
+    chat?.otherEmail ??
+    chat?.other_email ??
+    chat?.otherUserEmail ??
+    chat?.other_user_email ??
+    "";
+  const otherAvatar =
+    chat?.otherAvatar ??
+    chat?.other_avatar ??
+    chat?.otherPhoto ??
+    chat?.other_photo ??
+    chat?.otherPhotoUrl ??
+    chat?.other_photo_url ??
+    "";
+
+  if (safeStr(otherName) || safeStr(otherEmail) || safeStr(otherAvatar)) {
+    const label = safeStr(otherName || otherEmail || "Usuario") || "Usuario";
+    return {
+      id: safeStr(chat?.otherId || chat?.other_id || ""),
+      label,
+      avatar: safeStr(otherAvatar),
+      roleLabel: "Contacto",
+    };
+  }
+
+  // Campos “enriquecidos” alternativos (por si algún backend viejo los tiene)
   const trainerName =
-    chat?.trainerName ?? chat?.trainer_name ?? chat?.trainerNombre ?? chat?.trainer_nombre ?? "";
+    chat?.trainerName ??
+    chat?.trainer_name ??
+    chat?.trainerNombre ??
+    chat?.trainer_nombre ??
+    "";
   const trainerEmail = chat?.trainerEmail ?? chat?.trainer_email ?? "";
   const trainerAvatar =
     chat?.trainerAvatar ??
@@ -89,56 +140,33 @@ function pickOtherParty({ chat, myUserId }) {
     chat?.client_foto ??
     "";
 
-  // Si el backend ya te pasa “other…”
-  const otherName =
-    chat?.otherName ?? chat?.other_name ?? chat?.otherUserName ?? chat?.other_user_name ?? "";
-  const otherEmail =
-    chat?.otherEmail ?? chat?.other_email ?? chat?.otherUserEmail ?? chat?.other_user_email ?? "";
-  const otherAvatar =
-    chat?.otherAvatar ??
-    chat?.other_avatar ??
-    chat?.otherPhoto ??
-    chat?.other_photo ??
-    chat?.otherPhotoUrl ??
-    chat?.other_photo_url ??
-    "";
-
-  if (otherName || otherEmail || otherAvatar) {
-    const label = String(otherName || otherEmail || "Usuario").trim() || "Usuario";
-    return {
-      id: String(chat?.otherId || chat?.other_id || "").trim(),
-      label,
-      avatar: String(otherAvatar || "").trim(),
-      roleLabel: "Contacto",
-    };
-  }
-
   if (iAmTrainer) {
-    const label = String(clientName || clientEmail || clientId || "Cliente").trim() || "Cliente";
+    const label = safeStr(clientName || clientEmail || clientId || "Cliente") || "Cliente";
     return {
       id: clientId,
       label,
-      avatar: String(clientAvatar || "").trim(),
+      avatar: safeStr(clientAvatar),
       roleLabel: "Cliente",
     };
   }
 
   if (iAmClient) {
-    const label = String(trainerName || trainerEmail || trainerId || "Adiestrador").trim() || "Adiestrador";
+    const label =
+      safeStr(trainerName || trainerEmail || trainerId || "Adiestrador") || "Adiestrador";
     return {
       id: trainerId,
       label,
-      avatar: String(trainerAvatar || "").trim(),
+      avatar: safeStr(trainerAvatar),
       roleLabel: "Adiestrador",
     };
   }
 
-  // fallback si no puedo deducir
-  const label = String(trainerName || trainerEmail || trainerId || "Chat").trim() || "Chat";
+  // Fallback si no puedo deducir
+  const label = safeStr(trainerName || trainerEmail || trainerId || "Chat") || "Chat";
   return {
     id: trainerId || clientId,
     label,
-    avatar: String(trainerAvatar || clientAvatar || "").trim(),
+    avatar: safeStr(trainerAvatar || clientAvatar),
     roleLabel: "Chat",
   };
 }
@@ -151,17 +179,28 @@ export default function ChatsPage() {
   const [items, setItems] = useState([]);
   const [deletingId, setDeletingId] = useState("");
 
-  // ✅ buscador por nombre (frontend)
+  // buscador
   const [qName, setQName] = useState("");
 
-  const myUserId = useMemo(() => {
+  // ✅ sacamos TODOS los posibles IDs del token para comparar (id/uid/sub)
+  const myIds = useMemo(() => {
     try {
       const token = localStorage.getItem("token");
-      if (!token) return "";
+      if (!token) return [];
       const payload = JSON.parse(atob(token.split(".")[1] || ""));
-      return String(payload?.id || payload?.uid || payload?.sub || "");
+      const vals = [
+        payload?.id,
+        payload?.uid,
+        payload?.sub,
+        payload?.userId,
+        payload?.user_id,
+      ]
+        .map((v) => String(v || "").trim())
+        .filter(Boolean);
+      // únicos
+      return Array.from(new Set(vals));
     } catch {
-      return "";
+      return [];
     }
   }, []);
 
@@ -170,17 +209,29 @@ export default function ChatsPage() {
     setLoading(true);
 
     try {
-      // Nota: este endpoint lo añadiremos en backend (GET /api/chats)
       const data = await http("/api/chats", { auth: true });
-      const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const arr = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+        ? data
+        : [];
       setItems(arr);
     } catch (e) {
       console.error("Error cargando chats:", e);
       const status = e?.status || e?.response?.status;
+      const apiErr =
+        e?.data?.error ||
+        e?.responseData?.error ||
+        e?.message ||
+        "";
 
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
-      else if (status === 404) setErrMsg("Tu backend todavía no tiene la ruta para listar chats (GET /api/chats).");
+      else if (status === 403) setErrMsg("No tienes permisos para ver los chats.");
+      else if (status === 404)
+        setErrMsg("Tu backend no tiene la ruta para listar chats (GET /api/chats).");
+      else if (apiErr) setErrMsg(String(apiErr));
       else setErrMsg("No se pudieron cargar tus chats.");
+
       setItems([]);
     } finally {
       setLoading(false);
@@ -216,18 +267,25 @@ export default function ChatsPage() {
     setErrMsg("");
 
     try {
-      // Nota: este endpoint lo añadiremos en backend (DELETE /api/chats/:conversationId)
       await http(`/api/chats/${id}`, { method: "DELETE", auth: true });
 
       // UI optimista
-      setItems((prev) => prev.filter((c) => getConvId(c) !== id));
+      setItems((prev) => (Array.isArray(prev) ? prev : []).filter((c) => getConvId(c) !== id));
     } catch (e) {
       console.error("Error borrando chat:", e);
       const status = e?.status || e?.response?.status;
+      const apiErr =
+        e?.data?.error ||
+        e?.responseData?.error ||
+        e?.message ||
+        "";
 
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
-      else if (status === 404) setErrMsg("Tu backend todavía no tiene la ruta para borrar chats (DELETE /api/chats/:id).");
-      else setErrMsg(e?.data?.error || "No se pudo borrar el chat.");
+      else if (status === 403) setErrMsg("No tienes permisos para borrar este chat.");
+      else if (status === 404)
+        setErrMsg("Tu backend no tiene la ruta para borrar chats (DELETE /api/chats/:id).");
+      else if (apiErr) setErrMsg(String(apiErr));
+      else setErrMsg("No se pudo borrar el chat.");
     } finally {
       setDeletingId("");
     }
@@ -235,18 +293,25 @@ export default function ChatsPage() {
 
   const filtered = useMemo(() => {
     const q = String(qName || "").trim().toLowerCase();
-    if (!q) return items;
+    if (!q) return Array.isArray(items) ? items : [];
 
     return (Array.isArray(items) ? items : []).filter((c) => {
-      const other = pickOtherParty({ chat: c, myUserId });
+      const other = pickOtherParty({ chat: c, myIds });
       const label = String(other?.label || "").toLowerCase();
       return label.includes(q);
     });
-  }, [items, qName, myUserId]);
+  }, [items, qName, myIds]);
 
   return (
     <div className="contratar-page">
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+        }}
+      >
         <div>
           <p className="reservas-eyebrow">Mensajería</p>
           <h1 style={{ margin: "4px 0 0" }}>Mis chats</h1>
@@ -312,8 +377,12 @@ export default function ChatsPage() {
         ) : (
           filtered.map((c) => {
             const id = getConvId(c);
-            const other = pickOtherParty({ chat: c, myUserId });
 
+            // key estable aunque falte id (no uses Math.random)
+            const stableKey =
+              id || `${getTrainerId(c) || "t"}:${getClientId(c) || "c"}:${String(c?.reserva_id || "")}`;
+
+            const other = pickOtherParty({ chat: c, myIds });
             const avatarUrl = normalizeAvatarUrl(other.avatar);
             const initial = initialFromName(other.label);
 
@@ -335,7 +404,7 @@ export default function ChatsPage() {
               "";
 
             return (
-              <div key={id || Math.random()} className="card" style={{ padding: 14 }}>
+              <div key={stableKey} className="card" style={{ padding: 14 }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <div className="df-msg__avatar" aria-hidden="true">
                     {avatarUrl ? (
@@ -355,7 +424,8 @@ export default function ChatsPage() {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {other.label} <span style={{ fontSize: 12, opacity: 0.6 }}>· {other.roleLabel}</span>
+                        {other.label}{" "}
+                        <span style={{ fontSize: 12, opacity: 0.6 }}>· {other.roleLabel}</span>
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.7, whiteSpace: "nowrap" }}>
                         {fmt(lastAt)}

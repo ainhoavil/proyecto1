@@ -232,7 +232,52 @@ export default function ReservasAdmin() {
   });
 
   const [quickEmail, setQuickEmail] = useState('');
+  const [quickDogs, setQuickDogs] = useState([]);
+  const [quickDogIds, setQuickDogIds] = useState([]);
+  const [quickDogsWarn, setQuickDogsWarn] = useState('');
   const [quickMod, setQuickMod] = useState('presencial');
+
+  useEffect(() => {
+  let alive = true;
+  const email = String(quickEmail || "").trim();
+  const isValid = /\S+@\S+\.\S+/.test(email);
+
+  (async () => {
+    if (!isValid) {
+      if (!alive) return;
+      setQuickDogs([]);
+      setQuickDogIds([]);
+      setQuickDogsWarn("");
+      return;
+    }
+    try {
+      const r = await http(`/api/perros/by-email?email=${encodeURIComponent(email)}`, { auth: true });
+      const arr = Array.isArray(r?.items) ? r.items : [];
+      if (!alive) return;
+
+      setQuickDogs(arr);
+      setQuickDogIds([]);
+
+      if (!arr.length) {
+        setQuickDogsWarn("No puede crear reservas para este usuario porque no tiene ningún perro registrado.");
+      } else {
+        setQuickDogsWarn("");
+      }
+    } catch (e) {
+      if (!alive) return;
+      console.error("Error cargando perros por email", e);
+      setQuickDogs([]);
+      setQuickDogIds([]);
+      setQuickDogsWarn("No se pudieron cargar los perros de este usuario.");
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [quickEmail]);
+
 
   const bloquear = async () => {
     try {
@@ -259,6 +304,15 @@ export default function ReservasAdmin() {
       showError('Email inválido');
       return;
     }
+
+    if (!quickDogs.length) {
+      showError('No puede crear reservas para este usuario porque no tiene ningún perro registrado.');
+      return;
+    }
+    if (!quickDogIds.length) {
+      showError('Selecciona al menos un perro para la reserva.');
+      return;
+    }
     try {
       await http('/api/reservas/admin', {
         method: 'POST',
@@ -269,6 +323,10 @@ export default function ReservasAdmin() {
           servicioId,
           modalidad: quickMod,
           status: 'pending',
+          perro: (() => {
+            const sel = quickDogs.filter((p) => quickDogIds.includes(p.id));
+            return JSON.stringify(sel.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza, nacimiento: p.nacimiento })));
+          })(),
         },
         auth: true,
       });
@@ -420,6 +478,50 @@ export default function ReservasAdmin() {
               onChange={(e) => setQuickEmail(e.target.value)}
             />
           </label>
+<div style={{ marginTop: 8 }}>
+  <div style={{ fontSize: 13, marginBottom: 6, opacity: 0.85 }}>Perros del usuario</div>
+
+  {quickDogsWarn ? (
+    <div style={{ color: "#b83232", fontSize: 13 }}>{quickDogsWarn}</div>
+  ) : quickDogs.length ? (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {quickDogs.map((p) => {
+        const checked = quickDogIds.includes(p.id);
+        return (
+          <label
+            key={p.id}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: "1px solid #e6e6e6",
+              borderRadius: 12,
+              padding: "6px 10px",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setQuickDogIds((prev) =>
+                  on ? Array.from(new Set([...prev, p.id])) : prev.filter((x) => x !== p.id)
+                );
+              }}
+            />
+            <span>{p.nombre}</span>
+            {p.raza ? <span style={{ opacity: 0.7 }}>({p.raza})</span> : null}
+          </label>
+        );
+      })}
+    </div>
+  ) : (
+    <div style={{ opacity: 0.7, fontSize: 13 }}>Introduce un email para ver sus perros.</div>
+  )}
+</div>
+
           <div
             style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
           >

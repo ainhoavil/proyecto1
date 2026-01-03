@@ -294,7 +294,7 @@ export default function Contratar() {
          o añadir uno nuevo desde el flujo.
   ====================================================== */
   const [perros, setPerros] = useState([]);
-  const [perroId, setPerroId] = useState('');
+  const [perroIds, setPerroIds] = useState([]);
 
   // 'existing' -> reservar para perro registrado
   // 'new'      -> reservar añadiendo perro nuevo (disponible incluso si ya hay perros)
@@ -312,6 +312,11 @@ export default function Contratar() {
 
   const [savingDog, setSavingDog] = useState(false);
   const [dogMsg, setDogMsg] = useState('');
+const perrosSeleccionados = useMemo(() => {
+  if (!Array.isArray(perroIds) || !perroIds.length) return [];
+  return perros.filter((p) => perroIds.includes(p.id));
+}, [perroIds, perros]);
+
 
   useEffect(() => {
     (async () => {
@@ -334,7 +339,7 @@ export default function Contratar() {
           // Si hay exactamente 1 perro, lo preseleccionamos (evita clicks extra)
           if (activos.length === 1) {
             const p = activos[0];
-            setPerroId(p.id);
+            setPerroIds([p.id]);
             setPerro({
               id: p.id,
               nombre: p.nombre,
@@ -346,47 +351,26 @@ export default function Contratar() {
             });
           } else {
             // Con varios perros, no preseleccionamos para evitar errores.
-            setPerroId('');
+            setPerroIds([]);
             setPerro(EMPTY_PERRO);
           }
         } else {
           setDogMode('new');
-          setPerroId('');
+          setPerroIds([]);
           setPerro(EMPTY_PERRO);
         }
       } catch (e) {
         console.error('Error cargando perros', e);
         setPerros([]);
         setDogMode('new');
-        setPerroId('');
+        setPerroIds([]);
         setPerro(EMPTY_PERRO);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady]);
 
-  useEffect(() => {
-    if (dogMode !== 'existing') return;
-
-    if (!perroId) {
-      setPerro(EMPTY_PERRO);
-      return;
-    }
-
-    const p = perros.find((x) => x.id === perroId);
-    if (!p) return;
-
-    setPerro({
-      id: p.id,
-      nombre: p.nombre,
-      edad: '',
-      razaTamaño: p.raza,
-      nacimiento: p.nacimiento || '',
-      castrado: !!p.castrado,
-      observaciones: p.notas || ''
-    });
-  }, [perroId, perros, dogMode]);
-
+  
   const canSaveNewDog = useMemo(() => {
     // Backend exige nombre, raza y nacimiento.
     const nombreOk = !!nuevoPerro.nombre.trim();
@@ -514,12 +498,12 @@ export default function Contratar() {
         if (cancel) return;
 
         const prof = data?.profile || data || {};
-	        const prefix = String(prof.prefix || '').trim();
-	        const phone = String(prof.phone || prof.telefono || '').trim();
+          const prefix = String(prof.prefix || '').trim();
+          const phone = String(prof.phone || prof.telefono || '').trim();
         const address = String(prof.address || prof.direccion || '').trim();
 
-	        // Solo prefill de teléfono si existe número (evita que se rellene solo el prefijo)
-	        const tel = phone ? [prefix, phone].filter(Boolean).join(' ').trim() : '';
+          // Solo prefill de teléfono si existe número (evita que se rellene solo el prefijo)
+          const tel = phone ? [prefix, phone].filter(Boolean).join(' ').trim() : '';
 
         if (!tel && !address) return;
 
@@ -566,7 +550,8 @@ export default function Contratar() {
       // Guardamos el perro como JSON string (compatible con BD y con reservasUser.jsx que parsea JSON).
       let perroToSend = null;
       try {
-        perroToSend = perro ? JSON.stringify(perro) : null;
+        const arr = dogMode === 'existing' ? perrosSeleccionados : perro ? [perro] : [];
+        perroToSend = arr.length ? JSON.stringify(arr.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza || p.razaTamaño, nacimiento: p.nacimiento || null }))) : null;
       } catch {
         perroToSend = perro?.nombre ? String(perro.nombre) : null;
       }
@@ -795,62 +780,62 @@ export default function Contratar() {
             })()}
           </div>
 
-	          {/*
-	            IMPORTANTE (bug fix):
-	            Antes se renderizaban botones de horas DENTRO de cada botón del día (button dentro de button).
-	            Eso es HTML inválido y provoca comportamientos erráticos (por ejemplo, al seleccionar una hora,
-	            se "clicaba" el día que hay debajo).
-	
-	            Ahora las horas se muestran en un panel separado, fuera del grid.
-	          */}
-	          <div className="slots-panel">
-	            <div className="slots-title">
-	              {fecha
-	                ? `Selecciona una hora para ${new Date(`${fecha}T00:00:00`).toLocaleDateString('es-ES', {
-	                    weekday: 'long',
-	                    day: '2-digit',
-	                    month: 'long'
-	                  })}`
-	                : 'Selecciona un día para ver las horas disponibles'}
-	            </div>
+            {/*
+              IMPORTANTE (bug fix):
+              Antes se renderizaban botones de horas DENTRO de cada botón del día (button dentro de button).
+              Eso es HTML inválido y provoca comportamientos erráticos (por ejemplo, al seleccionar una hora,
+              se "clicaba" el día que hay debajo).
+  
+              Ahora las horas se muestran en un panel separado, fuera del grid.
+            */}
+            <div className="slots-panel">
+              <div className="slots-title">
+                {fecha
+                  ? `Selecciona una hora para ${new Date(`${fecha}T00:00:00`).toLocaleDateString('es-ES', {
+                      weekday: 'long',
+                      day: '2-digit',
+                      month: 'long'
+                    })}`
+                  : 'Selecciona un día para ver las horas disponibles'}
+              </div>
 
-	            {fecha ? (
-	              <div className="slots-grid">
-	                {(() => {
-	                  const rows = [];
-	                  for (let h = 9; h <= 20; h++) {
-	                    if (h === 14 || h === 15) continue;
-	
-	                    const t = `${String(h).padStart(2, '0')}:00`;
-	                    const busy = isSlotBusy(t);
+              {fecha ? (
+                <div className="slots-grid">
+                  {(() => {
+                    const rows = [];
+                    for (let h = 9; h <= 20; h++) {
+                      if (h === 14 || h === 15) continue;
+  
+                      const t = `${String(h).padStart(2, '0')}:00`;
+                      const busy = isSlotBusy(t);
 
-	                    rows.push(
-	                      <button
-	                        key={t}
-	                        type="button"
-	                        className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
-	                        disabled={busy}
-	                        onClick={() => {
-	                          if (!busy) setHora(t);
-	                        }}
-	                        title={busy ? 'Ocupada' : 'Seleccionar'}
-	                      >
-	                        {t}–{addMinutes(t, durationMin)}
-	                      </button>
-	                    );
-	                  }
+                      rows.push(
+                        <button
+                          key={t}
+                          type="button"
+                          className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
+                          disabled={busy}
+                          onClick={() => {
+                            if (!busy) setHora(t);
+                          }}
+                          title={busy ? 'Ocupada' : 'Seleccionar'}
+                        >
+                          {t}–{addMinutes(t, durationMin)}
+                        </button>
+                      );
+                    }
 
-	                  if (!rows.length) {
-	                    return <div className="hint">Sin horas disponibles.</div>;
-	                  }
+                    if (!rows.length) {
+                      return <div className="hint">Sin horas disponibles.</div>;
+                    }
 
-	                  return rows;
-	                })()}
-	              </div>
-	            ) : (
-	              <div className="hint">Selecciona un día para continuar.</div>
-	            )}
-	          </div>
+                    return rows;
+                  })()}
+                </div>
+              ) : (
+                <div className="hint">Selecciona un día para continuar.</div>
+              )}
+            </div>
 
           <div className="actions" style={{ marginTop: 14 }}>
             <button onClick={atras}>Atrás</button>
@@ -868,90 +853,90 @@ export default function Contratar() {
         <section>
           <h2>3) Datos del perro</h2>
 
-	          {perros.length > 0 && (
-	            <div style={{ marginBottom: 12 }}>
-	              <p style={{ margin: '8px 0' }}>¿Para qué perro es la reserva?</p>
-	
-	              <div className="dog-choice-list">
-	                {perros.map((p) => {
-	                  const pid = String(p.id || '').trim();
-	                  const name = String(p.nombre || '').trim() || 'Perro';
-	                  const raza = String(p.raza || '').trim();
-	
-	                  return (
-	                    <label key={pid} className="dog-choice">
-	                      <input
-	                        type="radio"
-	                        name="dogPick"
-	                        value={pid}
-	                        checked={dogMode === 'existing' && perroId === pid}
-	                        onChange={() => {
-	                          setDogMode('existing');
-	                          setDogMsg('');
-	                          setPerroId(pid);
-	                        }}
-	                      />
-	                      <span>
-	                        <b>{name}</b>
-	                        {raza ? ` · ${raza}` : ''}
-	                      </span>
-	                    </label>
-	                  );
-	                })}
-	
-	                <label className="dog-choice">
-	                  <input
-	                    type="radio"
-	                    name="dogPick"
-	                    value="__new"
-	                    checked={dogMode === 'new'}
-	                    onChange={() => {
-	                      setDogMode('new');
-	                      setDogMsg('');
-	                    }}
-	                  />
-	                  <span>Añadir un perro nuevo</span>
-	                </label>
-	              </div>
-	            </div>
-	          )}
+            {perros.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <p style={{ margin: '8px 0' }}>¿Para qué perro es la reserva?</p>
+  
+                <div className="dog-choice-list">
+                  {perros.map((p) => {
+                    const pid = String(p.id || '').trim();
+                    const name = String(p.nombre || '').trim() || 'Perro';
+                    const raza = String(p.raza || '').trim();
+  
+                    return (
+                      <label key={pid} className="dog-choice">
+                        <input
+                          type="radio"
+                          name="dogPick"
+                          value={pid}
+                          checked={dogMode === 'existing' && perroId === pid}
+                          onChange={() => {
+                            setDogMode('existing');
+                            setDogMsg('');
+                            setPerroId(pid);
+                          }}
+                        />
+                        <span>
+                          <b>{name}</b>
+                          {raza ? ` · ${raza}` : ''}
+                        </span>
+                      </label>
+                    );
+                  })}
+  
+                  <label className="dog-choice">
+                    <input
+                      type="radio"
+                      name="dogPick"
+                      value="__new"
+                      checked={dogMode === 'new'}
+                      onChange={() => {
+                        setDogMode('new');
+                        setDogMsg('');
+                      }}
+                    />
+                    <span>Añadir un perro nuevo</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
-	          {/* ====== MODO EXISTING ====== */}
-	          {dogMode === 'existing' && perros.length > 0 && (
-	            <>
-	              {!perroId && perros.length > 1 && (
-	                <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
-	                  Selecciona un perro para continuar.
-	                </p>
-	              )}
+            {/* ====== MODO EXISTING ====== */}
+            {dogMode === 'existing' && perros.length > 0 && (
+              <>
+                {!perroId && perros.length > 1 && (
+                  <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                    Selecciona un perro para continuar.
+                  </p>
+                )}
 
-	              {perroId && (
-	                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
-	                  <div>
-	                    <b>Perro:</b> {perro.nombre}
-	                    {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
-	                    {perro.castrado ? ' · castrado' : ''}
-	                  </div>
-	                  {perro.observaciones && (
-	                    <div style={{ marginTop: 4 }}>
-	                      <b>Observaciones:</b> {perro.observaciones}
-	                    </div>
-	                  )}
-	                </div>
-	              )}
+                {perroId && (
+                  <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+                    <div>
+                      <b>Perro:</b> {perro.nombre}
+                      {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
+                      {perro.castrado ? ' · castrado' : ''}
+                    </div>
+                    {perro.observaciones && (
+                      <div style={{ marginTop: 4 }}>
+                        <b>Observaciones:</b> {perro.observaciones}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-	              <div className="actions" style={{ marginTop: 10 }}>
-	                <button onClick={atras}>Atrás</button>
-	                <button
-	                  className="btn-primary"
-	                  disabled={!canContinueExistingDog}
-	                  onClick={() => setStep(3)}
-	                >
-	                  Continuar
-	                </button>
-	              </div>
-	            </>
-	          )}
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button onClick={atras}>Atrás</button>
+                  <button
+                    className="btn-primary"
+                    disabled={!canContinueExistingDog}
+                    onClick={() => setStep(3)}
+                  >
+                    Continuar
+                  </button>
+                </div>
+              </>
+            )}
 
           {/* ====== MODO NEW ====== */}
           {(dogMode === 'new' || perros.length === 0) && (

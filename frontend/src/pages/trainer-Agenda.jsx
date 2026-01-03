@@ -31,6 +31,9 @@ export default function TrainerAgenda() {
 
   const [clientes, setClientes] = useState([]);
   const [clienteId, setClienteId] = useState("");
+  const [perrosCliente, setPerrosCliente] = useState([]);
+  const [perroIds, setPerroIds] = useState([]);
+  const [perrosWarn, setPerrosWarn] = useState("");
 
   const [servicios, setServicios] = useState([]);
   const [servicioId, setServicioId] = useState("");
@@ -161,6 +164,35 @@ export default function TrainerAgenda() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+  (async () => {
+    if (!clienteId) {
+      setPerrosCliente([]);
+      setPerroIds([]);
+      setPerrosWarn("");
+      return;
+    }
+    try {
+      const r = await http(`/api/perros/user/${clienteId}`, { auth: true });
+      const arr = Array.isArray(r?.items) ? r.items : Array.isArray(r) ? r : [];
+      setPerrosCliente(arr);
+      setPerroIds([]); // reset selection on client change
+
+      if (!arr.length) {
+        setPerrosWarn("No puede crear reservas para este usuario porque no tiene ningún perro registrado.");
+      } else {
+        setPerrosWarn("");
+      }
+    } catch (e) {
+      console.error("Error cargando perros del cliente", e);
+      setPerrosCliente([]);
+      setPerroIds([]);
+      setPerrosWarn("No se pudieron cargar los perros del cliente.");
+    }
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [clienteId]);
+
   /* ======================== Crear reserva / Bloquear ============================ */
   const crearReserva = async (hora) => {
     const h = String(hora || "").trim();
@@ -175,6 +207,16 @@ export default function TrainerAgenda() {
     }
     if (!clienteId || !servicioId) {
       showError("Selecciona cliente y servicio antes de crear la reserva.");
+      return;
+    }
+
+    // Perros obligatorios: si el cliente no tiene perros, no se puede reservar
+    if (perrosCliente.length === 0) {
+      showError("No puede crear reservas para este usuario porque no tiene ningún perro registrado.");
+      return;
+    }
+    if (!perroIds.length) {
+      showError("Selecciona al menos un perro para la reserva.");
       return;
     }
 
@@ -198,6 +240,10 @@ export default function TrainerAgenda() {
           hora: h,
           modalidad,
           status: "confirmed",
+          perro: (() => {
+            const sel = perrosCliente.filter((p) => perroIds.includes(p.id));
+            return JSON.stringify(sel.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza, nacimiento: p.nacimiento })));
+          })(),
         },
       });
       showSuccess("Reserva creada.");
@@ -450,6 +496,53 @@ export default function TrainerAgenda() {
                 ))}
               </select>
             </label>
+
+<label>
+  Perros del cliente
+  {perrosWarn ? (
+    <div style={{ marginTop: 6, color: "#b83232", fontSize: 13 }}>
+      {perrosWarn}
+    </div>
+  ) : perrosCliente.length ? (
+    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {perrosCliente.map((p) => {
+        const checked = perroIds.includes(p.id);
+        return (
+          <label
+            key={p.id}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: "1px solid #e6e6e6",
+              borderRadius: 12,
+              padding: "6px 10px",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setPerroIds((prev) =>
+                  on ? Array.from(new Set([...prev, p.id])) : prev.filter((x) => x !== p.id)
+                );
+              }}
+            />
+            <span>{p.nombre}</span>
+            {p.raza ? <span style={{ opacity: 0.7 }}>({p.raza})</span> : null}
+          </label>
+        );
+      })}
+    </div>
+  ) : (
+    <div style={{ marginTop: 6, opacity: 0.7, fontSize: 13 }}>
+      Selecciona un cliente para ver sus perros.
+    </div>
+  )}
+</label>
 
             <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#6b5b51" }}>
               Servicio

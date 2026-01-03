@@ -13,6 +13,7 @@
 // FIX IMPORTANTE:
 // ✅ Soporta distintos nombres de columnas en la tabla reservas
 // ✅ Detecta tabla usuarios/users para nombres/fotos sin romper
+// ✅ Detecta columna owner en files (owner_uid / owner_id / user_id / uid)
 // ============================================================
 
 import express from "express";
@@ -27,7 +28,8 @@ const nowISO = () => new Date().toISOString();
 const getUserId = (req) => String(req.user?.id || req.user?.uid || "");
 
 // 👇 Tu rol puede venir como rol o role.
-const getUserRole = (req) => String(req.user?.rol || req.user?.role || "").toLowerCase();
+const getUserRole = (req) =>
+  String(req.user?.rol || req.user?.role || "").toLowerCase();
 
 // ============================================================
 // CONFIG
@@ -38,9 +40,29 @@ const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "pending", "pending_user"]);
 function canonStatus(raw) {
   const s = String(raw || "").toLowerCase().trim();
   if (!s) return "";
-  if (["confirmed", "confirmada", "confirmado", "aceptada", "aceptado", "pagada", "pagado", "paid"].includes(s)) return "confirmed";
+  if (
+    [
+      "confirmed",
+      "confirmada",
+      "confirmado",
+      "aceptada",
+      "aceptado",
+      "pagada",
+      "pagado",
+      "paid",
+    ].includes(s)
+  )
+    return "confirmed";
   if (["pending", "pendiente"].includes(s)) return "pending";
-  if (["pending_user", "pending-user", "pendiente_cliente", "pendiente-cliente"].includes(s)) return "pending_user";
+  if (
+    [
+      "pending_user",
+      "pending-user",
+      "pendiente_cliente",
+      "pendiente-cliente",
+    ].includes(s)
+  )
+    return "pending_user";
   if (["cancelled", "cancelada", "cancelado"].includes(s)) return "cancelled";
   if (["rejected", "rechazada", "rechazado"].includes(s)) return "rejected";
   return s;
@@ -76,10 +98,8 @@ function normalizeAttachments(input) {
 }
 
 // ============================================================
-// USERS TABLE DETECTION (usuarios / users) + column map
+// IDENT / COLUMN HELPERS
 // ============================================================
-
-let usersMetaPromise = null;
 
 function qIdent(name) {
   const s = String(name || "").trim();
@@ -95,6 +115,12 @@ function pickCol(colMap, candidates) {
   return null;
 }
 
+// ============================================================
+// USERS TABLE DETECTION (usuarios / users) + column map
+// ============================================================
+
+let usersMetaPromise = null;
+
 async function getUsersMeta() {
   if (usersMetaPromise) return usersMetaPromise;
 
@@ -103,14 +129,20 @@ async function getUsersMeta() {
       const t = await query(`
         SELECT name
         FROM sqlite_master
-        WHERE type='table' AND name IN ('usuarios','users')
-        ORDER BY CASE name WHEN 'usuarios' THEN 0 ELSE 1 END
+        WHERE type='table' AND name IN ('users','usuarios')
+        ORDER BY CASE name WHEN 'users' THEN 0 ELSE 1 END
         LIMIT 1
       `);
 
       const table = String(t?.[0]?.name || "").trim();
       if (!table) {
-        return { table: null, idCols: [], nameCol: null, emailCol: null, photoCol: null };
+        return {
+          table: null,
+          idCols: [],
+          nameCol: null,
+          emailCol: null,
+          photoCol: null,
+        };
       }
 
       const cols = await query(`PRAGMA table_info(${table})`);
@@ -125,9 +157,25 @@ async function getUsersMeta() {
       const id2 = pickCol(map, ["id"]);
       const idCols = [id1, id2].filter(Boolean);
 
-      const nameCol = pickCol(map, ["nombre", "name", "full_name", "fullname"]);
-      const emailCol = pickCol(map, ["email", "mail"]);
-      const photoCol = pickCol(map, ["foto", "photo", "avatar", "image", "picture", "photo_url"]);
+      const nameCol = pickCol(map, [
+        "nombre",
+        "name",
+        "full_name",
+        "fullname",
+        "username",
+        "user_name",
+      ]);
+      const emailCol = pickCol(map, ["email", "mail", "correo"]);
+      const photoCol = pickCol(map, [
+        "foto",
+        "photo",
+        "avatar",
+        "image",
+        "imagen",
+        "picture",
+        "photo_url",
+        "avatar_url",
+      ]);
 
       return { table, idCols, nameCol, emailCol, photoCol };
     } catch (e) {
@@ -139,23 +187,42 @@ async function getUsersMeta() {
   return usersMetaPromise;
 }
 
-function buildUserJoinOn(otherExprSql, usersMeta) {
+function buildUserJoinOnAlias(aliasName, usersMeta) {
+  // aliasName: e.g. "c.otherId" (sin placeholders)
   const table = usersMeta?.table;
   const idCols = Array.isArray(usersMeta?.idCols) ? usersMeta.idCols : [];
-  if (!table || idCols.length === 0) return { joinSql: "", selectSql: "'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl" };
+  if (!table || idCols.length === 0) {
+    return {
+      joinSql: "",
+      selectSql: `'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl`,
+    };
+  }
 
   const onParts = [];
   for (const c of idCols) {
     const qc = qIdent(c);
-    if (qc) onParts.push(`u.${qc} = ${otherExprSql}`);
+    if (qc) onParts.push(`u.${qc} = ${aliasName}`);
   }
-  if (!onParts.length) return { joinSql: "", selectSql: "'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl" };
+  if (!onParts.length) {
+    return {
+      joinSql: "",
+      selectSql: `'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl`,
+    };
+  }
 
   const nameQ = qIdent(usersMeta.nameCol);
   const emailQ = qIdent(usersMeta.emailCol);
   const photoQ = qIdent(usersMeta.photoCol);
 
-  const otherName = nameQ && emailQ ? `COALESCE(u.${nameQ}, u.${emailQ}, '')` : nameQ ? `COALESCE(u.${nameQ}, '')` : emailQ ? `COALESCE(u.${emailQ}, '')` : `''`;
+  const otherName =
+    nameQ && emailQ
+      ? `COALESCE(u.${nameQ}, u.${emailQ}, '')`
+      : nameQ
+      ? `COALESCE(u.${nameQ}, '')`
+      : emailQ
+      ? `COALESCE(u.${emailQ}, '')`
+      : `''`;
+
   const otherEmail = emailQ ? `COALESCE(u.${emailQ}, '')` : `''`;
   const otherPhoto = photoQ ? `COALESCE(u.${photoQ}, '')` : `''`;
 
@@ -168,20 +235,32 @@ function buildUserJoinOn(otherExprSql, usersMeta) {
 function buildSenderJoin(usersMeta) {
   const table = usersMeta?.table;
   const idCols = Array.isArray(usersMeta?.idCols) ? usersMeta.idCols : [];
-  if (!table || idCols.length === 0) return { joinSql: "", senderSelectSql: "'' AS senderName, '' AS senderPhotoUrl" };
+  if (!table || idCols.length === 0) {
+    return { joinSql: "", senderSelectSql: `'' AS senderName, '' AS senderPhotoUrl` };
+  }
 
   const onParts = [];
   for (const c of idCols) {
     const qc = qIdent(c);
     if (qc) onParts.push(`u.${qc} = m.sender_id`);
   }
-  if (!onParts.length) return { joinSql: "", senderSelectSql: "'' AS senderName, '' AS senderPhotoUrl" };
+  if (!onParts.length) {
+    return { joinSql: "", senderSelectSql: `'' AS senderName, '' AS senderPhotoUrl` };
+  }
 
   const nameQ = qIdent(usersMeta.nameCol);
   const emailQ = qIdent(usersMeta.emailCol);
   const photoQ = qIdent(usersMeta.photoCol);
 
-  const senderName = nameQ && emailQ ? `COALESCE(u.${nameQ}, u.${emailQ}, '')` : nameQ ? `COALESCE(u.${nameQ}, '')` : emailQ ? `COALESCE(u.${emailQ}, '')` : `''`;
+  const senderName =
+    nameQ && emailQ
+      ? `COALESCE(u.${nameQ}, u.${emailQ}, '')`
+      : nameQ
+      ? `COALESCE(u.${nameQ}, '')`
+      : emailQ
+      ? `COALESCE(u.${emailQ}, '')`
+      : `''`;
+
   const senderPhoto = photoQ ? `COALESCE(u.${photoQ}, '')` : `''`;
 
   return {
@@ -234,7 +313,11 @@ async function ensureChatSchema() {
 
     const convIdCol = convCols.find((c) => String(c.name || "").toLowerCase() === "id");
     const convIdType = String(convIdCol?.type || "").toLowerCase();
-    conversationsIdIsInteger = !!(convIdCol && Number(convIdCol.pk) === 1 && convIdType.includes("int"));
+    conversationsIdIsInteger = !!(
+      convIdCol &&
+      Number(convIdCol.pk) === 1 &&
+      convIdType.includes("int")
+    );
 
     const addConvCol = async (name, typeSql = "TEXT") => {
       if (convNames.has(name)) return;
@@ -288,11 +371,31 @@ async function ensureChatSchema() {
       }
     };
 
-    if (convNames.has("reserva_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_conversations_reserva_id ON conversations("reserva_id")`, "idx_conversations_reserva_id");
-    if (convNames.has("trainer_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_conversations_trainer ON conversations("trainer_id")`, "idx_conversations_trainer");
-    if (convNames.has("client_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_conversations_client ON conversations("client_id")`, "idx_conversations_client");
-    if (msgNames.has("conversation_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages("conversation_id")`, "idx_messages_conv");
-    if (msgNames.has("created_at")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages("created_at")`, "idx_messages_created");
+    if (convNames.has("reserva_id"))
+      await tryIndex(
+        `CREATE INDEX IF NOT EXISTS idx_conversations_reserva_id ON conversations("reserva_id")`,
+        "idx_conversations_reserva_id"
+      );
+    if (convNames.has("trainer_id"))
+      await tryIndex(
+        `CREATE INDEX IF NOT EXISTS idx_conversations_trainer ON conversations("trainer_id")`,
+        "idx_conversations_trainer"
+      );
+    if (convNames.has("client_id"))
+      await tryIndex(
+        `CREATE INDEX IF NOT EXISTS idx_conversations_client ON conversations("client_id")`,
+        "idx_conversations_client"
+      );
+    if (msgNames.has("conversation_id"))
+      await tryIndex(
+        `CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages("conversation_id")`,
+        "idx_messages_conv"
+      );
+    if (msgNames.has("created_at"))
+      await tryIndex(
+        `CREATE INDEX IF NOT EXISTS idx_messages_created ON messages("created_at")`,
+        "idx_messages_created"
+      );
   })();
 
   return schemaPromise;
@@ -305,7 +408,9 @@ async function migrateLegacyConversations() {
   legacyMigrationDone = true;
 
   try {
-    const convs = await query(`SELECT id, reserva_id, trainer_id, client_id, created_at, updated_at, last_message_at FROM conversations`);
+    const convs = await query(
+      `SELECT id, reserva_id, trainer_id, client_id, created_at, updated_at, last_message_at FROM conversations`
+    );
     if (!Array.isArray(convs) || convs.length === 0) return;
 
     const groups = new Map();
@@ -334,27 +439,35 @@ async function migrateLegacyConversations() {
       const canonicalId = String(canonical.id);
 
       if (String(canonical.reserva_id || "") !== key) {
-        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [key, nowISO(), canonicalId]);
+        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [
+          key,
+          nowISO(),
+          canonicalId,
+        ]);
       }
 
       for (const other of list) {
         const otherId = String(other.id);
         if (otherId === canonicalId) continue;
 
-        await query(`UPDATE messages SET conversation_id = ? WHERE conversation_id = ?`, [canonicalId, otherId]);
+        await query(`UPDATE messages SET conversation_id = ? WHERE conversation_id = ?`, [
+          canonicalId,
+          otherId,
+        ]);
         await query(`DELETE FROM conversations WHERE id = ?`, [otherId]);
       }
 
-      const last = await query(`SELECT body, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`, [canonicalId]);
+      const last = await query(
+        `SELECT body, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
+        [canonicalId]
+      );
       if (last.length) {
         const body = String(last[0].body || "");
         const createdAt = String(last[0].created_at || "");
-        await query(`UPDATE conversations SET last_message_at = ?, last_message_preview = ?, updated_at = ? WHERE id = ?`, [
-          createdAt || nowISO(),
-          body.slice(0, 120),
-          nowISO(),
-          canonicalId,
-        ]);
+        await query(
+          `UPDATE conversations SET last_message_at = ?, last_message_preview = ?, updated_at = ? WHERE id = ?`,
+          [createdAt || nowISO(), body.slice(0, 120), nowISO(), canonicalId]
+        );
       }
     }
   } catch (e) {
@@ -445,7 +558,14 @@ async function relationshipExists(trainerId, clientId) {
   if (!clientQ) return false;
 
   const trainerCols = [];
-  for (const cand of ["trainer_id", "trainer_uid", "entrenador_id", "entrenador_uid", "adiestrador_id", "adiestrador_uid"]) {
+  for (const cand of [
+    "trainer_id",
+    "trainer_uid",
+    "entrenador_id",
+    "entrenador_uid",
+    "adiestrador_id",
+    "adiestrador_uid",
+  ]) {
     const c = pickCol(colMap, [cand]);
     const qc = qIdent(c);
     if (qc) trainerCols.push(qc);
@@ -460,7 +580,11 @@ async function relationshipExists(trainerId, clientId) {
   const horaQ = qIdent(horaCol);
 
   const orderBy =
-    fechaQ && horaQ ? `ORDER BY ${fechaQ} DESC, ${horaQ} DESC` : fechaQ ? `ORDER BY ${fechaQ} DESC` : ``;
+    fechaQ && horaQ
+      ? `ORDER BY ${fechaQ} DESC, ${horaQ} DESC`
+      : fechaQ
+      ? `ORDER BY ${fechaQ} DESC`
+      : ``;
 
   const trainerWhere = trainerCols.map((c) => `${c} = ?`).join(" OR ");
 
@@ -496,15 +620,16 @@ async function getOrCreateConversationByPair({ trainerId, clientId }) {
 
   const ts = nowISO();
 
+  // Compat: si la tabla legacy usa id INTEGER PRIMARY KEY, no podemos insertar UUID en `id`.
   if (conversationsIdIsInteger) {
     await query(
       `
-      INSERT INTO conversations (
-        reserva_id, trainer_id, client_id,
-        created_at, updated_at, last_message_at, last_message_preview
-      )
-      VALUES (?, ?, ?, ?, ?, NULL, NULL)
-    `,
+        INSERT INTO conversations (
+          reserva_id, trainer_id, client_id,
+          created_at, updated_at, last_message_at, last_message_preview
+        )
+        VALUES (?, ?, ?, ?, ?, NULL, NULL)
+      `,
       [key, String(trainerId), String(clientId), ts, ts]
     );
 
@@ -518,12 +643,12 @@ async function getOrCreateConversationByPair({ trainerId, clientId }) {
   const convId = uuidv4();
   await query(
     `
-    INSERT INTO conversations (
-      id, reserva_id, trainer_id, client_id,
-      created_at, updated_at, last_message_at, last_message_preview
-    )
-    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
-  `,
+      INSERT INTO conversations (
+        id, reserva_id, trainer_id, client_id,
+        created_at, updated_at, last_message_at, last_message_preview
+      )
+      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
+    `,
     [convId, key, String(trainerId), String(clientId), ts, ts]
   );
 
@@ -549,10 +674,16 @@ async function restoreConversationForUser({ conversationId, userId }) {
   const ts = nowISO();
 
   if (uid && uid === trainerId && String(c.deleted_by_trainer_at || "").trim()) {
-    await query(`UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`, [ts, conversationId]);
+    await query(`UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`, [
+      ts,
+      conversationId,
+    ]);
   }
   if (uid && uid === clientId && String(c.deleted_by_client_at || "").trim()) {
-    await query(`UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`, [ts, conversationId]);
+    await query(`UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`, [
+      ts,
+      conversationId,
+    ]);
   }
 }
 
@@ -637,7 +768,7 @@ async function verifyAttachmentsOwnership({ userId, attachments }) {
 
   for (const a of attachments) {
     if (!ownerQ) {
-      const err = new Error("Tabla files sin columna de propietario (owner_uid/owner_id).");
+      const err = new Error("Tabla files sin columna de propietario (owner_uid/owner_id/user_id/uid).");
       err.status = 500;
       throw err;
     }
@@ -674,13 +805,14 @@ router.get(
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ error: "No autorizado" });
 
-      const targetUserId = isAdmin && req.query.userId ? String(req.query.userId).trim() : userId;
+      const targetUserId =
+        isAdmin && req.query.userId ? String(req.query.userId).trim() : userId;
       if (!targetUserId) return res.status(400).json({ error: "userId requerido" });
 
       const usersMeta = await getUsersMeta();
-      const otherExpr = `CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END`;
-      const { joinSql, selectSql } = buildUserJoinOn(otherExpr, usersMeta);
+      const { joinSql, selectSql } = buildUserJoinOnAlias("c.otherId", usersMeta);
 
+      // Subquery para calcular otherId SIN duplicar placeholders en el JOIN
       const rows = await query(
         `
           SELECT
@@ -690,32 +822,35 @@ router.get(
             c.last_message_at AS lastMessageAt,
             c.last_message_preview AS lastMessagePreview,
             c.updated_at AS updatedAt,
-            ${otherExpr} AS otherId,
+            c.otherId AS otherId,
             ${selectSql}
-          FROM conversations c
+          FROM (
+            SELECT
+              c.*,
+              (CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END) AS otherId
+            FROM conversations c
+            WHERE
+              (
+                c.trainer_id = ?
+                AND (c.deleted_by_trainer_at IS NULL OR c.deleted_by_trainer_at = '')
+              )
+              OR
+              (
+                c.client_id = ?
+                AND (c.deleted_by_client_at IS NULL OR c.deleted_by_client_at = '')
+              )
+          ) c
           ${joinSql}
-          WHERE
-            (
-              c.trainer_id = ?
-              AND (c.deleted_by_trainer_at IS NULL OR c.deleted_by_trainer_at = '')
-            )
-            OR
-            (
-              c.client_id = ?
-              AND (c.deleted_by_client_at IS NULL OR c.deleted_by_client_at = '')
-            )
           ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
           LIMIT 100
         `,
-        // params: otherExpr uses "?" once, and join uses same otherExpr again inside ON
-        // but the SQL has otherExpr only where written; we pass same value for that "?"
         [targetUserId, targetUserId, targetUserId]
       );
 
-      res.json({ items: rows });
+      return res.json({ items: rows });
     } catch (e) {
       console.error("GET /api/chats error:", e);
-      res.status(500).json({ error: "No se pudieron cargar los chats" });
+      return res.status(500).json({ error: "No se pudieron cargar los chats" });
     }
   }
 );
@@ -744,9 +879,17 @@ router.post(
       const idQ = qIdent(idCol);
       const clientQ = qIdent(clientCol);
 
-      if (!idQ) return res.status(500).json({ error: "Tabla reservas sin columna id (o reserva_id)" });
-      if (!trainerExpr) return res.status(500).json({ error: "Tabla reservas sin columnas de entrenador (trainer_id / entrenador_id / adiestrador_id)" });
-      if (!clientQ) return res.status(500).json({ error: "Tabla reservas sin columna de cliente (uid / user_id / cliente_id / client_id)" });
+      if (!idQ)
+        return res.status(500).json({ error: "Tabla reservas sin columna id (o reserva_id)" });
+      if (!trainerExpr)
+        return res.status(500).json({
+          error:
+            "Tabla reservas sin columnas de entrenador (trainer_id / entrenador_id / adiestrador_id)",
+        });
+      if (!clientQ)
+        return res.status(500).json({
+          error: "Tabla reservas sin columna de cliente (uid / user_id / cliente_id / client_id)",
+        });
 
       const statusSel = statusExpr ? `${statusExpr} AS status` : `NULL AS status`;
 
@@ -769,13 +912,20 @@ router.post(
       const r = rr[0];
       const status = normStatus(r.status);
       if (status && !CHAT_ALLOWED_STATUSES.has(status)) {
-        return res.status(403).json({ error: "Chat no disponible para el estado actual de la reserva", status });
+        return res.status(403).json({
+          error: "Chat no disponible para el estado actual de la reserva",
+          status,
+        });
       }
 
       const clientId = String(r.clientId || "").trim();
       const trainerId = String(r.trainerId || "").trim();
       if (!clientId || !trainerId) {
-        return res.status(400).json({ error: "Reserva incompleta (faltan participantes)", clientId: !!clientId, trainerId: !!trainerId });
+        return res.status(400).json({
+          error: "Reserva incompleta (faltan participantes)",
+          clientId: !!clientId,
+          trainerId: !!trainerId,
+        });
       }
 
       const isAdmin = getUserRole(req) === "admin";
@@ -789,7 +939,7 @@ router.post(
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-reserva/:reservaId error:", e);
-      res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
+      return res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
     }
   }
 );
@@ -824,7 +974,7 @@ router.post(
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-trainer/:trainerId error:", e);
-      res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
+      return res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
     }
   }
 );
@@ -859,7 +1009,7 @@ router.post(
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-client/:clientId error:", e);
-      res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
+      return res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
     }
   }
 );
@@ -893,16 +1043,24 @@ router.delete(
 
       const ts = nowISO();
       if (String(userId) === String(trainerId)) {
-        await query(`UPDATE conversations SET deleted_by_trainer_at = ?, updated_at = ? WHERE id = ?`, [ts, ts, conversationId]);
+        await query(`UPDATE conversations SET deleted_by_trainer_at = ?, updated_at = ? WHERE id = ?`, [
+          ts,
+          ts,
+          conversationId,
+        ]);
       } else if (String(userId) === String(clientId)) {
-        await query(`UPDATE conversations SET deleted_by_client_at = ?, updated_at = ? WHERE id = ?`, [ts, ts, conversationId]);
+        await query(`UPDATE conversations SET deleted_by_client_at = ?, updated_at = ? WHERE id = ?`, [
+          ts,
+          ts,
+          conversationId,
+        ]);
       }
 
       return res.json({ ok: true });
     } catch (e) {
       const st = e?.status || 500;
       console.error("DELETE /api/chats/:conversationId error:", e);
-      res.status(st).json({ error: e?.message || "No se pudo borrar el chat" });
+      return res.status(st).json({ error: e?.message || "No se pudo borrar el chat" });
     }
   }
 );
@@ -970,14 +1128,14 @@ router.get(
         attachments: m.attachments ? safeJsonParse(m.attachments, []) : [],
       }));
 
-      res.json({
+      return res.json({
         items,
         nextBefore: rows.length ? rows[rows.length - 1].createdAt : null,
       });
     } catch (e) {
       const st = e?.status || 500;
       console.error("GET /api/chats/:conversationId/messages error:", e);
-      res.status(st).json({ error: e?.message || "No se pudieron cargar mensajes" });
+      return res.status(st).json({ error: e?.message || "No se pudieron cargar mensajes" });
     }
   }
 );
@@ -999,7 +1157,8 @@ router.post(
       const bodyTrim = body.trim();
 
       if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
-      if (!bodyTrim && attachments.length === 0) return res.status(400).json({ error: "Mensaje vacío" });
+      if (!bodyTrim && attachments.length === 0)
+        return res.status(400).json({ error: "Mensaje vacío" });
 
       await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
       await verifyAttachmentsOwnership({ userId, attachments });
@@ -1009,6 +1168,7 @@ router.post(
 
       let msgId = null;
 
+      // Compat: messages legacy con id INTEGER PRIMARY KEY
       if (messagesIdIsInteger) {
         await query(
           `
@@ -1055,11 +1215,11 @@ router.post(
         [ts, ts, preview, conversationId]
       );
 
-      res.json({ ok: true, messageId: msgId, createdAt: ts });
+      return res.json({ ok: true, messageId: msgId, createdAt: ts });
     } catch (e) {
       const st = e?.status || 500;
       console.error("POST /api/chats/:conversationId/messages error:", e);
-      res.status(st).json({ error: e?.message || "No se pudo enviar el mensaje" });
+      return res.status(st).json({ error: e?.message || "No se pudo enviar el mensaje" });
     }
   }
 );

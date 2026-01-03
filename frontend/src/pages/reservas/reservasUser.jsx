@@ -56,6 +56,9 @@ function renderPerro(perro) {
       return perro;
     }
   }
+  if (Array.isArray(perro)) {
+    return perro.map((p) => renderPerro(p)).filter(Boolean).join(", ");
+  }
   if (typeof perro === "object") {
     const nombre = perro.nombre || perro.name;
     const raza = perro.razaTamaño || perro.raza || "";
