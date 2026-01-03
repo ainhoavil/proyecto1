@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { http } from "../helpers/http";
-import { HOURS, humanDate } from "../helpers/reservas";
-import { useAuth } from "../context/auth";
+import { HOURS, humanDate, canonStatus, serverErrMsg } from "../helpers/reservas";
 import "../styles/contratar.scss";
 
 function todayYMD() {
@@ -10,17 +9,17 @@ function todayYMD() {
 }
 
 function statusLabel(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "pending" || s === "pendiente") return "Pendiente (centro)";
+  const s = canonStatus(status);
+  if (s === "pending") return "Pendiente (centro)";
   if (s === "pending_user") return "Pendiente (cliente)";
-  if (s === "confirmed" || s === "confirmada") return "Confirmada";
-  if (s === "cancelled" || s === "cancelada") return "Cancelada";
-  if (s === "rejected" || s === "rechazada") return "Rechazada";
+  if (s === "confirmed") return "Confirmada";
+  if (s === "cancelled") return "Cancelada";
+  if (s === "rejected") return "Rechazada";
+  if (s === "deleted") return "Eliminada";
   return s || "Estado";
 }
 
 export default function TrainerAgenda() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -40,6 +39,7 @@ export default function TrainerAgenda() {
 
   // Modo de click en slots
   const [mode, setMode] = useState("create"); // "create" | "block"
+  const [selectedHora, setSelectedHora] = useState(""); // "HH:MM" seleccionado en el panel de horas
 
   // ✅ Inbox / list de reservas del adiestrador
   const [misReservas, setMisReservas] = useState([]);
@@ -48,39 +48,21 @@ export default function TrainerAgenda() {
   // ✅ Chat
   const [openingChatId, setOpeningChatId] = useState(null);
 
+  // Avisos
   const [notice, setNotice] = useState({ type: "", text: "" });
-  const showError = (t) => setNotice({ type: "error", text: t });
-  const showSuccess = (t) => setNotice({ type: "success", text: t });
+
+  const showError = (text) => setNotice({ type: "error", text });
+  const showSuccess = (text) => setNotice({ type: "success", text });
   const clearNotice = () => setNotice({ type: "", text: "" });
 
-  /* ======================== Cargar base ============================ */
+  /* ======================== Cargar selects ============================ */
   useEffect(() => {
     let alive = true;
 
-    const loadClientes = async () => {
-      try {
-        const r = await http("/api/trainers/me/clients", { auth: true });
-        const arr = Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
-        if (!alive) return;
-        setClientes(arr);
-
-        const qsCliente = searchParams.get("cliente");
-        if (qsCliente && arr.some((c) => String(c.id) === String(qsCliente))) {
-          setClienteId(String(qsCliente));
-          return;
-        }
-
-        if (!clienteId && arr.length) setClienteId(String(arr[0].id));
-      } catch (e) {
-        if (!alive) return;
-        setClientes([]);
-      }
-    };
-
     const loadServicios = async () => {
       try {
-        const r = await http("/api/servicios", { auth: true });
-        const arr = Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
+        const s = await http("/api/servicios", { auth: true });
+        const arr = Array.isArray(s) ? s : Array.isArray(s?.items) ? s.items : [];
         if (!alive) return;
         setServicios(arr);
         if (!servicioId && arr.length) setServicioId(String(arr[0].id));
@@ -90,8 +72,30 @@ export default function TrainerAgenda() {
       }
     };
 
-    loadClientes();
-    loadServicios();
+    const loadClientes = async () => {
+      try {
+        const r = await http("/api/trainers/me/clients", { auth: true });
+        const arr = Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
+        if (!alive) return;
+        setClientes(arr);
+
+        const qsCliente = searchParams.get("cliente");
+        if (qsCliente) {
+          setClienteId(String(qsCliente));
+        } else if (!clienteId && arr.length) {
+          setClienteId(String(arr[0].id));
+        }
+      } catch (e) {
+        if (!alive) return;
+        setClientes([]);
+      }
+    };
+
+    const bootstrap = async () => {
+      await Promise.all([loadServicios(), loadClientes()]);
+    };
+
+    bootstrap();
 
     return () => {
       alive = false;
@@ -118,7 +122,6 @@ export default function TrainerAgenda() {
       const arr = Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
       setBloqueosDia(arr.map((b) => String(b?.hora || "")).filter(Boolean));
     } catch (e) {
-      // si el backend no tiene el endpoint, lo veremos aquí
       setBloqueosDia([]);
       showError("No se pudieron cargar los bloqueos del día.");
     }
@@ -134,6 +137,11 @@ export default function TrainerAgenda() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha]);
 
+  useEffect(() => {
+    // Al cambiar fecha o modo, limpiamos selección de hora
+    setSelectedHora("");
+  }, [fecha, mode]);
+
   /* ======================== Mis reservas (inbox) ============================ */
   const loadMisReservas = async () => {
     setLoadingMisReservas(true);
@@ -143,7 +151,6 @@ export default function TrainerAgenda() {
     } catch (e) {
       console.error("Error cargando mis reservas (trainer):", e);
       setMisReservas([]);
-      showError("No se pudieron cargar tus reservas como adiestrador.");
     } finally {
       setLoadingMisReservas(false);
     }
@@ -154,10 +161,29 @@ export default function TrainerAgenda() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ======================== Acciones ============================ */
+  /* ======================== Crear reserva / Bloquear ============================ */
   const crearReserva = async (hora) => {
-    if (!clienteId || !servicioId || !fecha) {
+    const h = String(hora || "").trim();
+
+    if (!fecha) {
+      showError("Selecciona una fecha.");
+      return;
+    }
+    if (!h) {
+      showError("Selecciona una hora.");
+      return;
+    }
+    if (!clienteId || !servicioId) {
       showError("Selecciona cliente y servicio antes de crear la reserva.");
+      return;
+    }
+
+    if (bloqueosDia.includes(h)) {
+      showError("Esa hora está bloqueada. Desbloquéala para poder reservar.");
+      return;
+    }
+    if (reservaPorHora(h)) {
+      showError("Esa hora ya tiene una reserva.");
       return;
     }
 
@@ -169,21 +195,23 @@ export default function TrainerAgenda() {
           clienteId,
           servicioId,
           fecha,
-          hora,
+          hora: h,
           modalidad,
           status: "confirmed",
         },
       });
       showSuccess("Reserva creada.");
+      setSelectedHora("");
       await refreshDia(fecha);
       await loadMisReservas();
     } catch (e) {
       console.error("Error creando reserva:", e);
-      showError("No se pudo crear la reserva.");
+      showError(serverErrMsg(e, "No se pudo crear la reserva."));
     }
   };
 
   const bloquearHora = async (hora) => {
+    if (!fecha || !hora) return;
     try {
       await http("/api/bloqueos", {
         method: "POST",
@@ -193,11 +221,12 @@ export default function TrainerAgenda() {
       await loadBloqueosDia(fecha);
     } catch (e) {
       console.error("Error bloqueando:", e);
-      showError("No se pudo bloquear la hora.");
+      showError(serverErrMsg(e, "No se pudo bloquear la hora."));
     }
   };
 
   const desbloquearHora = async (hora) => {
+    if (!fecha || !hora) return;
     try {
       await http("/api/bloqueos", {
         method: "DELETE",
@@ -207,15 +236,15 @@ export default function TrainerAgenda() {
       await loadBloqueosDia(fecha);
     } catch (e) {
       console.error("Error desbloqueando:", e);
-      showError("No se pudo desbloquear la hora.");
+      showError(serverErrMsg(e, "No se pudo desbloquear la hora."));
     }
   };
 
   const reservaPorHora = (hora) => reservasDia.find((r) => String(r.hora) === String(hora));
 
   const puedeChat = (status) => {
-    const s = String(status || "").toLowerCase();
-    return s === "confirmed" || s === "confirmada" || s === "pending_user" || s === "pending";
+    const s = canonStatus(status);
+    return s === "confirmed" || s === "pending_user" || s === "pending";
   };
 
   const handleOpenChat = async (reserva) => {
@@ -239,31 +268,45 @@ export default function TrainerAgenda() {
       navigate(`/chat/${conversationId}`);
     } catch (e) {
       console.error("Error abriendo chat:", e);
-      showError("No se pudo abrir el chat para esta reserva.");
+      showError(serverErrMsg(e, "No se pudo abrir el chat."));
     } finally {
       setOpeningChatId(null);
     }
   };
 
-  const onSlotClick = async (hora, { bloqueada }) => {
+  const onSlotClick = async (hora) => {
     clearNotice();
+    const h = String(hora || "").trim();
     if (!fecha) {
       showError("Selecciona una fecha.");
       return;
     }
 
-    if (mode === "create") {
-      if (bloqueada) {
-        showError("Esa hora está bloqueada. Desbloquéala para poder reservar.");
+    const bloqueada = bloqueosDia.includes(h);
+    const r = reservaPorHora(h);
+
+    if (mode === "block") {
+      if (r) {
+        showError("No puedes bloquear una hora que ya tiene una reserva.");
         return;
       }
-      await crearReserva(hora);
+      setSelectedHora(h);
+      if (bloqueada) await desbloquearHora(h);
+      else await bloquearHora(h);
       return;
     }
 
-    // mode === "block"
-    if (bloqueada) await desbloquearHora(hora);
-    else await bloquearHora(hora);
+    // mode === "create": solo selecciona hora (la creación se hace con el botón).
+    if (r) {
+      showError("Esa hora ya tiene una reserva.");
+      return;
+    }
+    if (bloqueada) {
+      showError("Esa hora está bloqueada. Desbloquéala para poder reservar.");
+      return;
+    }
+
+    setSelectedHora((prev) => (prev === h ? "" : h));
   };
 
   const misReservasOrdenadas = useMemo(() => {
@@ -277,335 +320,401 @@ export default function TrainerAgenda() {
   }, [misReservas]);
 
   /* ======================== Render ============================ */
-  return (
-    <div className="reservas-page">
-      {notice.text && <div className={`notice ${notice.type}`}>{notice.text}</div>}
 
-      {/* ================= MIS RESERVAS (INBOX) ================= */}
-      <section style={{ marginBottom: 18 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0 }}>Mis reservas (adiestrador)</h3>
-            <p style={{ margin: "6px 0 0", opacity: 0.7 }}>{user?.email}</p>
-          </div>
+  const noticeStyle = useMemo(() => {
+    if (!notice.text) return null;
+    const base = {
+      marginBottom: 14,
+      padding: "10px 14px",
+      borderRadius: 10,
+      fontSize: 14,
+      border: "1px solid transparent",
+    };
+    if (notice.type === "success") {
+      return {
+        ...base,
+        backgroundColor: "#e6f6eb",
+        borderColor: "#7ac69b",
+        color: "#22623d",
+      };
+    }
+    return {
+      ...base,
+      backgroundColor: "#fde8e8",
+      borderColor: "#f39b9b",
+      color: "#9c1b1b",
+    };
+  }, [notice.text, notice.type]);
+
+  const servicioTitleById = useMemo(() => {
+    const m = new Map();
+    const arr = Array.isArray(servicios) ? servicios : [];
+    for (const s of arr) {
+      const id = s?.id;
+      if (id === undefined || id === null) continue;
+      const label = s?.title || s?.titulo || s?.nombre || s?.name || String(id);
+      m.set(String(id), String(label));
+    }
+    return m;
+  }, [servicios]);
+
+  const getServicioTitulo = (r) => {
+    if (!r) return "Servicio";
+    const direct = r.servicioTitulo || r.tituloServicio || r.serviceTitle || "";
+    if (direct) return String(direct);
+    const sid = r.servicioId || r.servicio_id || r.serviceId || "";
+    if (sid && servicioTitleById.has(String(sid))) return servicioTitleById.get(String(sid));
+    return "Servicio";
+  };
+
+  const fechaLabel = fecha ? humanDate(fecha) : "";
+  const canCrear = mode === "create" && !!selectedHora && !!clienteId && !!servicioId && !!fecha;
+
+  return (
+    <div>
+      {notice.text && <div style={noticeStyle}>{notice.text}</div>}
+
+      {/* ================= CONTROLES PRINCIPALES ================= */}
+      <div
+        style={{
+          display: "flex",
+          gap: 12,
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          marginBottom: 14,
+        }}
+      >
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#7b5b45" }}>
+          Fecha
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+            style={{
+              borderRadius: 10,
+              border: "1px solid #e0d4c8",
+              padding: "8px 10px",
+              fontSize: 13,
+              backgroundColor: "#fff7f0",
+              outline: "none",
+            }}
+          />
+        </label>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <button
-            className="btn-ghost"
             type="button"
-            onClick={loadMisReservas}
-            disabled={loadingMisReservas}
+            className={mode === "create" ? "btn-primary" : "btn-outline"}
+            onClick={() => setMode("create")}
           >
-            {loadingMisReservas ? "Actualizando…" : "Actualizar"}
+            Reservar
+          </button>
+          <button
+            type="button"
+            className={mode === "block" ? "btn-primary" : "btn-outline"}
+            onClick={() => setMode("block")}
+          >
+            Bloquear
+          </button>
+          <button type="button" className="btn-ghost" onClick={() => refreshDia(fecha)}>
+            Actualizar
           </button>
         </div>
+      </div>
 
-        {loadingMisReservas ? (
-          <div className="card" style={{ marginTop: 10 }}>
-            Cargando tus reservas…
-          </div>
-        ) : misReservasOrdenadas.length === 0 ? (
-          <div className="card" style={{ marginTop: 10 }}>
-            No tienes reservas asignadas todavía.
-          </div>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              marginTop: 10,
-            }}
-          >
-            {misReservasOrdenadas.map((r) => (
-              <div key={r.id} className="card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 900 }}>
-                      {r.servicioTitulo || r.servicioId || "Reserva"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 14 }}>
-                      <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{" "}
-                      {r.modalidad ? (
-                        <>
-                          · <i>{r.modalidad}</i>
-                        </>
-                      ) : null}
-                    </div>
-                    {r.email && (
-                      <div style={{ marginTop: 2, fontSize: 13, opacity: 0.9 }}>
-                        <b>Cliente:</b> {r.email}
-                      </div>
-                    )}
-                    {r.adminNote && (
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-                        <b>Nota:</b> {r.adminNote}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>Estado</div>
-                    <div style={{ fontWeight: 800 }}>{statusLabel(r.status)}</div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    onClick={() => handleOpenChat(r)}
-                    disabled={!puedeChat(r.status) || openingChatId === r.id}
-                    title={!puedeChat(r.status) ? "Chat no disponible para este estado" : "Abrir chat"}
-                  >
-                    {openingChatId === r.id ? "Abriendo chat…" : "💬 Abrir chat"}
-                  </button>
-
-                  {r.fecha && (
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => setFecha(String(r.fecha).slice(0, 10))}
-                    >
-                      Ver en agenda
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ================= AGENDA DIARIA (CREAR / BLOQUEAR) ================= */}
-      <section>
+      {/* ================= FORMULARIO RESERVA MANUAL ================= */}
+      {mode === "create" && (
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 16,
-            flexWrap: "wrap",
+            background: "#fffdfb",
+            border: "1px solid #f3d8c6",
+            borderRadius: 16,
+            padding: 12,
+            marginBottom: 12,
           }}
         >
-          <div>
-            <h3 style={{ margin: 0 }}>Agenda diaria</h3>
-            <p style={{ margin: "6px 0 0", opacity: 0.8 }}>{humanDate(fecha)}</p>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#3b281c", marginBottom: 10 }}>
+            Reserva manual
           </div>
 
-          <div style={{ display: "grid", gap: 10, minWidth: 280 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.8 }}>Fecha</span>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  type="date"
-                  value={fecha}
-                  onChange={(e) => setFecha(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button className="btn-ghost" type="button" onClick={() => setFecha(todayYMD())}>
-                  Hoy
-                </button>
-                <button className="btn-ghost" type="button" onClick={() => refreshDia(fecha)}>
-                  Actualizar
-                </button>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        {/* selector modo */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-            marginTop: 14,
-          }}
-        >
-          <div style={{ opacity: 0.85 }}>
-            <b>Click en hora:</b>{" "}
-            {mode === "create" ? "crear reserva (hora libre)" : "bloquear / desbloquear"}
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className={mode === "create" ? "btn-primary" : "btn-ghost"}
-              onClick={() => setMode("create")}
-            >
-              Crear reserva
-            </button>
-            <button
-              type="button"
-              className={mode === "block" ? "btn-primary" : "btn-ghost"}
-              onClick={() => setMode("block")}
-            >
-              Bloquear
-            </button>
-          </div>
-        </div>
-
-        {/* formulario (solo para crear) */}
-        <div style={{ marginTop: 14 }}>
-          <div
-            style={{
-              display: "grid",
-              gap: 12,
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            }}
-          >
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.8 }}>Cliente</span>
-              <select
-                value={clienteId}
-                onChange={(e) => setClienteId(e.target.value)}
-                disabled={mode !== "create"}
-              >
-                <option value="">— Selecciona cliente —</option>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#6b5b51" }}>
+              Cliente
+              <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+                <option value="">Selecciona cliente</option>
                 {clientes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.displayName || c.nombre || c.email || c.id}
+                  <option key={c.id || c.email} value={String(c.id || "")}>
+                    {c.displayName || c.nombre || c.name || c.email || `Cliente ${c.id}`}
                   </option>
                 ))}
               </select>
             </label>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.8 }}>Servicio</span>
-              <select
-                value={servicioId}
-                onChange={(e) => setServicioId(e.target.value)}
-                disabled={mode !== "create"}
-              >
-                <option value="">— Selecciona servicio —</option>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#6b5b51" }}>
+              Servicio
+              <select value={servicioId} onChange={(e) => setServicioId(e.target.value)}>
+                <option value="">Selecciona servicio</option>
                 {servicios.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title || s.titulo || s.nombre || s.name || s.id}
+                  <option key={s.id} value={String(s.id)}>
+                    {s.title || s.titulo || s.nombre || s.name || String(s.id)}
                   </option>
                 ))}
               </select>
             </label>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.8 }}>Modalidad</span>
-              <select
-                value={modalidad}
-                onChange={(e) => setModalidad(e.target.value)}
-                disabled={mode !== "create"}
-              >
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#6b5b51" }}>
+              Modalidad
+              <select value={modalidad} onChange={(e) => setModalidad(e.target.value)}>
                 <option value="presencial">Presencial</option>
                 <option value="online">Online</option>
                 <option value="a domicilio">A domicilio</option>
               </select>
             </label>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#6b5b51" }}>
+              Hora seleccionada
+              <div
+                style={{
+                  borderRadius: 10,
+                  border: "1px solid #e0d4c8",
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  backgroundColor: "#fff7f0",
+                  color: selectedHora ? "#3a312b" : "#a08168",
+                }}
+              >
+                {selectedHora || "—"}
+              </div>
+            </div>
           </div>
 
-          <p style={{ marginTop: 10, opacity: 0.8, fontSize: 13 }}>
-            {mode === "create"
-              ? "Modo Crear reserva: haz click en una hora libre para crear la reserva con el cliente/servicio seleccionados."
-              : "Modo Bloquear: haz click en una hora libre para bloquearla o en una bloqueada para desbloquearla."}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!canCrear}
+              onClick={() => crearReserva(selectedHora)}
+            >
+              Crear reserva
+            </button>
+          </div>
+
+          <p className="hint" style={{ marginTop: 8 }}>
+            Selecciona una hora libre abajo y después pulsa “Crear reserva”.
           </p>
         </div>
+      )}
 
-        {/* grid horas */}
-        <div
-          style={{
-            display: "grid",
-            gap: 12,
-            marginTop: 10,
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          }}
-        >
+      {mode === "block" && (
+        <p className="hint" style={{ marginBottom: 12 }}>
+          Toca una hora para bloquearla o desbloquearla. No se pueden bloquear horas con reserva.
+        </p>
+      )}
+
+      {/* ================= PANEL DE HORAS ================= */}
+      <div className="slots-panel">
+        <div className="slots-title">
+          {mode === "create" ? `Horas disponibles — ${fechaLabel}` : `Bloqueos — ${fechaLabel}`}
+        </div>
+
+        <div className="slots-grid">
           {HOURS.map((h) => {
-            const hora = typeof h === "number" ? `${String(h).padStart(2, "0")}:00` : String(h);
-            const reserva = reservaPorHora(hora);
+            const hh = String(h).padStart(2, "0");
+            const hora = `${hh}:00`;
+            const r = reservaPorHora(hora);
             const bloqueada = bloqueosDia.includes(hora);
 
-            if (reserva) {
-              return (
-                <div
-                  key={hora}
-                  className="card"
-                  style={{
-                    padding: 12,
-                    border: "1px solid #f0c5a9",
-                    background: "#fff",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ fontWeight: 900 }}>{reserva.servicioTitulo || "Servicio"}</div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>Estado</div>
-                      <div style={{ fontWeight: 800 }}>{statusLabel(reserva.status)}</div>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                    <b>Fecha:</b> {reserva.fecha} · <b>Hora:</b> {reserva.hora}
-                    {reserva.modalidad ? (
-                      <>
-                        {" "}· <i>{reserva.modalidad}</i>
-                      </>
-                    ) : null}
-                  </div>
-                  <div style={{ marginTop: 4, fontSize: 13, opacity: 0.9 }}>
-                    <b>Cliente:</b>{" "}
-                    {reserva.clienteNombre || reserva.clienteEmail || reserva.email || "—"}
-                  </div>
+            const isDisabled = mode === "create" ? !!r || bloqueada : !!r;
+            const cls = `slot ${selectedHora === hora ? "active" : ""} ${
+              !!r || (mode === "create" && bloqueada) ? "busy" : ""
+            }`;
 
-                  <div style={{ marginTop: 10 }}>
-                    <button
-                      className="btn-primary"
-                      type="button"
-                      onClick={() => handleOpenChat(reserva)}
-                      disabled={!puedeChat(reserva.status) || openingChatId === reserva.id}
-                      style={{ width: "100%" }}
-                    >
-                      {openingChatId === reserva.id ? "Abriendo…" : "💬 Abrir chat"}
-                    </button>
-                  </div>
-                </div>
-              );
-            }
+            const style =
+              bloqueada && mode !== "create"
+                ? { backgroundColor: "#fff3f3", borderColor: "#f39b9b", color: "#b83232" }
+                : undefined;
 
-            // slot libre o bloqueado
-            const label = bloqueada
-              ? mode === "block"
-                ? "Bloqueada · click para desbloquear"
-                : "Bloqueada"
+            const title = !!r
+              ? "Ocupada (hay una reserva)"
+              : bloqueada
+              ? mode === "create"
+                ? "Bloqueada"
+                : "Bloqueada (click para desbloquear)"
               : mode === "create"
-              ? "Libre · crear reserva"
-              : "Libre · bloquear";
+              ? "Libre (click para seleccionar)"
+              : "Libre (click para bloquear)";
 
             return (
               <button
                 key={hora}
                 type="button"
-                className="card"
-                onClick={() => onSlotClick(hora, { bloqueada })}
-                style={{
-                  textAlign: "left",
-                  padding: 12,
-                  cursor: "pointer",
-                  border: `1px solid ${bloqueada ? "#f5b4b4" : "#f0c5a9"}`,
-                  background: bloqueada ? "#fff5f5" : "#fff",
-                }}
+                className={cls}
+                style={style}
+                disabled={isDisabled}
+                title={title}
+                onClick={() => onSlotClick(hora)}
               >
-                <div style={{ fontWeight: 900, fontSize: 18 }}>{hora.slice(0, 2)}</div>
-                <div style={{ marginTop: 4, opacity: 0.85 }}>{label}</div>
+                {hora}
               </button>
             );
           })}
         </div>
+
+        <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
+          Horas tachadas: ocupadas o bloqueadas (en modo reservar).
+        </p>
+      </div>
+
+      {/* ================= RESERVAS DEL DÍA ================= */}
+      <section className="reservas-section">
+        <h2>Reservas del día</h2>
+
+        {Array.isArray(reservasDia) && reservasDia.length ? (
+          <div className="reservas-list reservas-list--day">
+            {reservasDia.map((r) => {
+              const statusCanon = canonStatus(r.status || "");
+              const sKeyRaw = statusCanon || String(r.status || "").toLowerCase();
+              const sKey = sKeyRaw.replaceAll("_", "-");
+              const badgeCls = `badge badge-${sKey}`;
+              const cliente = r.clienteNombre || r.clienteEmail || "Cliente";
+              const servicio = getServicioTitulo(r);
+
+              return (
+                <div
+                  key={r.id}
+                  style={{
+                    background: "#fff7f0",
+                    border: "1px solid #f0d7c7",
+                    borderRadius: 16,
+                    padding: 12,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontWeight: 700, color: "#3a312b" }}>
+                        {r.hora} · {servicio}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
+                        {cliente} · {r.modalidad || "presencial"}
+                      </div>
+                    </div>
+                    <span className={badgeCls}>{statusLabel(r.status)}</span>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={!puedeChat(r.status) || openingChatId === r.id}
+                      onClick={() => handleOpenChat(r)}
+                    >
+                      {openingChatId === r.id ? "Abriendo chat…" : "Abrir chat"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="reservas-empty">No hay reservas para este día.</p>
+        )}
       </section>
+
+      {/* ================= BLOQUEOS DEL DÍA ================= */}
+      <section className="reservas-section">
+        <h2>Bloqueos del día</h2>
+        {bloqueosDia.length ? (
+          <div className="slots-grid" style={{ marginTop: 8 }}>
+            {bloqueosDia.map((h) => (
+              <span
+                key={h}
+                className="slot"
+                style={{ backgroundColor: "#fff3f3", borderColor: "#f39b9b", color: "#b83232", cursor: "default" }}
+              >
+                {h}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="reservas-empty">No hay bloqueos para este día.</p>
+        )}
+      </section>
+
+      {/* ================= HISTÓRICO (MIS RESERVAS) ================= */}
+      <details style={{ marginTop: 18 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, color: "#7b5b45" }}>
+          Mis reservas (histórico)
+        </summary>
+
+        <div style={{ marginTop: 10 }}>
+          {loadingMisReservas ? (
+            <p style={{ fontSize: 13, color: "#8f6b53" }}>Cargando…</p>
+          ) : misReservasOrdenadas.length ? (
+            <div>
+              {misReservasOrdenadas.slice(0, 50).map((r) => {
+                const statusCanon = canonStatus(r.status || "");
+                const badgeRaw = (statusCanon || String(r.status || "").toLowerCase()).replaceAll("_", "-");
+                const badgeCls = `badge badge-${badgeRaw}`;
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      background: "#fff7f0",
+                      border: "1px solid #f0d7c7",
+                      borderRadius: 16,
+                      padding: 12,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: "#3a312b" }}>
+                          {r.fecha} · {r.hora} · {getServicioTitulo(r)}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
+                          {r.email || "—"}
+                        </div>
+                      </div>
+                      <span className={badgeCls}>{statusLabel(r.status)}</span>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                      <button
+                        className="btn-primary"
+                        type="button"
+                        disabled={!puedeChat(r.status) || openingChatId === r.id}
+                        onClick={() => handleOpenChat(r)}
+                      >
+                        {openingChatId === r.id ? "Abriendo chat…" : "Abrir chat"}
+                      </button>
+
+                      {r.fecha && (
+                        <button
+                          className="btn-ghost"
+                          type="button"
+                          onClick={() => setFecha(String(r.fecha).slice(0, 10))}
+                        >
+                          Ver en agenda
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {misReservasOrdenadas.length > 50 && (
+                <p style={{ fontSize: 12, color: "#a08168" }}>
+                  Mostrando 50 de {misReservasOrdenadas.length}.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: "#8f6b53" }}>No hay reservas.</p>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

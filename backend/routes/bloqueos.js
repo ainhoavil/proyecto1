@@ -22,6 +22,19 @@ function pickTrainerId(req) {
   return String(id || "");
 }
 
+function normHora(h) {
+  const s = String(h || "").trim();
+  // admite "HH:MM" o "HH:MM:SS"
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(s)) return s.slice(0, 5);
+  // admite "9:00" -> "09:00"
+  if (/^\d{1}:\d{2}$/.test(s)) return `0${s}`;
+  return s;
+}
+
+function normFecha(f) {
+  return String(f || "").trim().slice(0, 10);
+}
+
 /**
  * GET /api/bloqueos/day?fecha=YYYY-MM-DD
  * Devuelve bloqueos del día (por trainer si existe trainer_id en tabla; si no, global).
@@ -32,7 +45,7 @@ router.get(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const { fecha } = req.query;
+      const fecha = normFecha(req.query?.fecha);
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
 
       const cols = await getBloqueosCols();
@@ -43,7 +56,7 @@ router.get(
       if (hasId) selectCols.push("id");
       selectCols.push("fecha", "hora");
 
-      const params = [String(fecha)];
+      const params = [fecha];
       let sql = `SELECT ${selectCols.join(", ")} FROM bloqueos WHERE fecha = ?`;
 
       if (hasTrainer) {
@@ -75,7 +88,8 @@ router.post(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const { fecha, hora } = req.body || {};
+      const fecha = normFecha(req.body?.fecha);
+      const hora = normHora(req.body?.hora);
       if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha/hora" });
 
       const cols = await getBloqueosCols();
@@ -87,7 +101,7 @@ router.post(
       if (hasTrainer && !trainerId) return res.status(401).json({ error: "No autorizado" });
 
       // evitar duplicados
-      const dupParams = [String(fecha), String(hora)];
+      const dupParams = [fecha, hora];
       let dupSql = "SELECT 1 FROM bloqueos WHERE fecha = ? AND hora = ?";
       if (hasTrainer) {
         dupSql += " AND trainer_id = ?";
@@ -108,11 +122,11 @@ router.post(
 
       insertCols.push("fecha");
       values.push("?");
-      params.push(String(fecha));
+      params.push(fecha);
 
       insertCols.push("hora");
       values.push("?");
-      params.push(String(hora));
+      params.push(hora);
 
       if (hasTrainer) {
         insertCols.push("trainer_id");
@@ -142,6 +156,7 @@ router.post(
 /**
  * DELETE /api/bloqueos
  * Body: { fecha, hora }
+ * (fallback) Query: ?fecha=YYYY-MM-DD&hora=HH:MM
  * Borra bloqueo (por trainer si existe trainer_id; si no, global).
  */
 router.delete(
@@ -150,13 +165,17 @@ router.delete(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const { fecha, hora } = req.body || {};
+      // ✅ fallback: algunos clientes no mandan body en DELETE
+      const src = (req.body && (req.body.fecha || req.body.hora)) ? req.body : req.query;
+
+      const fecha = normFecha(src?.fecha);
+      const hora = normHora(src?.hora);
       if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha/hora" });
 
       const cols = await getBloqueosCols();
       const hasTrainer = cols.includes("trainer_id");
 
-      const params = [String(fecha), String(hora)];
+      const params = [fecha, hora];
       let sql = "DELETE FROM bloqueos WHERE fecha = ? AND hora = ?";
 
       if (hasTrainer) {

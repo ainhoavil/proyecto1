@@ -3,14 +3,6 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, requireAdmin, allowRoles } from "../middleware/auth.js";
-import {
-  notifyReservationCreated,
-  notifyReservationCenterConfirmed,
-  notifyReservationUserConfirmed,
-  notifyReservationRejected,
-  notifyReservationCancelled,
-  notifyReservationNoteAdded,
-} from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -325,11 +317,9 @@ router.post("/", verifyToken, async (req, res) => {
     if (!servicioTituloSafe && servicioId) {
       try {
         const trows = await query(
-          `SELECT COALESCE(title, titulo, name) AS t
-             FROM servicios
-            WHERE id = ? OR _id = ? OR uuid = ?
+          `SELECT title AS t FROM servicios WHERE id = ?
             LIMIT 1`,
-          [String(servicioId), String(servicioId), String(servicioId)]
+          [String(servicioId)]
         );
         servicioTituloSafe = trows[0]?.t || null;
       } catch {
@@ -481,10 +471,6 @@ router.post("/", verifyToken, async (req, res) => {
     );
 
     const r = rows[0] || {};
-
-    // ✅ Email: reserva creada (best-effort, no rompe la API)
-    void notifyReservationCreated(id);
-
     res.status(201).json({ ...r, pricing: parseJSONSafe(r.pricing, null) });
   } catch (e) {
     const code = e?.statusCode || 500;
@@ -528,11 +514,9 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
     if (!servicioTituloSafe && servicioId) {
       try {
         const trows = await query(
-          `SELECT COALESCE(title, titulo, name) AS t
-             FROM servicios
-            WHERE id = ? OR _id = ? OR uuid = ?
+          `SELECT title AS t FROM servicios WHERE id = ?
             LIMIT 1`,
-          [String(servicioId), String(servicioId), String(servicioId)]
+          [String(servicioId)]
         );
         servicioTituloSafe = trows[0]?.t || null;
       } catch {
@@ -606,9 +590,6 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
       ]
     );
 
-    // ✅ Email: reserva creada por admin (best-effort)
-    void notifyReservationCreated(id);
-
     res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
     const code = e?.statusCode || 500;
@@ -616,200 +597,6 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
     res.status(code).json({ error: e?.message || "No se pudo crear (admin)" });
   }
 });
-
-/* ===================== Crear reserva (adiestrador) ===================== */
-// POST /api/reservas/trainer-create
-// Crea una reserva directamente en la agenda del adiestrador para uno de sus clientes.
-router.post(
-  "/trainer-create",
-  verifyToken,
-  allowRoles(["adiestrador", "admin"]),
-  async (req, res) => {
-    try {
-      const {
-        clienteId,
-        fecha,
-        hora,
-        servicioId,
-        modalidad,
-        perro,
-        telefono,
-        direccion,
-        status: statusBody,
-        adminNote = null,
-        userNote = null,
-        trainerId: trainerIdBody,
-      } = req.body || {};
-
-      if (!clienteId || !fecha || !hora || !servicioId) {
-        return res.status(400).json({ error: "Faltan campos (clienteId/fecha/hora/servicioId)" });
-      }
-
-      const role = String(req.user?.role || req.user?.rol || "").toLowerCase();
-      const isAdmin = role === "admin";
-      const trainerId = String(
-        (isAdmin ? trainerIdBody : null) || req.user?.uid || req.user?.id || ""
-      );
-      if (!trainerId) return res.status(401).json({ error: "No autorizado" });
-
-      // Email del cliente
-      const uRows = await query(`SELECT id, email FROM usuarios WHERE id = ? LIMIT 1`, [
-        String(clienteId),
-      ]);
-      if (!uRows.length) return res.status(404).json({ error: "Cliente no encontrado" });
-      const emailNorm = String(uRows[0]?.email || "").trim();
-      if (!emailNorm) return res.status(400).json({ error: "El cliente no tiene email" });
-
-      // Servicio
-      const sRows = await query(
-        `
-        SELECT
-          id,
-          COALESCE(title, titulo, name) AS title,
-          duration_min AS durationMin,
-          duration,
-          price,
-          currency
-        FROM servicios
-        WHERE id = ? OR _id = ? OR uuid = ?
-        LIMIT 1
-        `,
-        [String(servicioId), String(servicioId), String(servicioId)]
-      );
-
-      if (!sRows.length) return res.status(404).json({ error: "Servicio no encontrado" });
-      const srv = sRows[0];
-      const servicioTituloSafe = srv?.title || null;
-      const durationMin = Number(srv?.durationMin || 60);
-      const duration = srv?.duration || null;
-      const price = srv?.price ?? null;
-      const currency = srv?.currency || "EUR";
-
-      // Colisiones por adiestrador
-      const existentes = await query(
-        `
-        SELECT hora, COALESCE(duration_min,60) AS durationMin
-          FROM reservas
-         WHERE fecha = ?
-           AND trainer_id = ?
-           AND status IN ('pending','pending_user','confirmed')
-        `,
-        [String(fecha), String(trainerId)]
-      );
-
-      // Bloqueos (compat: con o sin trainer_id)
-      let bloqueos = [];
-      try {
-        const bCols = await query("PRAGMA table_info(bloqueos)");
-        const colNames = Array.isArray(bCols) ? bCols.map((r) => r.name) : [];
-        const hasTrainer = colNames.includes("trainer_id");
-        if (hasTrainer) {
-          bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ? AND trainer_id = ?`, [
-            String(fecha),
-            String(trainerId),
-          ]);
-        } else {
-          bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [String(fecha)]);
-        }
-      } catch {
-        // si PRAGMA falla, al menos intenta global
-        try {
-          bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [String(fecha)]);
-        } catch {
-          bloqueos = [];
-        }
-      }
-
-      if (
-        existentes.some((r) => String(r.hora) === String(hora)) ||
-        bloqueos.some((b) => String(b.hora) === String(hora))
-      ) {
-        return res.status(409).json({ error: "Hora ya reservada o bloqueada" });
-      }
-
-      if (
-        existentes.some((r) =>
-          overlaps(
-            String(hora),
-            Number(durationMin || 60),
-            String(r.hora),
-            Number(r.durationMin || 60)
-          )
-        )
-      ) {
-        return res.status(409).json({ error: "Franja solapada" });
-      }
-
-      const id = uuidv4();
-      const ts = nowISO();
-
-      // Por defecto, creada por el adiestrador = confirmada
-      const status = String(statusBody || "confirmed").toLowerCase();
-
-      await query(
-        `
-        INSERT INTO reservas
-          (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
-           price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin,
-           user_note, admin_note,
-           trainer_id,
-           created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        `,
-        [
-          id,
-          String(clienteId),
-          emailNorm,
-          String(fecha),
-          String(hora),
-          Number(durationMin || 60),
-          String(srv?.id || servicioId),
-          servicioTituloSafe,
-          modalidad || null,
-          duration,
-          price,
-          currency,
-          perro || null,
-          telefono || null,
-          direccion || null,
-          null,
-          null,
-          status,
-          "trainer",
-          userNote,
-          adminNote,
-          String(trainerId),
-          ts,
-          ts,
-        ]
-      );
-
-      const rows = await query(
-        `
-        SELECT id, uid, email, fecha, hora, duration_min AS durationMin,
-               servicio_id AS servicioId, servicio_titulo AS servicioTitulo,
-               modalidad, duration, price, currency, perro, telefono, direccion,
-               pricing, paquete_id AS paqueteId, status, origin,
-               user_note AS userNote, admin_note AS adminNote,
-               cancel_reason AS cancelReason,
-               trainer_id AS trainerId,
-               created_at AS createdAt,
-               updated_at AS updatedAt
-          FROM reservas
-         WHERE id = ?
-        `,
-        [id]
-      );
-
-      res.status(201).json(rows[0] || { ok: true, id });
-    } catch (e) {
-      const code = e?.statusCode || 500;
-      console.error("POST /reservas/trainer-create", e);
-      res.status(code).json({ error: e?.message || "No se pudo crear (adiestrador)" });
-    }
-  }
-);
-
 
 /* ===================== Agenda diaria del adiestrador ===================== */
 // GET /api/reservas/trainer/day?fecha=YYYY-MM-DD
@@ -820,7 +607,7 @@ router.get(
   async (req, res) => {
     try {
       const { fecha } = req.query;
-      const trainerId = String(req.user?.uid || req.user?.id || "");
+      const trainerId = req.user?.id || req.user?.uid;
 
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
       if (!trainerId) return res.status(401).json({ error: "No autorizado" });
@@ -836,11 +623,10 @@ router.get(
           r.modalidad,
           r.servicio_titulo AS servicioTitulo,
           u.id AS clienteId,
-          COALESCE(NULLIF(up.nombre,''), u.email, r.email) AS clienteNombre,
+          u.nombre AS clienteNombre,
           u.email AS clienteEmail
         FROM reservas r
         LEFT JOIN usuarios u ON u.id = r.uid
-        LEFT JOIN users up ON up.uid = u.id
         WHERE r.trainer_id = ?
           AND r.fecha = ?
           AND r.status IN ('pending','pending_user','confirmed')
@@ -856,8 +642,6 @@ router.get(
     }
   }
 );
-
-
 
 /* ===================== Mis reservas (adiestrador) ✅ NUEVO ===================== */
 // GET /api/reservas/mias-trainer
@@ -899,7 +683,7 @@ router.get(
           created_at AS createdAt,
           updated_at AS updatedAt
         FROM reservas
-        WHERE COALESCE(trainer_id, entrenador_id) = ?
+        WHERE trainer_id = ?
         ORDER BY fecha DESC, hora DESC
         LIMIT 200
         `,
@@ -1061,9 +845,6 @@ router.post("/:id/notes", verifyToken, async (req, res) => {
       [nid, id, author, String(text).trim(), ts]
     );
 
-    // ✅ Email: nueva nota (best-effort)
-    void notifyReservationNoteAdded({ reservaId: id, author, text: String(text).trim() });
-
     res.status(201).json({ id: nid, author, text: String(text).trim(), createdAt: ts });
   } catch (e) {
     console.error("POST /reservas/:id/notes", e);
@@ -1126,10 +907,6 @@ router.patch(
         WHERE id=?`,
         [note, nowISO(), id]
       );
-
-      // ✅ Email: el centro confirmó y queda pendiente del usuario
-      void notifyReservationCenterConfirmed(id, { note });
-
       res.json({ ok: true });
     } catch (e) {
       console.error("PATCH /reservas/:id/confirm", e);
@@ -1192,9 +969,6 @@ router.patch(
         );
       }
 
-      // ✅ Email: reserva rechazada
-      void notifyReservationRejected(id, { note });
-
       res.json({ ok: true });
     } catch (e) {
       console.error("PATCH /reservas/:id/reject", e);
@@ -1234,9 +1008,6 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
     }
 
     await query(`UPDATE reservas SET status='confirmed', updated_at=? WHERE id=?`, [nowISO(), id]);
-
-    // ✅ Email: reserva confirmada (cliente aceptó)
-    void notifyReservationUserConfirmed(id);
 
     res.json({ ok: true });
   } catch (e) {
@@ -1310,12 +1081,6 @@ router.patch("/:id/user-reject", verifyToken, async (req, res) => {
       );
     }
 
-    // ✅ Email: reserva cancelada por el usuario (best-effort)
-    void notifyReservationCancelled(id, {
-      reason: reason || "rechazado por usuario",
-      by: "user",
-    });
-
     res.json({ ok: true });
   } catch (e) {
     console.error("PATCH /reservas/:id/user-reject", e);
@@ -1386,12 +1151,6 @@ router.patch("/:id/cancel", verifyToken, async (req, res) => {
         [reason || null, nowISO(), id]
       );
     }
-
-    // ✅ Email: reserva cancelada (owner o admin)
-    void notifyReservationCancelled(id, {
-      reason: reason || null,
-      by: isAdmin ? "staff" : "user",
-    });
 
     res.json({ ok: true });
   } catch (e) {
@@ -1495,9 +1254,6 @@ router.patch("/:id", verifyToken, async (req, res) => {
          WHERE id=?`,
         [adminNote || "", nowISO(), id]
       );
-
-      // ✅ Email: el centro confirmó y queda pendiente del usuario (vía PATCH genérico)
-      void notifyReservationCenterConfirmed(id, { note: adminNote || "" });
       return res.json({ ok: true });
     }
 
@@ -1545,9 +1301,6 @@ router.patch("/:id", verifyToken, async (req, res) => {
           [adminNote || "", nowISO(), id]
         );
       }
-
-      // ✅ Email: reserva rechazada (vía PATCH genérico)
-      void notifyReservationRejected(id, { note: adminNote || "" });
       return res.json({ ok: true });
     }
 
@@ -1604,12 +1357,6 @@ router.patch("/:id", verifyToken, async (req, res) => {
           [cancelReason || "", nowISO(), id]
         );
       }
-
-      // ✅ Email: reserva cancelada (vía PATCH genérico)
-      void notifyReservationCancelled(id, {
-        reason: cancelReason || "",
-        by: isAdmin ? "staff" : "user",
-      });
       return res.json({ ok: true });
     }
 

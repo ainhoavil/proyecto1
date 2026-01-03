@@ -20,7 +20,7 @@ import filesRoutes from "./routes/files.js";
 import trainersRoutes from "./routes/trainers.js";
 import trainerProfilesRoutes from "./routes/trainerProfiles.js";
 import trainerNotesRoutes from "./routes/trainerNotes.js";
-import bloqueosRoutes from "./routes/bloqueos.js"; // ✅ AÑADIDO
+import bloqueosRoutes from "./routes/bloqueos.js";
 
 // Chat
 import chatsRoutes from "./routes/chat.js";
@@ -89,10 +89,12 @@ app.use("/api/paquetes", paquetesRoutes);
 app.use("/api/cuestionarios", cuestionariosRoutes);
 app.use("/api/perfil", perfilRoutes);
 app.use("/api/perros", perrosRoutes);
-app.use("/api", filesRoutes);
 
-// ✅ Bloqueos de agenda (adiestrador/admin)
+// ✅ Bloqueos de agenda (adiestrador/admin) — mejor antes de filesRoutes por seguridad
 app.use("/api/bloqueos", bloqueosRoutes);
+
+// Files (mantengo tu montaje original)
+app.use("/api", filesRoutes);
 
 // Rutas de adiestradores
 app.use("/api/trainers", trainersRoutes);

@@ -6,6 +6,11 @@ import { useAuth } from '../context/auth';
 import { http } from '../helpers/http';
 import { useState as useStateReact } from 'react';
 
+// Base del backend para construir URLs absolutas (imágenes / archivos)
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
+const absUrl = (u = '') =>
+  !u ? '' : /^https?:\/\//i.test(u) ? u : `${API_BASE}${u.startsWith('/') ? '' : '/'}${u}`;
+
 /* ==========================
    Utilidades generales
 ========================== */
@@ -39,59 +44,80 @@ function getModalitiesFromItem(item) {
 }
 
 /* ==========================
-   Utilidades subida imagen
+   Utilidades subida/borrado imagen
 ========================== */
 
-function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 /**
- * Sube una imagen al backend (/files) y devuelve la URL que deberá
- * guardarse en imageUrl del servicio.
- *
- * Reutiliza el mismo sistema que usamos para el avatar de perfil.
+ * Sube una imagen al backend (POST /api/upload-db vía helper) y devuelve la URL
+ * que se guarda en imageUrl del servicio.
  */
 async function uploadServiceImage(file) {
   if (!file) throw new Error('No hay archivo');
 
-  const dataUrl = await fileToDataURL(file); // "data:image/jpeg;base64,AAAA..."
-  const [meta, b64] = String(dataUrl).split(',');
-  let mime = file.type || 'application/octet-stream';
+  const form = new FormData();
+  form.append('file', file);
 
-  if (meta && meta.startsWith('data:') && meta.includes(';base64')) {
-    mime = meta.substring(meta.indexOf(':') + 1, meta.indexOf(';base64'));
+  try {
+    // Usa el endpoint existente del backend: POST /api/upload-db (FormData)
+    // (tu helper http ya lo enruta a /api)
+    const res = await http('/upload-db', {
+      method: 'POST',
+      data: form,
+      auth: true,
+      timeoutMs: 60000,
+    });
+
+    const url = res?.url || res?.path;
+    if (!url) throw new Error('No se recibió URL de imagen');
+
+    // Guardamos URL absoluta para que funcione en cualquier vista
+    return absUrl(url);
+  } catch (e) {
+    const msg =
+      e?.data?.error ||
+      e?.data?.message ||
+      e?.message ||
+      'No se pudo subir la imagen';
+    throw new Error(msg);
+  }
+}
+
+/**
+ * Si imageUrl apunta a /api/files/:id, extrae el id.
+ */
+function extractFileIdFromImageUrl(imageUrl = '') {
+  const s = String(imageUrl || '');
+
+  // Caso absoluto: http://localhost:5000/api/files/<id>
+  let m = s.match(/\/api\/files\/([^/?#]+)/i);
+  if (m?.[1]) return m[1];
+
+  // Caso relativo antiguo: /files/<id>
+  m = s.match(/\/files\/([^/?#]+)/i);
+  if (m?.[1]) return m[1];
+
+  return null;
+}
+
+/**
+ * Borra del backend el fichero si viene de /api/files/:id
+ * y siempre devuelve '' para limpiar imageUrl.
+ */
+async function deleteServiceImageByUrl(imageUrl) {
+  const id = extractFileIdFromImageUrl(imageUrl);
+
+  // Si era un archivo de BD, intentamos borrarlo
+  if (id) {
+    try {
+      await http(`/api/files/${id}`, { method: 'DELETE', auth: true });
+    } catch (e) {
+      const msg = e?.data?.error || e?.data?.message || e?.message || 'No se pudo borrar la imagen';
+      throw new Error(msg);
+    }
   }
 
-  const payload = { mime, data: b64 };
-
-  // IMPORTANTE: ruta correcta del backend (sin /api)
-  const res = await http('/files', {
-    method: 'POST',
-    data: payload,
-    auth: true,
-  });
-
-  const fileId = res?.id || res?.fileId || res?.uid || res?.uuid;
-
-  const url =
-    res?.url ||
-    res?.path ||
-    (fileId ? `/files/${fileId}` : null) ||
-    res?.imageUrl ||
-    res?.location;
-
-  if (!url) {
-    console.warn('Respuesta de /files sin URL clara', res);
-    throw new Error('El servidor no devolvió URL de imagen');
-  }
-
-  return url;
+  // Si no era /api/files, simplemente limpiamos el campo (imagen estática o nombre)
+  return '';
 }
 
 /* ==========================
@@ -103,15 +129,13 @@ export default function Servicios() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [sel, setSel] = useState(null);
-  const [selModalidad, setSelModalidad] = useState(''); // modalidad elegida en el modal
+  const [selModalidad, setSelModalidad] = useState('');
   const [saving, setSaving] = useState(false);
 
   const navigate = useNavigate();
   const { isAuthenticated, role } = useAuth();
 
   const esAdmin = role === 'admin';
-  const esTrainer = role === 'trainer' || role === 'adiestrador';
-  const esUser = role === 'user';
 
   const refresh = async () => {
     setCargando(true);
@@ -174,13 +198,12 @@ export default function Servicios() {
     currency: 'EUR',
     duration: '',
     mode: '',
-    featured: false,
     order: '',
     imageUrl: '',
   });
 
   const [msgNuevo, setMsgNuevo] = useState('');
-  const [subiendoNuevaImg, setSubiendoNuevaImg] = useState(false);
+  const [nuevoImgFile, setNuevoImgFile] = useState(null);
 
   const crearServicio = async (e) => {
     e.preventDefault();
@@ -188,6 +211,13 @@ export default function Servicios() {
     setSaving(true);
 
     try {
+      // 1) Si hay archivo seleccionado, se sube AHORA (al publicar)
+      let imageUrl = (nuevo.imageUrl || '').trim();
+      if (nuevoImgFile) {
+        setMsgNuevo('Subiendo imagen…');
+        imageUrl = await uploadServiceImage(nuevoImgFile);
+      }
+
       const body = {
         title: (nuevo.title || '').trim(),
         short: (nuevo.short || '').trim(),
@@ -195,10 +225,10 @@ export default function Servicios() {
         currency: (nuevo.currency || 'EUR').toUpperCase(),
         duration: (nuevo.duration || '').trim(),
         mode: (nuevo.mode || '').trim(),
-        featured: !!nuevo.featured,
         order: nuevo.order === '' ? undefined : Number(nuevo.order),
         price: nuevo.price === '' ? null : Number(nuevo.price),
-        imageUrl: (nuevo.imageUrl || '').trim(),
+        imageUrl,
+        featured: false, // ✅ quitamos la casilla: siempre false
       };
 
       if (!body.title || !body.short) {
@@ -218,10 +248,10 @@ export default function Servicios() {
         currency: 'EUR',
         duration: '',
         mode: '',
-        featured: false,
         order: '',
         imageUrl: '',
       });
+      setNuevoImgFile(null);
 
       await refresh();
     } catch (e) {
@@ -233,22 +263,16 @@ export default function Servicios() {
     }
   };
 
-  const handleNuevoImageFile = async (e) => {
+  const handleNuevoImageFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     setMsgNuevo('');
-    setSubiendoNuevaImg(true);
-    try {
-      const url = await uploadServiceImage(file);
-      setNuevo((prev) => ({ ...prev, imageUrl: url }));
-      setMsgNuevo('✅ Imagen subida. Se usará en este servicio.');
-    } catch (err) {
-      console.error('Error subiendo imagen de servicio nuevo', err);
-      setMsgNuevo('❌ No se pudo subir la imagen.');
-    } finally {
-      setSubiendoNuevaImg(false);
-      e.target.value = '';
-    }
+    setNuevoImgFile(file);
+
+    // Limpia el input para permitir re-seleccionar el mismo archivo si hace falta
+    e.target.value = '';
+    setMsgNuevo('✅ Imagen seleccionada. Se subirá al guardar el servicio.');
   };
 
   // ---------------------------
@@ -305,26 +329,31 @@ export default function Servicios() {
   };
 
   if (cargando) {
-  return (
-    <div className="servicios">
-      <div className="page-wrapper">
-        <div className="servicios__loading card">Cargando…</div>
+    return (
+      <div className="servicios">
+        <div className="page-wrapper">
+          <div className="servicios__loading card">Cargando…</div>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-
-  // Imagen: soporta tanto nombres antiguos como URLs completas (/files/xxx, http, etc.)
+  // Imagen: soporta tanto nombres antiguos como URLs completas (/api/files/xxx, http, etc.)
   const getImgSrc = (imageUrl) => {
     if (!imageUrl) return '/img/servicios/default.jpg';
 
-    if (
-      imageUrl.startsWith('http://') ||
-      imageUrl.startsWith('https://') ||
-      imageUrl.startsWith('/files/') ||
-      imageUrl.startsWith('/img/')
-    ) {
+    // URLs absolutas (http/s)
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return imageUrl;
+    }
+
+    // Archivos servidos por el backend
+    if (imageUrl.startsWith('/api/files/') || imageUrl.startsWith('/files/')) {
+      return absUrl(imageUrl);
+    }
+
+    // Imágenes estáticas del frontend
+    if (imageUrl.startsWith('/img/')) {
       return imageUrl;
     }
 
@@ -452,17 +481,6 @@ export default function Servicios() {
                     }
                   />
                 </label>
-
-                <label>
-                  Imagen (URL o nombre de archivo)
-                  <input
-                    value={nuevo.imageUrl}
-                    onChange={(e) =>
-                      setNuevo({ ...nuevo, imageUrl: e.target.value })
-                    }
-                    placeholder="adiestramiento-basico.jpg o /files/xxx"
-                  />
-                </label>
               </div>
 
               <label className="full">
@@ -471,23 +489,13 @@ export default function Servicios() {
                   type="file"
                   accept="image/*"
                   onChange={handleNuevoImageFile}
-                  disabled={subiendoNuevaImg || saving}
+                  disabled={saving}
                 />
-                {subiendoNuevaImg && (
-                  <small>Subiendo imagen… espera un momento</small>
-                )}
+                {nuevoImgFile && <small>Archivo seleccionado: {nuevoImgFile.name}</small>}
+                {!nuevoImgFile && <small>La imagen se subirá al guardar el servicio.</small>}
               </label>
 
-              <label className="featured-check">
-                <input
-                  type="checkbox"
-                  checked={nuevo.featured}
-                  onChange={(e) =>
-                    setNuevo({ ...nuevo, featured: e.target.checked })
-                  }
-                />
-                Mostrar como servicio destacado en la página principal
-              </label>
+              {/* ✅ Casilla eliminada (Destacado) */}
             </div>
 
             <div className="form-actions">
@@ -653,7 +661,6 @@ export default function Servicios() {
                 onSave={(changes) => guardarEdicion(sel.id, changes)}
                 onDelete={() => borrarServicio(sel.id)}
                 saving={saving}
-                onUploadImage={uploadServiceImage}
               />
             )}
           </div>
@@ -667,7 +674,7 @@ export default function Servicios() {
    EDITOR ADMIN
 ========================== */
 
-function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
+function ServiceEditor({ item, onSave, onDelete, saving }) {
   const [form, setForm] = useStateReact({
     title: item.title || '',
     short: item.short || '',
@@ -676,20 +683,14 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
     currency: item.currency || 'EUR',
     duration: item.duration || '',
     mode: item.mode || '',
-    featured: !!item.featured,
     order: item.order ?? '',
     imageUrl: item.imageUrl || '',
+    featured: false, // ✅ casilla eliminada: mantenemos campo pero sin UI
   });
 
   const [msg, setMsg] = useStateReact('');
-  const [subiendoImg, setSubiendoImg] = useStateReact(false);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setMsg('');
-    await onSave(form);
-    setMsg('✅ Guardado');
-  };
+  const [pendingFile, setPendingFile] = useStateReact(null);
+  const [workingImg, setWorkingImg] = useStateReact(false);
 
   const handleChange = (field) => (e) => {
     const value =
@@ -697,21 +698,78 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleFileChange = async (e) => {
+  // Selecciona archivo, pero NO sube todavía (se sube al guardar)
+  const handleFilePick = (e) => {
     const file = e.target.files?.[0];
-    if (!file || !onUploadImage) return;
+    if (!file) return;
+
     setMsg('');
-    setSubiendoImg(true);
+    setPendingFile(file);
+    e.target.value = '';
+    setMsg('✅ Imagen seleccionada. Se subirá al guardar cambios.');
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setMsg('');
+
     try {
-      const url = await onUploadImage(file);
-      setForm((prev) => ({ ...prev, imageUrl: url }));
-      setMsg('✅ Imagen subida. No olvides guardar cambios.');
+      // 1) Si hay archivo pendiente, se sube AHORA (al publicar cambios)
+      let next = { ...form };
+      if (pendingFile) {
+        setWorkingImg(true);
+        setMsg('Subiendo imagen…');
+
+        const url = await uploadServiceImage(pendingFile);
+        next.imageUrl = url;
+      }
+
+      await onSave(next);
+
+      setPendingFile(null);
+      setMsg('✅ Guardado');
     } catch (err) {
-      console.error('Error subiendo imagen en edición de servicio', err);
-      setMsg('❌ No se pudo subir la imagen.');
+      const msgErr =
+        err?.data?.error || err?.data?.message || err?.message || 'No se pudo guardar';
+      setMsg(`❌ ${msgErr}`);
     } finally {
-      setSubiendoImg(false);
-      e.target.value = '';
+      setWorkingImg(false);
+    }
+  };
+
+  const eliminarImagen = async () => {
+    if (!form.imageUrl && !pendingFile) {
+      setMsg('ℹ️ No hay imagen que eliminar.');
+      return;
+    }
+
+    if (!window.confirm('¿Eliminar la imagen de este servicio?')) return;
+
+    setMsg('');
+    setWorkingImg(true);
+
+    try {
+      // Si había archivo pendiente aún no subido, solo lo descartamos
+      if (pendingFile) {
+        setPendingFile(null);
+      }
+
+      // Si ya había imageUrl, intentamos borrar en backend si es /api/files/:id
+      const cleared = await deleteServiceImageByUrl(form.imageUrl);
+
+      const next = { ...form, imageUrl: cleared };
+      setForm(next);
+
+      // Persistimos inmediatamente
+      await onSave(next);
+
+      setMsg('✅ Imagen eliminada');
+    } catch (err) {
+      const msgErr =
+        err?.data?.error || err?.data?.message || err?.message || 'No se pudo eliminar la imagen';
+      setMsg(`❌ ${msgErr}`);
+    } finally {
+      setWorkingImg(false);
     }
   };
 
@@ -747,20 +805,14 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
 
         <label>
           Moneda
-          <input
-            value={form.currency}
-            onChange={handleChange('currency')}
-          />
+          <input value={form.currency} onChange={handleChange('currency')} />
         </label>
       </div>
 
       <div className="admin-form__row">
         <label>
           Duración
-          <input
-            value={form.duration}
-            onChange={handleChange('duration')}
-          />
+          <input value={form.duration} onChange={handleChange('duration')} />
         </label>
 
         <label>
@@ -778,15 +830,6 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
             onChange={handleChange('order')}
           />
         </label>
-
-        <label>
-          Imagen (URL o nombre archivo)
-          <input
-            value={form.imageUrl}
-            onChange={handleChange('imageUrl')}
-            placeholder="adiestramiento-basico.jpg o /files/xxx"
-          />
-        </label>
       </div>
 
       <label className="full">
@@ -794,31 +837,34 @@ function ServiceEditor({ item, onSave, onDelete, saving, onUploadImage }) {
         <input
           type="file"
           accept="image/*"
-          onChange={handleFileChange}
-          disabled={subiendoImg || saving}
+          onChange={handleFilePick}
+          disabled={saving || workingImg}
         />
-        {subiendoImg && <small>Subiendo imagen…</small>}
+        {pendingFile && <small>Archivo seleccionado: {pendingFile.name}</small>}
+        {!pendingFile && <small>La imagen se subirá al guardar cambios.</small>}
       </label>
 
-      <label className="featured-check">
-        <input
-          type="checkbox"
-          checked={form.featured}
-          onChange={handleChange('featured')}
-        />
-        Destacado
-      </label>
+      {/* ✅ Casilla eliminada (Destacado) */}
 
       <div className="form-actions form-actions--edit">
-        <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Guardando…' : 'Guardar cambios'}
+        <button type="submit" className="btn-primary" disabled={saving || workingImg}>
+          {saving || workingImg ? 'Guardando…' : 'Guardar cambios'}
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={eliminarImagen}
+          disabled={saving || workingImg}
+        >
+          Eliminar imagen
         </button>
 
         <button
           type="button"
           className="delete-btn"
           onClick={onDelete}
-          disabled={saving}
+          disabled={saving || workingImg}
         >
           Borrar
         </button>

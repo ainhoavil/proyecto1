@@ -14,6 +14,37 @@ const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 const ROLES = ["client", "user", "admin", "adiestrador"];
 
 /* ============================================================
+   Bootstrap de Admin por .env (para no quedarte sin admin)
+   - backend/.env: ADMIN_EMAILS=tuemail@gmail.com,otro@...
+   - En el primer login/registro con ese email, se actualiza BD a rol=admin
+============================================================ */
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+function isBootstrapAdmin(email = "") {
+  const e = String(email || "").trim().toLowerCase();
+  return !!e && ADMIN_EMAILS.includes(e);
+}
+
+async function promoteToAdminIfNeeded({ uid, email }) {
+  if (!isBootstrapAdmin(email)) return false;
+
+  // Actualiza ambas tablas (users y usuarios) por uid/email
+  await query(`UPDATE usuarios SET rol = 'admin' WHERE id = ? OR email = ?`, [
+    uid,
+    String(email || "").trim().toLowerCase(),
+  ]);
+  await query(`UPDATE users SET role = 'admin' WHERE uid = ? OR email = ?`, [
+    uid,
+    String(email || "").trim().toLowerCase(),
+  ]);
+  return true;
+}
+
+
+/* ============================================================
    🛠️ ASEGURAR TABLAS (se ajusta a tu esquema real)
 ============================================================ */
 async function ensureAuthTables() {
@@ -246,6 +277,8 @@ router.post("/register", async (req, res) => {
 
     const emailNorm = email.trim().toLowerCase();
 
+    const rolBootstrap = isBootstrapAdmin(emailNorm) ? "admin" : "client";
+
     // Verificar si ya existe en users
     const exists = await query(
       "SELECT 1 FROM users WHERE email = ? LIMIT 1",
@@ -263,25 +296,25 @@ router.post("/register", async (req, res) => {
       `INSERT INTO users (
          id, uid, email, password_hash, nombre, created_at, updated_at, role
        )
-       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), 'client')`,
-      [nanoid(), uid, emailNorm, hash, String(name).trim()]
+       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)`,
+      [nanoid(), uid, emailNorm, hash, String(name).trim(), rolBootstrap]
     );
 
     // 2. Insertar en usuarios
     await query(
       `INSERT INTO usuarios (id, email, password_hash, rol, created_at)
        VALUES (?, ?, ?, ?, datetime('now'))`,
-      [uid, emailNorm, hash, "client"]
+      [uid, emailNorm, hash, rolBootstrap]
     );
 
-    const token = signToken({ uid, email: emailNorm, rol: "client" });
+    const token = signToken({ uid, email: emailNorm, rol: rolBootstrap });
 
     res.status(201).json({
       ok: true,
       token,
       email: emailNorm,
-      rol: "client",
-      user: { uid, email: emailNorm, role: "client", nombre: String(name).trim() },
+      rol: rolBootstrap,
+      user: { uid, email: emailNorm, role: rolBootstrap, nombre: String(name).trim() },
     });
   } catch (e) {
     console.error("[REGISTER] ERROR", e);
@@ -336,7 +369,8 @@ router.post("/login", async (req, res) => {
       });
 
     // Truco para admin demo
-    if (emailNorm === "admin@demo.com") rol = "admin";
+    await promoteToAdminIfNeeded({ uid: user.uid, email: emailNorm });
+    if (isBootstrapAdmin(emailNorm)) rol = "admin";
 
     const token = signToken({ uid: user.uid, email: user.email, rol });
     res.json({ token, email: user.email, rol });
@@ -363,6 +397,7 @@ router.post("/google", async (req, res) => {
     const payload = await verifyGoogleIdToken(credential);
 
     const email = String(payload?.email || "").trim().toLowerCase();
+    const rolBootstrap = isBootstrapAdmin(email) ? "admin" : "client";
     const emailVerified = payload?.email_verified;
     const googleSub = String(payload?.sub || "").trim();
 
@@ -407,9 +442,9 @@ router.post("/google", async (req, res) => {
            ?, ?, ?, ?,
            ?, ?,
            datetime('now'), datetime('now'),
-           'client', ?, 'google'
+           ?, ?, 'google'
          )`,
-        [id, uid, email, emptyHash, nombre, foto, googleSub]
+        [id, uid, email, emptyHash, nombre, foto, rolBootstrap, googleSub]
       );
 
       user = {
@@ -419,7 +454,7 @@ router.post("/google", async (req, res) => {
       };
 
       // Asegura rol/perfil en tabla usuarios
-      await ensureUsuariosRow({ uid, email, rol: "client", passwordHash: "" });
+      await ensureUsuariosRow({ uid, email, rol: rolBootstrap, passwordHash: "" });
     } else {
       // 3) Vincula/actualiza datos si ya existía
       await query(
@@ -454,7 +489,8 @@ router.post("/google", async (req, res) => {
     }
 
     // Truco para admin demo
-    if (email === "admin@demo.com") rol = "admin";
+    await promoteToAdminIfNeeded({ uid: user.uid, email });
+    if (isBootstrapAdmin(email)) rol = "admin";
 
     const token = signToken({ uid: user.uid, email, rol });
     return res.json({

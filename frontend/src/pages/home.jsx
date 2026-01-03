@@ -3,6 +3,20 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { http } from "../helpers/http";
 
+// Base del backend para construir URLs absolutas (imágenes / archivos)
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
+const absUrl = (u = '') =>
+  !u ? '' : /^https?:\/\//i.test(u) ? u : `${API_BASE}${u.startsWith('/') ? '' : '/'}${u}`;
+
+const getServiceImg = (imageUrl) => {
+  if (!imageUrl) return "/img/placeholder.jpg";
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+  if (imageUrl.startsWith('/api/files/') || imageUrl.startsWith('/files/')) return absUrl(imageUrl);
+  if (imageUrl.startsWith('/img/')) return imageUrl;
+  return `/img/servicios/${imageUrl}`;
+};
+
+
 function Home() {
   const [servicios, setServicios] = useState([]);
 
@@ -141,9 +155,7 @@ function Home() {
                   <div
                     className="service-card__image"
                     style={{
-                      backgroundImage: item.imageUrl
-                        ? `url('${item.imageUrl}')`
-                        : "url('/img/placeholder.jpg')",
+                      backgroundImage: `url('${getServiceImg(item.imageUrl)}')`,
                     }}
                   />
 

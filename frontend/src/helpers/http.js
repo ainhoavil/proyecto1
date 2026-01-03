@@ -1,27 +1,46 @@
 // frontend/src/helpers/http.js
 import { getToken } from "./auth";
 
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
+const API_BASE_RAW = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
   /\/+$/,
   ""
 );
 
-/** Normaliza el path y mapea bookings -> reservas bajo /api */
+// Si el usuario puso VITE_API_URL con /api al final, lo soportamos sin romper rutas
+const BASE_HAS_API_SUFFIX = /\/api$/i.test(API_BASE_RAW);
+
+// Base final (sin trailing slash)
+const API_BASE = API_BASE_RAW;
+
+/** Normaliza el path y mapea bookings -> reservas */
 function rewritePath(path) {
   if (/^https?:\/\//i.test(path)) return path; // absoluto => no tocar
+
   let p = String(path || "");
   if (!p.startsWith("/")) p = "/" + p;
 
-  // Compat
-  p = p.replace(/^\/api\/bookings\b/i, "/api/reservas");
-  p = p.replace(/^\/bookings\b/i, "/api/reservas");
+  // Separar pathname de query/hash para tocar solo el pathname
+  const m = p.match(/^([^?#]*)(.*)$/);
+  let pathname = m ? m[1] : p;
+  const suffix = m ? m[2] : "";
 
-  if (!/^\/api\//i.test(p)) p = "/api" + p;
-  p = p.replace(/\/{2,}/g, "/");
-  return p;
+  // Compat: bookings -> reservas
+  pathname = pathname.replace(/^\/api\/bookings\b/i, "/api/reservas");
+  pathname = pathname.replace(/^\/bookings\b/i, "/api/reservas");
+
+  if (BASE_HAS_API_SUFFIX) {
+    // Si la base ya termina en /api, quitamos /api del path para evitar /api/api
+    pathname = pathname.replace(/^\/api\b/i, "");
+    if (!pathname.startsWith("/")) pathname = "/" + pathname;
+  } else {
+    // Si la base NO tiene /api, lo añadimos al path
+    if (!/^\/api\//i.test(pathname)) pathname = "/api" + pathname;
+  }
+
+  pathname = pathname.replace(/\/{2,}/g, "/");
+  return pathname + suffix;
 }
 
-// Detecta objeto plano (para serializar a JSON)
 function isPlainObject(v) {
   return (
     v &&
@@ -41,16 +60,17 @@ export async function http(
     auth = false,
     headers = {},
     query = null,
-    credentials = "include", // útil si usas cookies; con Bearer no molesta
+    credentials = "include",
     timeoutMs = 15000,
   } = {}
 ) {
   const rPath = rewritePath(path);
   const isAbsolute = /^https?:\/\//i.test(rPath);
+
   const base = isAbsolute ? "" : API_BASE;
   let url = isAbsolute ? rPath : `${base}${rPath}`;
 
-  // Querystring
+  // Querystring (objeto -> ?a=b)
   if (query && typeof query === "object") {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(query)) {
@@ -60,10 +80,8 @@ export async function http(
     if (q) url += (url.includes("?") ? "&" : "?") + q;
   }
 
-  // ==== Headers / Body
   const finalHeaders = { Accept: "application/json", ...headers };
 
-  // Autorización
   if (auth) {
     const token = getToken();
     if (token && !finalHeaders.Authorization) {
@@ -71,12 +89,10 @@ export async function http(
     }
   }
 
-  // Content-Type y body
   let body;
   if (data === undefined || data === null) {
     body = undefined;
   } else if (data instanceof FormData) {
-    // No fijar Content-Type: el navegador añade el boundary
     body = data;
   } else if (data instanceof URLSearchParams) {
     if (!finalHeaders["Content-Type"]) {
@@ -95,14 +111,12 @@ export async function http(
     }
     body = JSON.stringify(data);
   } else {
-    // Caso raro: tipos no previstos -> intenta serializar a JSON
     if (!finalHeaders["Content-Type"]) {
       finalHeaders["Content-Type"] = "application/json;charset=UTF-8";
     }
     body = JSON.stringify(data);
   }
 
-  // Timeout
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
@@ -120,9 +134,9 @@ export async function http(
     const err = new Error("No se pudo conectar con el servidor.");
     err.cause = e;
     err.status = 0;
-    err.httpStatus = 0;      // compat
+    err.httpStatus = 0;
     err.data = null;
-    err.responseData = null; // compat
+    err.responseData = null;
     throw err;
   } finally {
     clearTimeout(t);
@@ -130,9 +144,11 @@ export async function http(
 
   const ct = res.headers.get("content-type") || "";
   const isJson = ct.includes("application/json");
+
   let payload;
   try {
-    payload = res.status === 204 ? null : isJson ? await res.json() : await res.text();
+    payload =
+      res.status === 204 ? null : isJson ? await res.json() : await res.text();
   } catch {
     payload = null;
   }
@@ -142,16 +158,15 @@ export async function http(
       (payload && (payload.error || payload.message)) || `HTTP ${res.status}`
     );
     err.status = res.status;
-    err.httpStatus = res.status;  // compat con código viejo
+    err.httpStatus = res.status;
     err.data = payload;
-    err.responseData = payload;   // compat con código viejo
+    err.responseData = payload;
     throw err;
   }
 
   return payload;
 }
 
-// Atajos
 export const get = (p, opts) => http(p, { ...opts, method: "GET" });
 export const post = (p, data, opts) => http(p, { ...opts, method: "POST", data });
 export const put = (p, data, opts) => http(p, { ...opts, method: "PUT", data });

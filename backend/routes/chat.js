@@ -34,12 +34,45 @@ const getUserRole = (req) => String(req.user?.rol || req.user?.role || "").toLow
 // ============================================================
 
 // Estados de reserva en los que permitimos relación de chat
-const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "confirmada", "pending_user", "pending"]);
+// Nota: normalizamos sinónimos (confirmada/confirmado, pendiente, etc.) a estados canónicos.
+const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "pending_user", "pending"]);
 
-function normStatus(s) {
-  return String(s || "").toLowerCase().trim();
+function canonStatus(s) {
+  const x = String(s || "").toLowerCase().trim();
+
+  // Pending (centro)
+  if (x === "pendiente") return "pending";
+
+  // Pending user (cliente)
+  if (
+    x === "pending-user" ||
+    x === "pending user" ||
+    x === "pendiente_usuario" ||
+    x === "pendiente usuario" ||
+    x === "pendiente_user"
+  ) {
+    return "pending_user";
+  }
+
+  // Confirmed
+  if (
+    x === "confirmada" ||
+    x === "confirmado" ||
+    x === "aceptada" ||
+    x === "aceptado" ||
+    x === "accepted"
+  ) {
+    return "confirmed";
+  }
+
+  // Cancelled
+  if (x === "cancelada" || x === "cancelado" || x === "canceled") return "cancelled";
+
+  // Rejected
+  if (x === "rechazada" || x === "rechazado") return "rejected";
+
+  return x;
 }
-
 function pairKey(trainerId, clientId) {
   return `pair:${String(trainerId)}:${String(clientId)}`;
 }
@@ -268,16 +301,14 @@ function buildTrainerExpr(colMap) {
   const trainer2 = pickCol(colMap, ["entrenador_id", "entrenador_uid"]);
   const trainer3 = pickCol(colMap, ["adiestrador_id", "adiestrador_uid"]);
 
-  const t1 = qIdent(trainer1);
-  const t2 = qIdent(trainer2);
-  const t3 = qIdent(trainer3);
+  const parts = [qIdent(trainer1), qIdent(trainer2), qIdent(trainer3)].filter(Boolean);
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0];
 
-  if (t1 && t2) return `COALESCE(${t1}, ${t2})`;
-  if (t1) return `${t1}`;
-  if (t2) return `${t2}`;
-  if (t3) return `${t3}`;
-  return null;
+  // Si hay varias posibles columnas, preferimos el primer valor no-nulo.
+  return `COALESCE(${parts.join(", ")})`;
 }
+
 
 function buildStatusExpr(colMap) {
   const st1 = pickCol(colMap, ["status"]);
@@ -300,6 +331,67 @@ function buildReservaIdCol(colMap) {
   return pickCol(colMap, ["id", "reserva_id"]);
 }
 
+
+function buildEmailCol(colMap) {
+  return pickCol(colMap, ["email", "correo", "mail"]);
+}
+
+function isEmailLike(v) {
+  return /@/.test(String(v || ""));
+}
+
+/**
+ * Resuelve un identificador "legacy" (users.id, users.uid, usuarios.id, email)
+ * a un UID canónico (el que viaja en el JWT: users.uid / usuarios.id).
+ */
+async function resolveCanonicalUid({ value, email } = {}) {
+  const v = String(value || "").trim();
+  const vLower = v ? v.toLowerCase() : "";
+  const e = String(email || "").trim().toLowerCase();
+
+  // 1) Intentar resolver por el valor recibido
+  if (v) {
+    try {
+      const u = await query(
+        `SELECT uid FROM users WHERE uid = ? OR id = ? OR email = ? LIMIT 1`,
+        [v, v, vLower]
+      );
+      if (u.length && u[0]?.uid) return String(u[0].uid);
+    } catch {
+      // ignore
+    }
+
+    try {
+      const ru = await query(
+        `SELECT id FROM usuarios WHERE id = ? OR email = ? LIMIT 1`,
+        [v, vLower]
+      );
+      if (ru.length && ru[0]?.id) return String(ru[0].id);
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2) Intentar resolver por email (si existe)
+  if (e) {
+    try {
+      const u2 = await query(`SELECT uid FROM users WHERE email = ? LIMIT 1`, [e]);
+      if (u2.length && u2[0]?.uid) return String(u2[0].uid);
+    } catch {
+      // ignore
+    }
+
+    try {
+      const ru2 = await query(`SELECT id FROM usuarios WHERE email = ? LIMIT 1`, [e]);
+      if (ru2.length && ru2[0]?.id) return String(ru2[0].id);
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
 // ============================================================
 // HELPERS
 // ============================================================
@@ -311,7 +403,6 @@ async function relationshipExists(trainerId, clientId) {
   const clientCol = buildClientCol(colMap);
   const trainerExpr = buildTrainerExpr(colMap);
   const statusExpr = buildStatusExpr(colMap);
-
   if (!clientCol || !trainerExpr) return false;
 
   const clientQ = qIdent(clientCol);
@@ -327,7 +418,6 @@ async function relationshipExists(trainerId, clientId) {
   if (!trainerCols.length) return false;
 
   const statusSel = statusExpr ? `${statusExpr} AS status` : `NULL AS status`;
-
   const fechaCol = pickCol(colMap, ["fecha", "date"]);
   const horaCol = pickCol(colMap, ["hora", "hour"]);
   const fechaQ = qIdent(fechaCol);
@@ -357,19 +447,47 @@ async function relationshipExists(trainerId, clientId) {
   if (!rows.length) return false;
 
   for (const r of rows) {
-    const st = normStatus(r.status);
+    const st = canonStatus(r.status);
     if (!st) return true;
     if (CHAT_ALLOWED_STATUSES.has(st)) return true;
   }
   return false;
 }
 
-async function getOrCreateConversationByPair({ trainerId, clientId }) {
+
+async function getOrCreateConversationByPair({ trainerId, clientId, aliasKeys = [] }) {
   const key = pairKey(trainerId, clientId);
 
-  const existing = await query(`SELECT id FROM conversations WHERE reserva_id = ? LIMIT 1`, [key]);
-  if (existing.length) {
-    return { conversationId: existing[0].id, exists: true };
+  // Si venimos de datos legacy, puede existir ya una conversación con una key "mal formada".
+  const keys = [key, ...(Array.isArray(aliasKeys) ? aliasKeys : [])]
+    .map((k) => String(k || "").trim())
+    .filter(Boolean);
+
+  const uniq = [...new Set(keys)];
+
+  if (uniq.length) {
+    const ph = uniq.map(() => "?").join(", ");
+    const existing = await query(
+      `SELECT id, reserva_id, trainer_id, client_id FROM conversations WHERE reserva_id IN (${ph}) LIMIT 1`,
+      uniq
+    );
+
+    if (existing.length) {
+      const c = existing[0];
+      const needUpdate =
+        String(c.reserva_id || "") !== key ||
+        String(c.trainer_id || "") !== String(trainerId) ||
+        String(c.client_id || "") !== String(clientId);
+
+      if (needUpdate) {
+        await query(
+          `UPDATE conversations SET reserva_id = ?, trainer_id = ?, client_id = ?, updated_at = ? WHERE id = ?`,
+          [key, String(trainerId), String(clientId), nowISO(), String(c.id)]
+        );
+      }
+
+      return { conversationId: c.id, exists: true };
+    }
   }
 
   const convId = uuidv4();
@@ -387,6 +505,8 @@ async function getOrCreateConversationByPair({ trainerId, clientId }) {
 
   return { conversationId: convId, exists: false };
 }
+
+
 
 async function restoreConversationForUser({ conversationId, userId }) {
   const rows = await query(
@@ -575,6 +695,10 @@ router.post(
       const trainerExpr = buildTrainerExpr(colMap);
       const statusExpr = buildStatusExpr(colMap);
 
+
+      const emailCol = buildEmailCol(colMap);
+      const emailQ = qIdent(emailCol);
+      const emailSel = emailQ ? `${emailQ} AS email` : `NULL AS email`;
       const idQ = qIdent(idCol);
       const clientQ = qIdent(clientCol);
 
@@ -597,7 +721,8 @@ router.post(
             ${idQ} AS id,
             ${clientQ} AS clientId,
             ${trainerExpr} AS trainerId,
-            ${statusSel}
+            ${statusSel},
+            ${emailSel}
           FROM reservas
           WHERE ${idQ} = ?
           LIMIT 1
@@ -610,7 +735,7 @@ router.post(
       }
 
       const r = rr[0];
-      const status = normStatus(r.status);
+      const status = canonStatus(r.status);
       if (status && !CHAT_ALLOWED_STATUSES.has(status)) {
         return res.status(403).json({
           error: "Chat no disponible para el estado actual de la reserva",
@@ -618,26 +743,59 @@ router.post(
         });
       }
 
-      const clientId = String(r.clientId || "").trim();
-      const trainerId = String(r.trainerId || "").trim();
-
-      if (!clientId || !trainerId) {
+      
+      const clientRaw = String(r.clientId || "").trim();
+      const trainerRaw = String(r.trainerId || "").trim();
+      const reservaEmail = String(r.email || "").trim().toLowerCase();
+      const userEmail = String(req.user?.email || "").trim().toLowerCase();
+      
+      if (!clientRaw || !trainerRaw) {
         return res.status(400).json({
           error: "Reserva incompleta (faltan participantes)",
-          clientId: !!clientId,
-          trainerId: !!trainerId,
+          clientId: !!clientRaw,
+          trainerId: !!trainerRaw,
         });
       }
-
+      
+      // ✅ Resolver IDs canónicos (tokens usan uid compartido; reservas antiguas podían guardar users.id o email)
+      const resolvedClientId =
+        (await resolveCanonicalUid({ value: clientRaw, email: reservaEmail })) ||
+        (reservaEmail ? await resolveCanonicalUid({ email: reservaEmail }) : null) ||
+        null;
+      
+      const resolvedTrainerId =
+        (await resolveCanonicalUid({ value: trainerRaw })) ||
+        (isEmailLike(trainerRaw) ? await resolveCanonicalUid({ email: trainerRaw }) : null) ||
+        null;
+      
+      const clientId = resolvedClientId || clientRaw;
+      const trainerId = resolvedTrainerId || trainerRaw;
+      
       // 2) Permiso: solo cliente o adiestrador de esa reserva (admin también)
       const isAdmin = getUserRole(req) === "admin";
-      if (!isAdmin && userId !== clientId && userId !== trainerId) {
+      
+      const canById = userId === clientId || userId === trainerId;
+      const canByEmail = !!userEmail && !!reservaEmail && userEmail === reservaEmail;
+      
+      if (!isAdmin && !canById && !canByEmail) {
         return res.status(403).json({ error: "Sin permisos para este chat" });
       }
-
-      // 3) Obtener/crear conversación por pareja
-      const out = await getOrCreateConversationByPair({ trainerId, clientId });
-
+      
+      // Si entra por email (legacy) y el id del cliente no coincide, amarramos al uid autenticado
+      const effectiveClientId = canByEmail && clientId !== userId ? userId : clientId;
+      
+      // 3) Obtener/crear conversación por pareja (con aliases para migrar conversaciones legacy)
+      const aliasKeys = [];
+      if (trainerRaw && clientRaw) aliasKeys.push(pairKey(trainerRaw, clientRaw));
+      if (trainerId && clientRaw && trainerId !== trainerRaw) aliasKeys.push(pairKey(trainerId, clientRaw));
+      if (trainerRaw && effectiveClientId && effectiveClientId !== clientRaw)
+        aliasKeys.push(pairKey(trainerRaw, effectiveClientId));
+      
+      const out = await getOrCreateConversationByPair({
+        trainerId,
+        clientId: effectiveClientId,
+        aliasKeys,
+      });
       await restoreConversationForUser({ conversationId: out.conversationId, userId });
 
       return res.json(out);

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../../helpers/http";
+import { canonStatus, serverErrMsg } from "../../helpers/reservas";
 import { useAuth } from "../../context/auth";
 import "../../styles/contratar.scss"; // reutilizamos estilos de botones / card
 
@@ -68,22 +69,22 @@ function renderPerro(perro) {
 }
 
 function statusLabel(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "pending" || s === "pendiente") return "Pendiente centro";
-  if (s === "confirmed" || s === "confirmada") return "Confirmada";
-  if (s === "cancelled" || s === "cancelada") return "Cancelada";
-  if (s === "rejected" || s === "rechazada") return "Rechazada";
+  const s = canonStatus(status);
+  if (s === "pending") return "Pendiente centro";
   if (s === "pending_user") return "Pendiente (tu aceptación)";
+  if (s === "confirmed") return "Confirmada";
+  if (s === "cancelled") return "Cancelada";
+  if (s === "rejected") return "Rechazada";
   return s || "Estado";
 }
 
 function statusClass(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "pending" || s === "pendiente") return "badge badge-pending";
-  if (s === "confirmed" || s === "confirmada") return "badge badge-confirmed";
-  if (s === "cancelled" || s === "cancelada") return "badge badge-cancelled";
-  if (s === "rejected" || s === "rechazada") return "badge badge-rejected";
+  const s = canonStatus(status);
+  if (s === "pending") return "badge badge-pending";
   if (s === "pending_user") return "badge badge-pending-user";
+  if (s === "confirmed") return "badge badge-confirmed";
+  if (s === "cancelled") return "badge badge-cancelled";
+  if (s === "rejected") return "badge badge-rejected";
   return "badge";
 }
 
@@ -107,18 +108,20 @@ function ReservaCard({
   onAddNote,
   onDeleteNote,
 }) {
-  const normalizedStatus = String(r.status || "").toLowerCase();
+  const normalizedStatus = canonStatus(r.status);
 
   const puedeCancelar =
     normalizedStatus === "pending" ||
-    normalizedStatus === "confirmada" ||
-    normalizedStatus === "confirmed" ||
-    normalizedStatus === "pending_user";
+    normalizedStatus === "pending_user" ||
+    normalizedStatus === "confirmed";
 
   const puedeAceptarRechazar = normalizedStatus === "pending_user";
 
-  // ✅ Chat SOLO después de la reserva -> alineado con backend (solo confirmed)
-  const puedeChat = normalizedStatus === "confirmed" || normalizedStatus === "confirmada";
+  // ✅ Chat disponible cuando existe relación reserva (evita roturas por status legacy)
+  const puedeChat =
+    normalizedStatus === "confirmed" ||
+    normalizedStatus === "pending_user" ||
+    normalizedStatus === "pending";
 
   const countNotas =
     typeof r.notesCount === "number"
@@ -350,7 +353,7 @@ export default function ReservasUser() {
       navigate(`/chat/${conversationId}`);
     } catch (e) {
       console.error("Error abriendo chat:", e);
-      alert("No se pudo abrir el chat para esta reserva.");
+      alert(serverErrMsg(e, "No se pudo abrir el chat para esta reserva."));
     } finally {
       setOpeningChatId(null);
     }
