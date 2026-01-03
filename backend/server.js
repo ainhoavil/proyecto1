@@ -9,6 +9,7 @@ import { query } from "./db.js";
 // ==== Rutas ====
 import authRoutes from "./routes/auth.js";
 import reservasRoutes from "./routes/reservas.js";
+import reservaNotesRoutes from "./routes/reservaNotes.js";
 import contactoRoutes from "./routes/contacto.js";
 import settingsRoutes from "./routes/settings.js";
 import serviciosRoutes from "./routes/servicios.js";
@@ -82,6 +83,7 @@ app.get("/api/health", async (_req, res) => {
 // ==== Montar rutas principales ====
 app.use("/api/auth", authRoutes);
 app.use("/api/reservas", reservasRoutes);
+app.use("/api/reservas", reservaNotesRoutes);
 app.use("/api/contacto", contactoRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/servicios", serviciosRoutes);

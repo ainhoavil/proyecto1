@@ -31,9 +31,6 @@ export default function TrainerAgenda() {
 
   const [clientes, setClientes] = useState([]);
   const [clienteId, setClienteId] = useState("");
-  const [perrosCliente, setPerrosCliente] = useState([]);
-  const [perroIds, setPerroIds] = useState([]);
-  const [perrosWarn, setPerrosWarn] = useState("");
 
   const [servicios, setServicios] = useState([]);
   const [servicioId, setServicioId] = useState("");
@@ -50,6 +47,13 @@ export default function TrainerAgenda() {
 
   // ✅ Chat
   const [openingChatId, setOpeningChatId] = useState(null);
+// Notas de reserva (adiestrador)
+const [notesOpen, setNotesOpen] = useState(false);
+const [notesReserva, setNotesReserva] = useState(null);
+const [notesItems, setNotesItems] = useState([]);
+const [notesText, setNotesText] = useState("");
+const [notesLoading, setNotesLoading] = useState(false);
+const [notesError, setNotesError] = useState("");
 
   // Avisos
   const [notice, setNotice] = useState({ type: "", text: "" });
@@ -164,35 +168,6 @@ export default function TrainerAgenda() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-  (async () => {
-    if (!clienteId) {
-      setPerrosCliente([]);
-      setPerroIds([]);
-      setPerrosWarn("");
-      return;
-    }
-    try {
-      const r = await http(`/api/perros/user/${clienteId}`, { auth: true });
-      const arr = Array.isArray(r?.items) ? r.items : Array.isArray(r) ? r : [];
-      setPerrosCliente(arr);
-      setPerroIds([]); // reset selection on client change
-
-      if (!arr.length) {
-        setPerrosWarn("No puede crear reservas para este usuario porque no tiene ningún perro registrado.");
-      } else {
-        setPerrosWarn("");
-      }
-    } catch (e) {
-      console.error("Error cargando perros del cliente", e);
-      setPerrosCliente([]);
-      setPerroIds([]);
-      setPerrosWarn("No se pudieron cargar los perros del cliente.");
-    }
-  })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [clienteId]);
-
   /* ======================== Crear reserva / Bloquear ============================ */
   const crearReserva = async (hora) => {
     const h = String(hora || "").trim();
@@ -207,16 +182,6 @@ export default function TrainerAgenda() {
     }
     if (!clienteId || !servicioId) {
       showError("Selecciona cliente y servicio antes de crear la reserva.");
-      return;
-    }
-
-    // Perros obligatorios: si el cliente no tiene perros, no se puede reservar
-    if (perrosCliente.length === 0) {
-      showError("No puede crear reservas para este usuario porque no tiene ningún perro registrado.");
-      return;
-    }
-    if (!perroIds.length) {
-      showError("Selecciona al menos un perro para la reserva.");
       return;
     }
 
@@ -240,10 +205,6 @@ export default function TrainerAgenda() {
           hora: h,
           modalidad,
           status: "confirmed",
-          perro: (() => {
-            const sel = perrosCliente.filter((p) => perroIds.includes(p.id));
-            return JSON.stringify(sel.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza, nacimiento: p.nacimiento })));
-          })(),
         },
       });
       showSuccess("Reserva creada.");
@@ -415,6 +376,63 @@ export default function TrainerAgenda() {
 
   const fechaLabel = fecha ? humanDate(fecha) : "";
   const canCrear = mode === "create" && !!selectedHora && !!clienteId && !!servicioId && !!fecha;
+  async function loadReservaNotes(reservaId) {
+  try {
+    setNotesLoading(true);
+    setNotesError("");
+    const r = await http(`/api/reservas/${reservaId}/notes`, { auth: true });
+    const arr = Array.isArray(r?.items) ? r.items : Array.isArray(r) ? r : [];
+    setNotesItems(arr);
+  } catch (e) {
+    console.error("No se pudieron cargar las notas", e);
+    setNotesItems([]);
+    setNotesError(serverErrMsg(e, "No se pudieron cargar las notas"));
+  } finally {
+    setNotesLoading(false);
+  }
+}
+
+function openReservaNotes(reserva) {
+  setNotesReserva(reserva);
+  setNotesOpen(true);
+  setNotesText("");
+  setNotesItems([]);
+  loadReservaNotes(reserva.id);
+}
+
+function closeReservaNotes() {
+  setNotesOpen(false);
+  setNotesReserva(null);
+  setNotesItems([]);
+  setNotesText("");
+  setNotesError("");
+}
+
+async function addReservaNote() {
+  if (!notesReserva?.id) return;
+  const text = String(notesText || "").trim();
+  if (!text) return;
+
+  try {
+    setNotesLoading(true);
+    setNotesError("");
+    const r = await http(`/api/reservas/${notesReserva.id}/notes`, {
+      method: "POST",
+      auth: true,
+      body: { text },
+    });
+    const arr = Array.isArray(r?.items) ? r.items : [];
+    setNotesItems(arr);
+    setNotesText("");
+  } catch (e) {
+    console.error("No se pudo guardar la nota", e);
+    setNotesError(serverErrMsg(e, "No se pudo guardar la nota"));
+  } finally {
+    setNotesLoading(false);
+  }
+}
+
+
 
   return (
     <div>
@@ -496,53 +514,6 @@ export default function TrainerAgenda() {
                 ))}
               </select>
             </label>
-
-<label>
-  Perros del cliente
-  {perrosWarn ? (
-    <div style={{ marginTop: 6, color: "#b83232", fontSize: 13 }}>
-      {perrosWarn}
-    </div>
-  ) : perrosCliente.length ? (
-    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-      {perrosCliente.map((p) => {
-        const checked = perroIds.includes(p.id);
-        return (
-          <label
-            key={p.id}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              border: "1px solid #e6e6e6",
-              borderRadius: 12,
-              padding: "6px 10px",
-              cursor: "pointer",
-              userSelect: "none",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setPerroIds((prev) =>
-                  on ? Array.from(new Set([...prev, p.id])) : prev.filter((x) => x !== p.id)
-                );
-              }}
-            />
-            <span>{p.nombre}</span>
-            {p.raza ? <span style={{ opacity: 0.7 }}>({p.raza})</span> : null}
-          </label>
-        );
-      })}
-    </div>
-  ) : (
-    <div style={{ marginTop: 6, opacity: 0.7, fontSize: 13 }}>
-      Selecciona un cliente para ver sus perros.
-    </div>
-  )}
-</label>
 
             <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "#6b5b51" }}>
               Servicio
@@ -705,6 +676,14 @@ export default function TrainerAgenda() {
                     >
                       {openingChatId === r.id ? "Abriendo chat…" : "Abrir chat"}
                     </button>
+
+                    <button
+                      type="button"
+                      className="btn-outline"
+                      onClick={() => openReservaNotes(r)}
+                    >
+                      Notas
+                    </button>
                   </div>
                 </div>
               );
@@ -748,6 +727,93 @@ export default function TrainerAgenda() {
           <p className="reservas-empty">No hay bloqueos para este día.</p>
         )}
       </section>
+
+      {/* ===================== MODAL NOTAS ===================== */}
+{notesOpen ? (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.35)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+      zIndex: 9999,
+    }}
+    onMouseDown={(e) => {
+      // cerrar si clic fuera
+      if (e.target === e.currentTarget) closeReservaNotes();
+    }}
+  >
+    <div
+      style={{
+        width: "min(720px, 100%)",
+        background: "#fff",
+        borderRadius: 14,
+        padding: 16,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 16 }}>
+          Notas — {notesReserva?.hora} · {notesReserva?.servicioTitulo || "Reserva"} (#{notesReserva?.id})
+        </div>
+        <button type="button" className="btn-outline" onClick={closeReservaNotes}>
+          Cerrar
+        </button>
+      </div>
+
+      {notesError ? (
+        <div style={{ marginTop: 10, color: "#b83232", fontSize: 13 }}>{notesError}</div>
+      ) : null}
+
+      <div style={{ marginTop: 12, maxHeight: 320, overflow: "auto", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+        {notesLoading && !notesItems.length ? (
+          <div style={{ opacity: 0.75 }}>Cargando…</div>
+        ) : notesItems.length ? (
+          notesItems.map((n) => (
+            <div key={n.id} style={{ padding: "8px 6px", borderBottom: "1px solid #f2f2f2" }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, opacity: 0.8 }}>
+                <span>{n.authorEmail || n.authorUid || "autor"}</span>
+                <span>·</span>
+                <span>{n.createdAt || ""}</span>
+              </div>
+              <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{n.text}</div>
+            </div>
+          ))
+        ) : (
+          <div style={{ opacity: 0.75 }}>No hay notas todavía.</div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+        <input
+          value={notesText}
+          onChange={(e) => setNotesText(e.target.value)}
+          placeholder="Escribe una nota…"
+          style={{
+            flex: 1,
+            padding: "10px 12px",
+            borderRadius: 12,
+            border: "1px solid #ddd",
+            outline: "none",
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              addReservaNote();
+            }
+          }}
+        />
+        <button type="button" className="btn-primary" disabled={notesLoading || !String(notesText || "").trim()} onClick={addReservaNote}>
+          Añadir
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
+
 
       {/* ================= HISTÓRICO (MIS RESERVAS) ================= */}
       <details style={{ marginTop: 18 }}>
