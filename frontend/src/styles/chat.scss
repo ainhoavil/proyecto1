@@ -90,11 +90,22 @@
     radial-gradient(circle at 20% 10%, rgba(244,127,44,.08), transparent 45%),
     radial-gradient(circle at 90% 70%, rgba(0,0,0,.04), transparent 45%),
     #fff;
+
+  /* ✅ evita “saltos” cuando aparece/desaparece scrollbar (si el navegador lo soporta) */
+  scrollbar-gutter: stable;
 }
 
 .df-chat__empty {
   color: var(--chat-muted);
   font-weight: 700;
+
+  /* ✅ Estados vacíos/cargando centrados y consistentes */
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 22px 14px;
 }
 
 /* =========================================================
@@ -112,8 +123,25 @@
   justify-content: flex-end;
 }
 
+/* ✅ Importante: NO usar row-reverse aquí.
+   Para que el mensaje quede a la derecha, mantenemos row normal
+   y solo reordenamos elementos con 'order'. */
+.df-msg--mine .df-msg__bubble {
+  order: 1;
+}
+.df-msg--mine .df-msg__avatar {
+  order: 2;
+}
+
 .df-msg--theirs {
   justify-content: flex-start;
+}
+
+.df-msg--theirs .df-msg__avatar {
+  order: 1;
+}
+.df-msg--theirs .df-msg__bubble {
+  order: 2;
 }
 
 /* Avatar circular */
@@ -130,11 +158,33 @@
   font-size: 12px;
   color: var(--chat-muted);
   flex-shrink: 0;
+  overflow: hidden; /* ✅ recorta img dentro del círculo */
 }
 
 .df-msg__avatar--mine {
   background: var(--chat-primary-soft);
   border-color: rgba(244,127,44,.3);
+}
+
+/* ✅ Imagen de avatar */
+.df-msg__avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ✅ Inicial (fallback cuando no hay foto) */
+.df-msg__avatarInitial {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--chat-muted);
+  user-select: none;
 }
 
 /* Burbuja */

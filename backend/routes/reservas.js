@@ -3,6 +3,14 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, requireAdmin, allowRoles } from "../middleware/auth.js";
+import {
+  notifyReservationCreated,
+  notifyReservationCenterConfirmed,
+  notifyReservationUserConfirmed,
+  notifyReservationRejected,
+  notifyReservationCancelled,
+  notifyReservationNoteAdded,
+} from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -473,6 +481,10 @@ router.post("/", verifyToken, async (req, res) => {
     );
 
     const r = rows[0] || {};
+
+    // ✅ Email: reserva creada (best-effort, no rompe la API)
+    void notifyReservationCreated(id);
+
     res.status(201).json({ ...r, pricing: parseJSONSafe(r.pricing, null) });
   } catch (e) {
     const code = e?.statusCode || 500;
@@ -593,6 +605,9 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
         ts,
       ]
     );
+
+    // ✅ Email: reserva creada por admin (best-effort)
+    void notifyReservationCreated(id);
 
     res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
@@ -849,6 +864,9 @@ router.post("/:id/notes", verifyToken, async (req, res) => {
       [nid, id, author, String(text).trim(), ts]
     );
 
+    // ✅ Email: nueva nota (best-effort)
+    void notifyReservationNoteAdded({ reservaId: id, author, text: String(text).trim() });
+
     res.status(201).json({ id: nid, author, text: String(text).trim(), createdAt: ts });
   } catch (e) {
     console.error("POST /reservas/:id/notes", e);
@@ -911,6 +929,10 @@ router.patch(
         WHERE id=?`,
         [note, nowISO(), id]
       );
+
+      // ✅ Email: el centro confirmó y queda pendiente del usuario
+      void notifyReservationCenterConfirmed(id, { note });
+
       res.json({ ok: true });
     } catch (e) {
       console.error("PATCH /reservas/:id/confirm", e);
@@ -973,6 +995,9 @@ router.patch(
         );
       }
 
+      // ✅ Email: reserva rechazada
+      void notifyReservationRejected(id, { note });
+
       res.json({ ok: true });
     } catch (e) {
       console.error("PATCH /reservas/:id/reject", e);
@@ -1012,6 +1037,9 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
     }
 
     await query(`UPDATE reservas SET status='confirmed', updated_at=? WHERE id=?`, [nowISO(), id]);
+
+    // ✅ Email: reserva confirmada (cliente aceptó)
+    void notifyReservationUserConfirmed(id);
 
     res.json({ ok: true });
   } catch (e) {
@@ -1085,6 +1113,12 @@ router.patch("/:id/user-reject", verifyToken, async (req, res) => {
       );
     }
 
+    // ✅ Email: reserva cancelada por el usuario (best-effort)
+    void notifyReservationCancelled(id, {
+      reason: reason || "rechazado por usuario",
+      by: "user",
+    });
+
     res.json({ ok: true });
   } catch (e) {
     console.error("PATCH /reservas/:id/user-reject", e);
@@ -1155,6 +1189,12 @@ router.patch("/:id/cancel", verifyToken, async (req, res) => {
         [reason || null, nowISO(), id]
       );
     }
+
+    // ✅ Email: reserva cancelada (owner o admin)
+    void notifyReservationCancelled(id, {
+      reason: reason || null,
+      by: isAdmin ? "staff" : "user",
+    });
 
     res.json({ ok: true });
   } catch (e) {
@@ -1258,6 +1298,9 @@ router.patch("/:id", verifyToken, async (req, res) => {
          WHERE id=?`,
         [adminNote || "", nowISO(), id]
       );
+
+      // ✅ Email: el centro confirmó y queda pendiente del usuario (vía PATCH genérico)
+      void notifyReservationCenterConfirmed(id, { note: adminNote || "" });
       return res.json({ ok: true });
     }
 
@@ -1305,6 +1348,9 @@ router.patch("/:id", verifyToken, async (req, res) => {
           [adminNote || "", nowISO(), id]
         );
       }
+
+      // ✅ Email: reserva rechazada (vía PATCH genérico)
+      void notifyReservationRejected(id, { note: adminNote || "" });
       return res.json({ ok: true });
     }
 
@@ -1361,6 +1407,12 @@ router.patch("/:id", verifyToken, async (req, res) => {
           [cancelReason || "", nowISO(), id]
         );
       }
+
+      // ✅ Email: reserva cancelada (vía PATCH genérico)
+      void notifyReservationCancelled(id, {
+        reason: cancelReason || "",
+        by: isAdmin ? "staff" : "user",
+      });
       return res.json({ ok: true });
     }
 

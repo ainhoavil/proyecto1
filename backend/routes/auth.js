@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { query } from "../db.js";
 import { nanoid } from "nanoid";
 import { verifyToken, requireAdmin } from "../middleware/auth.js";
+import { sendPasswordResetEmail } from "../utils/mailer.js";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
@@ -103,16 +104,7 @@ async function ensureUsuariosRow({ uid, email, rol = "client", passwordHash }) {
   }
 }
 
-/* ============================================================
-   Email helper (SIN nodemailer, para no romper)
-   - Si no tienes SMTP aún, dejamos el sistema preparado:
-     - loguea URL en consola
-============================================================ */
-async function sendResetEmail({ to, resetUrl, minutes }) {
-  console.warn(
-    `[RESET EMAIL - PREPARADO] Para: ${to} | Caduca en ${minutes} min | URL: ${resetUrl}`
-  );
-}
+// ✅ Email real: usa backend/utils/mailer.js
 
 /* ============================================================
    POST /api/auth/register (Público)
@@ -292,8 +284,8 @@ router.post("/forgot-password", async (req, res) => {
 
     const resetUrl = `${baseFront}/reset-password?token=${rawToken}`;
 
-    // Envío preparado (log) para no romper
-    await sendResetEmail({ to: emailNorm, resetUrl, minutes });
+    // ✅ Envío real (si no está configurado, hará DEV LOG sin romper)
+    await sendPasswordResetEmail({ to: emailNorm, resetUrl, minutes });
 
     return res.json(generic);
   } catch (e) {

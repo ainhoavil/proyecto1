@@ -1,22 +1,23 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useAuth } from "../context/auth";
 import "../styles/contratar.scss";
 
 export default function TrainerClients() {
-
   const { user } = useAuth();
+  const navigate = useNavigate();
+
   const [clientes, setClientes] = useState([]);
   const [notice, setNotice] = useState({ type: "", text: "" });
 
   const showError = (t) => setNotice({ type: "error", text: t });
-  const showSuccess = (t) => setNotice({ type: "success", text: t });
 
   /* ============================== LOAD CLIENTES ============================= */
   const loadClientes = async () => {
     try {
       const data = await http("/api/trainers/me/clients", { auth: true });
-      const arr = data?.items || data || [];
+      const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
       setClientes(arr);
     } catch (e) {
       showError("No se pudieron cargar los clientes.");
@@ -28,6 +29,26 @@ export default function TrainerClients() {
   }, []);
 
   /* ============================== UI ============================= */
+
+  const openChat = async (clientId) => {
+    try {
+      const resp = await http(`/api/chats/by-client/${clientId}`, {
+        method: "POST",
+        auth: true,
+      });
+
+      const conversationId = resp?.conversationId || resp?.id;
+      if (!conversationId) {
+        showError("No se pudo abrir el chat (sin conversationId)");
+        return;
+      }
+
+      navigate(`/chat/${conversationId}`);
+    } catch (e) {
+      console.error(e);
+      showError("No se pudo abrir el chat con este cliente.");
+    }
+  };
 
   return (
     <div className="reservas-page">
@@ -65,7 +86,7 @@ export default function TrainerClients() {
             }}
           >
             <div style={{ display: "grid", gap: 4 }}>
-              <h3 style={{ margin: 0 }}>{c.nombre}</h3>
+              <h3 style={{ margin: 0 }}>{c.nombre || c.displayName || c.email}</h3>
               <p style={{ margin: 0, opacity: 0.7 }}>{c.email}</p>
             </div>
 
@@ -106,14 +127,14 @@ export default function TrainerClients() {
             >
               <button
                 className="btn-primary"
-                onClick={() => (window.location.href = `/trainer/clientes/${c.id}`)}
+                onClick={() => navigate(`/trainer/clientes/${c.id}`)}
               >
                 Ver perfil
               </button>
 
               <button
                 className="btn-ghost"
-                onClick={() => (window.location.href = `/trainer/chat/${c.id}`)}
+                onClick={() => openChat(c.id)}
               >
                 Chat
               </button>
@@ -121,7 +142,7 @@ export default function TrainerClients() {
               <button
                 className="btn-ghost"
                 onClick={() =>
-                  (window.location.href = `/trainer-agenda?cliente=${c.id}`)
+                  navigate(`/trainer-agenda?cliente=${c.id}`)
                 }
               >
                 Crear reserva

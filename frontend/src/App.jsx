@@ -29,6 +29,8 @@ import Reservas from "./pages/reservas.jsx";
 import Perfil from "./pages/perfil.jsx";
 import AdminPanel from "./pages/admin.jsx";
 import TrainerAgenda from "./pages/trainer-Agenda.jsx";
+import TrainerClients from "./pages/trainer-clients.jsx";
+import TrainerClientDetail from "./pages/trainer-client-detail.jsx";
 
 // ✅ Chat
 import ChatPage from "./pages/ChatPage.jsx";
@@ -119,6 +121,29 @@ export default function App() {
               <ProtectedRoute>
                 <RoleRoute allow={["adiestrador", "admin"]}>
                   <TrainerAgenda />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ===== PANEL ADIESTRADOR: CLIENTES + NOTAS PRIVADAS ===== */}
+          <Route
+            path="/trainer/clientes"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["adiestrador"]}>
+                  <TrainerClients />
+                </RoleRoute>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/trainer/clientes/:clientId"
+            element={
+              <ProtectedRoute>
+                <RoleRoute allow={["adiestrador"]}>
+                  <TrainerClientDetail />
                 </RoleRoute>
               </ProtectedRoute>
             }

@@ -116,31 +116,209 @@ router.get(
       if (!trainerId) return res.status(401).json({ error: "No autorizado" });
 
       // reservas.uid = usuarios.id (cliente)
-      const rows = await query(
+      // IMPORTANTE: devolvemos también perros + última/próxima sesión
+      const clientRows = await query(
         `
         SELECT DISTINCT
           cu.id AS id,
           cu.email AS email,
-          COALESCE(NULLIF(up.nombre,''), cu.email) AS displayName
+          COALESCE(NULLIF(up.nombre,''), cu.email) AS nombre
         FROM reservas r
         JOIN usuarios cu
           ON cu.id = r.uid
         LEFT JOIN users up
           ON up.uid = cu.id
-        WHERE r.trainer_id = ?
+        WHERE (r.trainer_id = ? OR r.entrenador_id = ?)
           AND r.uid IS NOT NULL
           AND r.status IN ('pending','pending_user','confirmed')
-        ORDER BY displayName ASC, cu.email ASC
+        ORDER BY nombre ASC, cu.email ASC
         `,
-        [trainerId]
+        [trainerId, trainerId]
       );
 
-      res.json(rows);
+      if (!clientRows.length) return res.json([]);
+
+      const items = clientRows.map((r) => ({
+        id: r.id,
+        email: r.email,
+        nombre: r.nombre,
+        displayName: r.nombre,
+        perros: [],
+        ultimaReserva: null,
+        proximaReserva: null,
+      }));
+
+      const map = new Map(items.map((c) => [String(c.id), c]));
+      const clientIds = items.map((c) => String(c.id));
+
+      // ====== Perros de todos los clientes (1 query) ======
+      try {
+        const placeholders = clientIds.map(() => "?").join(",");
+        const dogRows = await query(
+          `
+          SELECT id, user_id AS ownerId, nombre, raza
+          FROM perros
+          WHERE user_id IN (${placeholders})
+          ORDER BY nombre COLLATE NOCASE ASC
+          `,
+          clientIds
+        );
+
+        for (const d of dogRows) {
+          const owner = map.get(String(d.ownerId));
+          if (!owner) continue;
+          owner.perros.push({
+            id: d.id,
+            nombre: d.nombre,
+            raza: d.raza,
+          });
+        }
+      } catch {
+        // Si la tabla perros no existe todavía o falla, ignoramos.
+      }
+
+      // ====== Última / próxima reserva (1 query) ======
+      try {
+        const placeholders = clientIds.map(() => "?").join(",");
+        const rows = await query(
+          `
+          SELECT uid, fecha, hora, status
+          FROM reservas
+          WHERE (trainer_id = ? OR entrenador_id = ?)
+            AND uid IN (${placeholders})
+            AND status IN ('pending','pending_user','confirmed')
+            AND fecha IS NOT NULL
+            AND hora IS NOT NULL
+          `,
+          [trainerId, trainerId, ...clientIds]
+        );
+
+        const now = Date.now();
+        const best = new Map(); // uid -> {lastMs, lastIso, nextMs, nextIso}
+
+        const toDate = (fecha, hora) => {
+          const [Y, M, D] = String(fecha || "").split("-").map(Number);
+          const [h, m = 0] = String(hora || "00:00").split(":").map(Number);
+          if (!Y || !M || !D) return null;
+          return new Date(Y, M - 1, D, h || 0, m || 0);
+        };
+
+        for (const r of rows) {
+          const uid = String(r.uid || "");
+          if (!uid) continue;
+          const d = toDate(r.fecha, r.hora);
+          if (!d || Number.isNaN(d.getTime())) continue;
+
+          const ms = d.getTime();
+          const iso = d.toISOString();
+
+          const cur = best.get(uid) || {
+            lastMs: null,
+            lastIso: null,
+            nextMs: null,
+            nextIso: null,
+          };
+
+          if (ms <= now) {
+            if (cur.lastMs === null || ms > cur.lastMs) {
+              cur.lastMs = ms;
+              cur.lastIso = iso;
+            }
+          } else {
+            if (cur.nextMs === null || ms < cur.nextMs) {
+              cur.nextMs = ms;
+              cur.nextIso = iso;
+            }
+          }
+
+          best.set(uid, cur);
+        }
+
+        for (const [uid, v] of best.entries()) {
+          const c = map.get(uid);
+          if (!c) continue;
+          c.ultimaReserva = v.lastIso;
+          c.proximaReserva = v.nextIso;
+        }
+      } catch {
+        // ignore
+      }
+
+      res.json(items);
     } catch (err) {
       console.error("GET /api/trainers/me/clients error:", err);
       res.status(500).json({
         error: "No se pudieron cargar los clientes del adiestrador",
       });
+    }
+  }
+);
+
+/* ============================================================
+   GET /api/trainers/me/clients/:clientId
+   Detalle de cliente asignado (con perros)
+   Roles: adiestrador / admin
+============================================================ */
+router.get(
+  "/me/clients/:clientId",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      const trainerId = String(req.user?.uid || req.user?.id || "");
+      if (!trainerId) return res.status(401).json({ error: "No autorizado" });
+
+      const clientId = String(req.params.clientId || "").trim();
+      if (!clientId) return res.status(400).json({ error: "clientId requerido" });
+
+      // Permiso: debe existir relación por reservas
+      const rel = await query(
+        `
+          SELECT 1
+          FROM reservas
+          WHERE uid = ?
+            AND (trainer_id = ? OR entrenador_id = ?)
+          LIMIT 1
+        `,
+        [clientId, trainerId, trainerId]
+      );
+      if (!rel.length) return res.status(403).json({ error: "Sin permisos" });
+
+      const u = await query(
+        `
+          SELECT
+            cu.id AS id,
+            cu.email AS email,
+            COALESCE(NULLIF(up.nombre,''), cu.email) AS nombre
+          FROM usuarios cu
+          LEFT JOIN users up ON up.uid = cu.id
+          WHERE cu.id = ?
+          LIMIT 1
+        `,
+        [clientId]
+      );
+      if (!u.length) return res.status(404).json({ error: "Cliente no encontrado" });
+
+      let perros = [];
+      try {
+        const dogRows = await query(
+          `SELECT id, nombre, raza FROM perros WHERE user_id = ? ORDER BY nombre COLLATE NOCASE ASC`,
+          [clientId]
+        );
+        perros = dogRows.map((d) => ({ id: d.id, nombre: d.nombre, raza: d.raza }));
+      } catch {
+        perros = [];
+      }
+
+      res.json({
+        id: u[0].id,
+        email: u[0].email,
+        nombre: u[0].nombre,
+        perros,
+      });
+    } catch (err) {
+      console.error("GET /api/trainers/me/clients/:clientId error:", err);
+      res.status(500).json({ error: "No se pudo cargar el cliente" });
     }
   }
 );

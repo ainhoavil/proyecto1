@@ -57,6 +57,12 @@ export default function Navbar() {
               </li>
             )}
 
+            {esTrainer && (
+              <li>
+                <Link to="/trainer/clientes">Clientes</Link>
+              </li>
+            )}
+
             {esAdmin && (
               <li>
                 <Link to="/admin">Panel admin</Link>
@@ -145,6 +151,14 @@ export default function Navbar() {
             <li>
               <Link to="/reservas" onClick={closeMenu}>
                 Agenda
+              </Link>
+            </li>
+          )}
+
+          {esTrainer && (
+            <li>
+              <Link to="/trainer/clientes" onClick={closeMenu}>
+                Clientes
               </Link>
             </li>
           )}

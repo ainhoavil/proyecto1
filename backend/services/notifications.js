@@ -1,0 +1,388 @@
+// backend/services/notifications.js
+// ============================================================
+// Notificaciones por email (reservas, notas, chat)
+// - Se ejecutan en modo "best-effort": nunca deben romper la API
+// - Si el mailer no está configurado, imprime un DEV LOG
+// ============================================================
+
+import { query } from "../db.js";
+import { sendReservationEmail, sendChatEmail } from "../utils/mailer.js";
+
+function normEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function safeStr(v) {
+  return v == null ? "" : String(v);
+}
+
+function short(v, max = 180) {
+  const s = safeStr(v).trim();
+  if (!s) return "";
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function money(price, currency) {
+  const p = price == null ? "" : String(price);
+  const c = safeStr(currency || "EUR").toUpperCase();
+  if (!p) return "";
+  return `${p} ${c}`;
+}
+
+async function getUserById(uid) {
+  const id = safeStr(uid).trim();
+  if (!id) return null;
+  const rows = await query(
+    `
+      SELECT
+        u.id,
+        u.email,
+        u.rol,
+        COALESCE(us.nombre, '') AS nombre
+      FROM usuarios u
+      LEFT JOIN users us ON us.uid = u.id
+      WHERE u.id = ?
+      LIMIT 1
+    `,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+async function getReservaById(reservaId) {
+  const id = safeStr(reservaId).trim();
+  if (!id) return null;
+
+  const rows = await query(
+    `
+      SELECT
+        id,
+        uid,
+        email,
+        fecha,
+        hora,
+        COALESCE(duration_min, 60) AS durationMin,
+        servicio_titulo AS servicioTitulo,
+        modalidad,
+        perro,
+        price,
+        currency,
+        user_note AS userNote,
+        admin_note AS adminNote,
+        cancel_reason AS cancelReason,
+        status,
+        COALESCE(trainer_id, entrenador_id) AS trainerId
+      FROM reservas
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [id]
+  );
+
+  return rows[0] || null;
+}
+
+function buildReservaLines(r) {
+  if (!r) return [];
+  const lines = [];
+  if (r.servicioTitulo) lines.push(`Servicio: ${r.servicioTitulo}`);
+  if (r.modalidad) lines.push(`Modalidad: ${r.modalidad}`);
+  if (r.fecha) lines.push(`Fecha: ${r.fecha}`);
+  if (r.hora) lines.push(`Hora: ${r.hora}`);
+  if (r.durationMin) lines.push(`Duración: ${Number(r.durationMin) || 60} min`);
+  const m = money(r.price, r.currency);
+  if (m) lines.push(`Precio: ${m}`);
+  if (r.perro) lines.push(`Perro: ${r.perro}`);
+  return lines;
+}
+
+async function safeRun(label, fn) {
+  try {
+    await fn();
+  } catch (e) {
+    console.warn(`[notify] ${label} falló:`, e?.message || e);
+  }
+}
+
+// ============================================================
+// RESERVAS
+// ============================================================
+
+export async function notifyReservationCreated(reservaId) {
+  await safeRun("notifyReservationCreated", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    if (!clientEmail) return;
+
+    const trainer = r.trainerId ? await getUserById(r.trainerId) : null;
+
+    // 1) Email al CLIENTE
+    await sendReservationEmail({
+      to: clientEmail,
+      subject: `${appName} · Reserva recibida`,
+      title: "Reserva recibida",
+      intro:
+        "Hemos recibido tu solicitud. Te avisaremos cuando el centro la confirme.",
+      lines: buildReservaLines(r),
+      actionPath: "/reservas",
+      actionText: "Ver mis reservas",
+    });
+
+    // 2) Email al ADIESTRADOR asignado (si tiene email)
+    const trainerEmail = normEmail(trainer?.email);
+    if (trainerEmail) {
+      const who = trainer?.nombre ? `Hola ${trainer.nombre},` : "Hola,";
+      await sendReservationEmail({
+        to: trainerEmail,
+        subject: `${appName} · Nueva reserva asignada`,
+        title: "Nueva reserva asignada",
+        intro: `${who} se te ha asignado una nueva reserva (pendiente).`,
+        lines: [
+          ...buildReservaLines(r),
+          clientEmail ? `Cliente: ${clientEmail}` : "",
+        ].filter(Boolean),
+        actionPath: "/trainer-agenda",
+        actionText: "Ver agenda",
+      });
+    }
+  });
+}
+
+export async function notifyReservationCenterConfirmed(reservaId, { note } = {}) {
+  await safeRun("notifyReservationCenterConfirmed", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    if (!clientEmail) return;
+
+    const n = short(note || r.adminNote, 240);
+    const extra = n ? [`Nota del centro: ${n}`] : [];
+
+    await sendReservationEmail({
+      to: clientEmail,
+      subject: `${appName} · Confirma tu reserva`,
+      title: "Reserva pendiente de tu confirmación",
+      intro:
+        "El centro ha confirmado tu solicitud. Entra en DogForm para aceptar o rechazar la reserva.",
+      lines: [...buildReservaLines(r), ...extra].filter(Boolean),
+      actionPath: "/reservas",
+      actionText: "Ir a mis reservas",
+    });
+  });
+}
+
+export async function notifyReservationUserConfirmed(reservaId) {
+  await safeRun("notifyReservationUserConfirmed", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    const trainer = r.trainerId ? await getUserById(r.trainerId) : null;
+    const trainerEmail = normEmail(trainer?.email);
+
+    const lines = buildReservaLines(r);
+    if (trainer?.nombre) lines.push(`Adiestrador/a: ${trainer.nombre}`);
+
+    if (clientEmail) {
+      await sendReservationEmail({
+        to: clientEmail,
+        subject: `${appName} · Reserva confirmada`,
+        title: "Reserva confirmada",
+        intro: "Tu reserva ha quedado confirmada.",
+        lines,
+        actionPath: "/reservas",
+        actionText: "Ver detalle",
+      });
+    }
+
+    if (trainerEmail) {
+      await sendReservationEmail({
+        to: trainerEmail,
+        subject: `${appName} · Reserva confirmada (cliente aceptó)`,
+        title: "Reserva confirmada",
+        intro: "El cliente ha confirmado la reserva.",
+        lines: [
+          ...lines,
+          clientEmail ? `Cliente: ${clientEmail}` : "",
+        ].filter(Boolean),
+        actionPath: "/trainer-agenda",
+        actionText: "Ver agenda",
+      });
+    }
+  });
+}
+
+export async function notifyReservationRejected(reservaId, { note } = {}) {
+  await safeRun("notifyReservationRejected", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    if (!clientEmail) return;
+
+    const n = short(note || r.adminNote, 240);
+    const extra = n ? [`Motivo/nota: ${n}`] : [];
+
+    await sendReservationEmail({
+      to: clientEmail,
+      subject: `${appName} · Reserva rechazada`,
+      title: "Reserva rechazada",
+      intro:
+        "El centro ha rechazado tu solicitud de reserva. Puedes crear una nueva reserva en otro horario.",
+      lines: [...buildReservaLines(r), ...extra].filter(Boolean),
+      actionPath: "/contratar",
+      actionText: "Reservar otra hora",
+    });
+  });
+}
+
+export async function notifyReservationCancelled(reservaId, { reason, by } = {}) {
+  await safeRun("notifyReservationCancelled", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    const trainer = r.trainerId ? await getUserById(r.trainerId) : null;
+    const trainerEmail = normEmail(trainer?.email);
+
+    const why = short(reason || r.cancelReason, 240);
+    const extra = why ? [`Motivo: ${why}`] : [];
+    const lines = [...buildReservaLines(r), ...extra].filter(Boolean);
+
+    // Cliente
+    if (clientEmail) {
+      const intro =
+        by === "staff"
+          ? "El centro ha cancelado la reserva."
+          : "La reserva ha sido cancelada.";
+
+      await sendReservationEmail({
+        to: clientEmail,
+        subject: `${appName} · Reserva cancelada`,
+        title: "Reserva cancelada",
+        intro,
+        lines,
+        actionPath: "/reservas",
+        actionText: "Ver mis reservas",
+      });
+    }
+
+    // Trainer
+    if (trainerEmail) {
+      await sendReservationEmail({
+        to: trainerEmail,
+        subject: `${appName} · Reserva cancelada`,
+        title: "Reserva cancelada",
+        intro: "Se ha cancelado una reserva asignada a ti.",
+        lines: [
+          ...lines,
+          clientEmail ? `Cliente: ${clientEmail}` : "",
+        ].filter(Boolean),
+        actionPath: "/trainer-agenda",
+        actionText: "Ver agenda",
+      });
+    }
+  });
+}
+
+export async function notifyReservationNoteAdded({ reservaId, author, text } = {}) {
+  await safeRun("notifyReservationNoteAdded", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    const trainer = r.trainerId ? await getUserById(r.trainerId) : null;
+    const trainerEmail = normEmail(trainer?.email);
+
+    const note = short(text, 300);
+    const lines = [...buildReservaLines(r), note ? `Nota: ${note}` : ""].filter(Boolean);
+
+    // author: "user" | "admin" (en tu API)
+    if (author === "user") {
+      // Nota del cliente => avisamos al trainer
+      if (trainerEmail) {
+        await sendReservationEmail({
+          to: trainerEmail,
+          subject: `${appName} · Nueva nota del cliente`,
+          title: "Nueva nota en una reserva",
+          intro: "El cliente ha añadido una nota a la reserva.",
+          lines: [
+            ...lines,
+            clientEmail ? `Cliente: ${clientEmail}` : "",
+          ].filter(Boolean),
+          actionPath: "/trainer-agenda",
+          actionText: "Ver agenda",
+        });
+      }
+      return;
+    }
+
+    // Nota del centro/trainer => avisamos al cliente
+    if (clientEmail) {
+      await sendReservationEmail({
+        to: clientEmail,
+        subject: `${appName} · Nueva nota en tu reserva`,
+        title: "Nueva nota en tu reserva",
+        intro: "Tienes una nueva nota del centro/adiestrador.",
+        lines,
+        actionPath: "/reservas",
+        actionText: "Ver mis reservas",
+      });
+    }
+  });
+}
+
+// ============================================================
+// CHAT
+// ============================================================
+
+export async function notifyChatMessage({ conversationId, senderId, preview } = {}) {
+  await safeRun("notifyChatMessage", async () => {
+    const cid = safeStr(conversationId).trim();
+    const sid = safeStr(senderId).trim();
+    if (!cid || !sid) return;
+
+    const convRows = await query(
+      `SELECT id, trainer_id AS trainerId, client_id AS clientId FROM conversations WHERE id = ? LIMIT 1`,
+      [cid]
+    );
+    if (!convRows.length) return;
+
+    const conv = convRows[0];
+    const trainerId = safeStr(conv.trainerId);
+    const clientId = safeStr(conv.clientId);
+
+    // Receptor = el otro
+    let recipientId = "";
+    if (sid === trainerId) recipientId = clientId;
+    else if (sid === clientId) recipientId = trainerId;
+    else return;
+
+    const sender = await getUserById(sid);
+    const recipient = await getUserById(recipientId);
+
+    const to = normEmail(recipient?.email);
+    if (!to) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const senderName = sender?.nombre || sender?.email || "DogForm";
+
+    await sendChatEmail({
+      to,
+      subject: `${appName} · Nuevo mensaje de ${senderName}`,
+      title: "Nuevo mensaje",
+      intro: `Tienes un nuevo mensaje de ${senderName}.`,
+      preview: short(preview, 220),
+      conversationId: cid,
+    });
+  });
+}

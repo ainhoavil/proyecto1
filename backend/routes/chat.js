@@ -4,12 +4,15 @@
 // ✅ 1 conversación por PAREJA (trainer_id + client_id)
 // ✅ Mensajes con adjuntos (fotos / vídeos / archivos)
 // ✅ Mantiene compatibilidad con el endpoint /by-reserva/:id
+// ✅ Borrado lógico por usuario (no elimina globalmente)
+// ✅ Enriquecimiento de mensajes con senderName y senderPhotoUrl (para avatar)
 // ============================================================
 
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
+import { notifyChatMessage } from "../services/notifications.js";
 
 const router = express.Router();
 const nowISO = () => new Date().toISOString();
@@ -82,13 +85,18 @@ async function ensureChatSchema() {
         created_at TEXT,
         updated_at TEXT,
         last_message_at TEXT,
-        last_message_preview TEXT
+        last_message_preview TEXT,
+
+        -- ✅ borrado lógico por usuario
+        deleted_by_trainer_at TEXT,
+        deleted_by_client_at TEXT
       )
     `);
 
     await query(`CREATE INDEX IF NOT EXISTS idx_conversations_reserva_id ON conversations(reserva_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_conversations_trainer ON conversations(trainer_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_conversations_client ON conversations(client_id)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_conversations_last_message ON conversations(last_message_at)`);
 
     // messages
     await query(`
@@ -117,6 +125,26 @@ async function ensureChatSchema() {
       // En algunos entornos el PRAGMA puede fallar; no bloqueamos.
       console.warn("[chat] No se pudo asegurar columna attachments:", e?.message || e);
     }
+
+    // ✅ Si existían conversaciones antiguas sin columnas de borrado lógico, las añadimos.
+    try {
+      const colsC = await query(`PRAGMA table_info(conversations)`);
+      const hasDelTrainer = colsC.some(
+        (c) => String(c.name || "").toLowerCase() === "deleted_by_trainer_at"
+      );
+      const hasDelClient = colsC.some(
+        (c) => String(c.name || "").toLowerCase() === "deleted_by_client_at"
+      );
+
+      if (!hasDelTrainer) {
+        await query(`ALTER TABLE conversations ADD COLUMN deleted_by_trainer_at TEXT`);
+      }
+      if (!hasDelClient) {
+        await query(`ALTER TABLE conversations ADD COLUMN deleted_by_client_at TEXT`);
+      }
+    } catch (e) {
+      console.warn("[chat] No se pudieron asegurar columnas de borrado lógico:", e?.message || e);
+    }
   })();
 
   return schemaPromise;
@@ -135,7 +163,11 @@ async function migrateLegacyConversations() {
 
   try {
     const convs = await query(
-      `SELECT id, reserva_id, trainer_id, client_id, created_at, updated_at, last_message_at FROM conversations`
+      `SELECT
+         id, reserva_id, trainer_id, client_id,
+         created_at, updated_at, last_message_at,
+         deleted_by_trainer_at, deleted_by_client_at
+       FROM conversations`
     );
 
     if (!Array.isArray(convs) || convs.length === 0) return;
@@ -171,23 +203,51 @@ async function migrateLegacyConversations() {
 
       // Asegurar que canonical tenga reserva_id=pairKey
       if (String(canonical.reserva_id || "") !== key) {
-        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [key, nowISO(), canonicalId]);
+        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [
+          key,
+          nowISO(),
+          canonicalId,
+        ]);
       }
+
+      // Fusionar flags de borrado (si alguna conversación del grupo estaba borrada para alguien, lo conservamos)
+      let delTrainer = canonical.deleted_by_trainer_at || null;
+      let delClient = canonical.deleted_by_client_at || null;
 
       // Fusionar el resto
       for (const other of list) {
         const otherId = String(other.id);
         if (otherId === canonicalId) continue;
 
+        if (!delTrainer && other.deleted_by_trainer_at) delTrainer = other.deleted_by_trainer_at;
+        if (!delClient && other.deleted_by_client_at) delClient = other.deleted_by_client_at;
+
         // mover mensajes
-        await query(`UPDATE messages SET conversation_id = ? WHERE conversation_id = ?`, [canonicalId, otherId]);
+        await query(`UPDATE messages SET conversation_id = ? WHERE conversation_id = ?`, [
+          canonicalId,
+          otherId,
+        ]);
         // borrar conversación antigua
         await query(`DELETE FROM conversations WHERE id = ?`, [otherId]);
       }
 
+      // Aplicar flags fusionados al canonical
+      await query(
+        `UPDATE conversations
+         SET deleted_by_trainer_at = COALESCE(?, deleted_by_trainer_at),
+             deleted_by_client_at = COALESCE(?, deleted_by_client_at),
+             updated_at = ?
+         WHERE id = ?`,
+        [delTrainer, delClient, nowISO(), canonicalId]
+      );
+
       // Recalcular último mensaje
       const last = await query(
-        `SELECT body, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
+        `SELECT body, attachments, created_at
+         FROM messages
+         WHERE conversation_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
         [canonicalId]
       );
 
@@ -195,7 +255,11 @@ async function migrateLegacyConversations() {
         const body = String(last[0].body || "");
         const createdAt = String(last[0].created_at || "");
         await query(
-          `UPDATE conversations SET last_message_at = ?, last_message_preview = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE conversations
+           SET last_message_at = ?,
+               last_message_preview = ?,
+               updated_at = ?
+           WHERE id = ?`,
           [createdAt || nowISO(), body.slice(0, 120), nowISO(), canonicalId]
         );
       }
@@ -235,16 +299,61 @@ async function relationshipExists(trainerId, clientId) {
   return false;
 }
 
-async function getOrCreateConversationByPair({ trainerId, clientId }) {
+function isDeletedForUser({ trainerId, clientId, deletedByTrainerAt, deletedByClientAt, userId, role }) {
+  const isAdmin = String(role || "").toLowerCase() === "admin";
+  if (isAdmin) return false;
+
+  if (String(userId) === String(trainerId)) {
+    return !!(deletedByTrainerAt && String(deletedByTrainerAt).trim());
+  }
+  if (String(userId) === String(clientId)) {
+    return !!(deletedByClientAt && String(deletedByClientAt).trim());
+  }
+  return false;
+}
+
+async function restoreDeletionIfNeeded({ conversationId, trainerId, clientId, actorUserId }) {
+  if (!conversationId || !actorUserId) return;
+
+  const ts = nowISO();
+
+  if (String(actorUserId) === String(trainerId)) {
+    await query(
+      `UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`,
+      [ts, String(conversationId)]
+    );
+    return;
+  }
+
+  if (String(actorUserId) === String(clientId)) {
+    await query(
+      `UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`,
+      [ts, String(conversationId)]
+    );
+  }
+}
+
+async function getOrCreateConversationByPair({ trainerId, clientId, actorUserId = "" }) {
   const key = pairKey(trainerId, clientId);
 
   // 1) Buscar por key (en columna reserva_id para compatibilidad)
   const existing = await query(
-    `SELECT id FROM conversations WHERE reserva_id = ? LIMIT 1`,
+    `SELECT id, trainer_id, client_id FROM conversations WHERE reserva_id = ? LIMIT 1`,
     [key]
   );
+
   if (existing.length) {
-    return { conversationId: existing[0].id, exists: true };
+    const conversationId = existing[0].id;
+
+    // ✅ Si el actor había borrado el chat, al reabrir se restaura solo para él
+    await restoreDeletionIfNeeded({
+      conversationId,
+      trainerId: existing[0].trainer_id,
+      clientId: existing[0].client_id,
+      actorUserId,
+    });
+
+    return { conversationId, exists: true };
   }
 
   // 2) Crear conversación
@@ -254,9 +363,10 @@ async function getOrCreateConversationByPair({ trainerId, clientId }) {
     `
       INSERT INTO conversations (
         id, reserva_id, trainer_id, client_id,
-        created_at, updated_at, last_message_at, last_message_preview
+        created_at, updated_at, last_message_at, last_message_preview,
+        deleted_by_trainer_at, deleted_by_client_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
     `,
     [convId, key, String(trainerId), String(clientId), ts, ts]
   );
@@ -266,9 +376,18 @@ async function getOrCreateConversationByPair({ trainerId, clientId }) {
 
 async function ensureCanAccessConversation({ conversationId, userId, role }) {
   const conv = await query(
-    `SELECT id, trainer_id, client_id FROM conversations WHERE id = ? LIMIT 1`,
+    `SELECT
+       id,
+       trainer_id,
+       client_id,
+       deleted_by_trainer_at,
+       deleted_by_client_at
+     FROM conversations
+     WHERE id = ?
+     LIMIT 1`,
     [String(conversationId)]
   );
+
   if (!conv.length) {
     const err = new Error("Chat no encontrado");
     err.status = 404;
@@ -286,7 +405,12 @@ async function ensureCanAccessConversation({ conversationId, userId, role }) {
     throw err;
   }
 
-  return { trainerId, clientId };
+  return {
+    trainerId,
+    clientId,
+    deletedByTrainerAt: c.deleted_by_trainer_at,
+    deletedByClientAt: c.deleted_by_client_at,
+  };
 }
 
 async function verifyAttachmentsOwnership({ userId, attachments }) {
@@ -310,6 +434,83 @@ async function verifyAttachmentsOwnership({ userId, attachments }) {
       throw err;
     }
   }
+}
+
+function makePlaceholders(n) {
+  return Array.from({ length: n }, () => "?").join(",");
+}
+
+async function getUserProfilesMap(userIds) {
+  const ids = Array.from(new Set((userIds || []).map((x) => String(x || "").trim()).filter(Boolean)));
+  const map = new Map();
+  if (!ids.length) return map;
+
+  // 1) Preferimos datos de entrenador (trainer_profiles) y fallback a users (foto/nombre).
+  try {
+    const ph = makePlaceholders(ids.length);
+    const rows = await query(
+      `
+      SELECT
+        au.id AS uid,
+        NULLIF(tp.display_name, '') AS trainerDisplayName,
+        NULLIF(tp.photo_url, '') AS trainerPhotoUrl,
+        NULLIF(up.nombre, '') AS userNombre,
+        NULLIF(up.foto, '') AS userFoto
+      FROM usuarios au
+      LEFT JOIN trainer_profiles tp
+        ON tp.trainer_id = au.id
+      LEFT JOIN users up
+        ON up.uid = au.id
+      WHERE au.id IN (${ph})
+      `,
+      ids
+    );
+
+    for (const r of rows || []) {
+      const uid = String(r.uid || "").trim();
+      if (!uid) continue;
+
+      const name = r.trainerDisplayName || r.userNombre || null; // ✅ si no hay nombre, enviamos null
+      const photoUrl = r.trainerPhotoUrl || r.userFoto || null;
+
+      map.set(uid, { senderName: name, senderPhotoUrl: photoUrl });
+    }
+  } catch (e) {
+    // best-effort: no bloqueamos el chat si falla el join
+    console.warn("[chat] No se pudo cargar perfiles (join usuarios/trainer_profiles/users):", e?.message || e);
+  }
+
+  // 2) Si faltan algunos, intentamos resolver desde tabla users directamente.
+  const missing = ids.filter((id) => !map.has(id));
+  if (missing.length) {
+    try {
+      const ph2 = makePlaceholders(missing.length);
+      const rows2 = await query(
+        `
+        SELECT
+          uid,
+          NULLIF(nombre,'') AS nombre,
+          NULLIF(foto,'') AS foto
+        FROM users
+        WHERE uid IN (${ph2})
+        `,
+        missing
+      );
+
+      for (const r of rows2 || []) {
+        const uid = String(r.uid || "").trim();
+        if (!uid) continue;
+        map.set(uid, {
+          senderName: r.nombre || null,
+          senderPhotoUrl: r.foto || null,
+        });
+      }
+    } catch (e) {
+      console.warn("[chat] No se pudo cargar perfiles (fallback users):", e?.message || e);
+    }
+  }
+
+  return map;
 }
 
 // ============================================================
@@ -380,7 +581,7 @@ router.post(
       }
 
       // 3) Obtener/crear conversación por pareja
-      const out = await getOrCreateConversationByPair({ trainerId, clientId });
+      const out = await getOrCreateConversationByPair({ trainerId, clientId, actorUserId: userId });
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-reserva/:reservaId error:", e);
@@ -411,9 +612,7 @@ router.post(
 
       // Admin puede forzar con clientId
       const isAdmin = getUserRole(req) === "admin";
-      const clientId = isAdmin
-        ? String(req.body?.clientId || userId).trim()
-        : userId;
+      const clientId = isAdmin ? String(req.body?.clientId || userId).trim() : userId;
 
       if (!clientId) return res.status(400).json({ error: "clientId requerido" });
 
@@ -422,7 +621,7 @@ router.post(
         if (!ok) return res.status(403).json({ error: "Sin relación previa con este adiestrador" });
       }
 
-      const out = await getOrCreateConversationByPair({ trainerId, clientId });
+      const out = await getOrCreateConversationByPair({ trainerId, clientId, actorUserId: userId });
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-trainer/:trainerId error:", e);
@@ -460,7 +659,7 @@ router.post(
         if (!ok) return res.status(403).json({ error: "Sin relación previa con este cliente" });
       }
 
-      const out = await getOrCreateConversationByPair({ trainerId, clientId });
+      const out = await getOrCreateConversationByPair({ trainerId, clientId, actorUserId: userId });
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-client/:clientId error:", e);
@@ -470,8 +669,68 @@ router.post(
 );
 
 /**
+ * DELETE /api/chats/:conversationId
+ * ✅ Borrado lógico por usuario:
+ * - solo desaparece para el que borra
+ * - el otro participante lo sigue viendo
+ * - no se borra nada físicamente
+ */
+router.delete(
+  "/:conversationId",
+  verifyToken,
+  allowRoles(["admin", "client", "user", "adiestrador"]),
+  async (req, res) => {
+    try {
+      await ensureChatSchema();
+
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ error: "No autorizado" });
+
+      const conversationId = String(req.params.conversationId || "").trim();
+      if (!conversationId) {
+        return res.status(400).json({ error: "conversationId requerido" });
+      }
+
+      const role = getUserRole(req);
+
+      const {
+        trainerId,
+        clientId,
+      } = await ensureCanAccessConversation({ conversationId, userId, role });
+
+      const ts = nowISO();
+
+      if (String(userId) === String(trainerId)) {
+        await query(
+          `UPDATE conversations SET deleted_by_trainer_at = ?, updated_at = ? WHERE id = ?`,
+          [ts, ts, conversationId]
+        );
+        return res.json({ ok: true });
+      }
+
+      if (String(userId) === String(clientId)) {
+        await query(
+          `UPDATE conversations SET deleted_by_client_at = ?, updated_at = ? WHERE id = ?`,
+          [ts, ts, conversationId]
+        );
+        return res.json({ ok: true });
+      }
+
+      // admin fuera de la pareja: no tiene sentido “borrar para él” sin columna específica
+      return res.status(403).json({ error: "Solo participantes pueden borrar este chat" });
+    } catch (e) {
+      const st = e?.status || 500;
+      console.error("DELETE /api/chats/:conversationId error:", e);
+      res.status(st).json({ error: e?.message || "No se pudo borrar el chat" });
+    }
+  }
+);
+
+/**
  * GET /api/chats/:conversationId/messages
  * Lista mensajes (valida pertenencia)
+ * ✅ Enriquecido con senderName y senderPhotoUrl (para avatar)
+ * ✅ Respeta borrado lógico por usuario (404 si lo borró)
  */
 router.get(
   "/:conversationId/messages",
@@ -489,11 +748,27 @@ router.get(
         return res.status(400).json({ error: "conversationId requerido" });
       }
 
-      await ensureCanAccessConversation({
+      const role = getUserRole(req);
+
+      const access = await ensureCanAccessConversation({
         conversationId,
         userId,
-        role: getUserRole(req),
+        role,
       });
+
+      // ✅ Si el usuario lo borró, para él es como si no existiera
+      if (
+        isDeletedForUser({
+          trainerId: access.trainerId,
+          clientId: access.clientId,
+          deletedByTrainerAt: access.deletedByTrainerAt,
+          deletedByClientAt: access.deletedByClientAt,
+          userId,
+          role,
+        })
+      ) {
+        return res.status(404).json({ error: "Chat eliminado" });
+      }
 
       const before = req.query.before ? String(req.query.before) : null;
 
@@ -531,12 +806,20 @@ router.get(
         before ? [conversationId, before] : [conversationId]
       );
 
+      const senderIds = rows.map((m) => m.senderId).filter(Boolean);
+      const profiles = await getUserProfilesMap(senderIds);
+
       const items = [...rows]
         .reverse()
-        .map((m) => ({
-          ...m,
-          attachments: m.attachments ? safeJsonParse(m.attachments, []) : [],
-        }));
+        .map((m) => {
+          const p = profiles.get(String(m.senderId || "").trim()) || {};
+          return {
+            ...m,
+            attachments: m.attachments ? safeJsonParse(m.attachments, []) : [],
+            senderName: p.senderName ?? null,
+            senderPhotoUrl: p.senderPhotoUrl ?? null,
+          };
+        });
 
       res.json({
         items,
@@ -553,6 +836,7 @@ router.get(
 /**
  * POST /api/chats/:conversationId/messages
  * Envía mensaje (texto y/o adjuntos)
+ * ✅ Al enviar, “revive” el chat para ambos (si alguno lo borró antes)
  */
 router.post(
   "/:conversationId/messages",
@@ -578,10 +862,13 @@ router.post(
         return res.status(400).json({ error: "Mensaje vacío" });
       }
 
-      await ensureCanAccessConversation({
+      const role = getUserRole(req);
+
+      // valida acceso y recupera flags de borrado
+      const access = await ensureCanAccessConversation({
         conversationId,
         userId,
-        role: getUserRole(req),
+        role,
       });
 
       // Validar que los adjuntos pertenecen al usuario
@@ -608,16 +895,26 @@ router.post(
         ? `📎 ${attachments.length} archivo(s)`
         : "";
 
+      // ✅ Al enviar mensaje, restauramos el chat para ambos (evita “mensajes invisibles”)
       await query(
         `
           UPDATE conversations
           SET updated_at = ?,
               last_message_at = ?,
-              last_message_preview = ?
+              last_message_preview = ?,
+              deleted_by_trainer_at = NULL,
+              deleted_by_client_at = NULL
           WHERE id = ?
         `,
         [ts, ts, preview, conversationId]
       );
+
+      // ✅ Email: notifica al otro participante (best-effort)
+      void notifyChatMessage({
+        conversationId,
+        senderId: userId,
+        preview,
+      });
 
       res.json({ ok: true, messageId: msgId, createdAt: ts });
     } catch (e) {

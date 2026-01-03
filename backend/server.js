@@ -19,6 +19,7 @@ import perrosRoutes from "./routes/perros.js";
 import filesRoutes from "./routes/files.js";
 import trainersRoutes from "./routes/trainers.js";
 import trainerProfilesRoutes from "./routes/trainerProfiles.js";
+import trainerNotesRoutes from "./routes/trainerNotes.js";
 
 // Chat
 import chatsRoutes from "./routes/chat.js";
@@ -92,6 +93,9 @@ app.use("/api", filesRoutes);
 // Rutas de adiestradores
 app.use("/api/trainers", trainersRoutes);
 app.use("/api/trainers", trainerProfilesRoutes);
+
+// Notas privadas del adiestrador (solo rol adiestrador)
+app.use("/api/trainer-notes", trainerNotesRoutes);
 
 // Rutas de chat
 app.use("/api/chats", chatsRoutes);

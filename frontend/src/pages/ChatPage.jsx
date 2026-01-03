@@ -4,6 +4,8 @@
 // ✅ 1 chat por adiestrador (1 conversación por pareja trainer+client)
 // ✅ Soporta adjuntos: fotos / vídeos / archivos (vía /api/upload-db)
 // ✅ Emoticonos (picker simple)
+// ✅ Avatar por mensaje: foto si existe, si no inicial (o "?" si no hay nombre)
+// ✅ Polling sin saltos visuales (solo auto-scroll si el usuario está abajo)
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -14,10 +16,7 @@ import "../styles/contratar.scss";
 import "../styles/chat.scss";
 
 // API base para construir URLs de archivos (no usa fetch helper)
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
-  /\/+$/,
-  ""
-);
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 // util
 function fmt(ts) {
@@ -36,10 +35,55 @@ function fmt(ts) {
   }
 }
 
-function initials(id = "") {
-  const s = String(id).trim();
+// Avatar helpers (foto de perfil + fallback a inicial)
+function getSenderName(m = {}) {
+  const v =
+    m?.senderName ??
+    m?.sender_name ??
+    m?.senderNombre ??
+    m?.senderFullName ??
+    m?.name ??
+    m?.nombre ??
+    m?.sender?.name ??
+    m?.sender?.nombre ??
+    m?.userName ??
+    m?.username ??
+    "";
+  return String(v || "").trim();
+}
+
+function getSenderAvatar(m = {}) {
+  const v =
+    // ✅ backend nuevo
+    m?.senderPhotoUrl ??
+    m?.sender_photo_url ??
+    // ✅ variantes comunes
+    m?.senderAvatar ??
+    m?.sender_avatar ??
+    m?.senderPhoto ??
+    m?.sender_photo ??
+    m?.senderImage ??
+    m?.sender_image ??
+    m?.avatar ??
+    m?.avatarUrl ??
+    m?.photoURL ??
+    m?.picture ??
+    "";
+  return String(v || "").trim();
+}
+
+function initialFromName(name = "") {
+  const s = String(name || "").trim();
   if (!s) return "?";
-  return s.slice(0, 2).toUpperCase();
+  return s.slice(0, 1).toUpperCase();
+}
+
+function normalizeAvatarUrl(url = "") {
+  const s = String(url || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith("/")) return `${API_BASE}${s}`;
+  return `${API_BASE}/${s}`;
 }
 
 function isImage(mime = "") {
@@ -125,9 +169,57 @@ export default function ChatPage() {
     }
   }, []);
 
+  const myName = useMemo(() => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return "";
+      const payload = JSON.parse(atob(token.split(".")[1] || ""));
+      return String(
+        payload?.name ||
+          payload?.nombre ||
+          payload?.username ||
+          payload?.userName ||
+          payload?.email ||
+          ""
+      ).trim();
+    } catch {
+      return "";
+    }
+  }, []);
+
+  const myAvatar = useMemo(() => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return "";
+      const payload = JSON.parse(atob(token.split(".")[1] || ""));
+      return String(
+        payload?.avatar ||
+          payload?.avatarUrl ||
+          payload?.photo ||
+          payload?.photoURL ||
+          payload?.picture ||
+          payload?.image ||
+          ""
+      ).trim();
+    } catch {
+      return "";
+    }
+  }, []);
+
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const fileRef = useRef(null);
+
+  // ✅ Mantener experiencia de scroll: solo auto-scroll si el usuario está cerca del fondo
+  const stickToBottomRef = useRef(true);
+
+  const isNearBottom = () => {
+    const el = listRef.current;
+    if (!el) return true;
+    const threshold = 90; // px
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return remaining <= threshold;
+  };
 
   const scrollToBottom = (smooth = false) => {
     const el = listRef.current;
@@ -142,26 +234,70 @@ export default function ChatPage() {
     }
   };
 
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      stickToBottomRef.current = isNearBottom();
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // init
+    stickToBottomRef.current = true;
+
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
   const loadMessages = async ({ silent = false } = {}) => {
     if (!conversationId) return;
+
+    const shouldStick = silent ? stickToBottomRef.current : true;
+
     setErrMsg("");
     if (!silent) setLoading(true);
+
     try {
       const data = await http(`/api/chats/${conversationId}/messages`, { auth: true });
-      const arr = Array.isArray(data?.items)
-        ? data.items
-        : Array.isArray(data)
-        ? data
-        : [];
-      setItems(arr);
-      setTimeout(() => scrollToBottom(false), 0);
+      const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+
+      // ✅ Evita re-render innecesario (reduce “saltos”)
+      setItems((prev) => {
+        const prevLast = prev?.length ? prev[prev.length - 1] : null;
+        const nextLast = arr?.length ? arr[arr.length - 1] : null;
+
+        const sameLength = (prev?.length || 0) === (arr?.length || 0);
+        const sameLast =
+          prevLast && nextLast
+            ? String(prevLast.id) === String(nextLast.id) &&
+              String(prevLast.createdAt || prevLast.created_at || "") ===
+                String(nextLast.createdAt || nextLast.created_at || "")
+            : !prevLast && !nextLast;
+
+        if (silent && sameLength && sameLast) return prev;
+        return arr;
+      });
+
+      // ✅ Auto-scroll solo si corresponde
+      requestAnimationFrame(() => {
+        if (shouldStick) scrollToBottom(false);
+      });
     } catch (e) {
       console.error("Error cargando mensajes:", e);
       const status = e?.status || e?.response?.status;
+      const apiErr = String(e?.data?.error || e?.message || "");
+
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para ver este chat.");
-      else if (status === 404) setErrMsg("Chat no encontrado.");
-      else setErrMsg("No se pudieron cargar los mensajes.");
+      else if (status === 404) {
+        // ✅ incluye caso “Chat eliminado” (borrado lógico)
+        if (apiErr.toLowerCase().includes("eliminado")) setErrMsg("Has eliminado este chat.");
+        else setErrMsg("Chat no encontrado.");
+      } else setErrMsg("No se pudieron cargar los mensajes.");
+
       setItems([]);
     } finally {
       if (!silent) setLoading(false);
@@ -181,7 +317,6 @@ export default function ChatPage() {
   useEffect(() => {
     if (!conversationId) return;
     const t = setInterval(() => {
-      // refresco ligero sin parpadeo
       loadMessages({ silent: true });
     }, 4500);
     return () => clearInterval(t);
@@ -261,8 +396,7 @@ export default function ChatPage() {
       }
     } catch (e) {
       console.error("Error subiendo archivo:", e);
-      const msg =
-        e?.data?.error || e?.message || "No se pudo subir el archivo. Revisa el tipo o el tamaño.";
+      const msg = e?.data?.error || e?.message || "No se pudo subir el archivo. Revisa el tipo o el tamaño.";
       setUploadErr(msg);
     } finally {
       setUploading(false);
@@ -284,6 +418,7 @@ export default function ChatPage() {
 
     setSending(true);
     setErrMsg("");
+
     try {
       await http(`/api/chats/${conversationId}/messages`, {
         method: "POST",
@@ -297,13 +432,21 @@ export default function ChatPage() {
       setText("");
       setAttachments([]);
       setEmojiOpen(false);
-      await loadMessages();
-      setTimeout(() => scrollToBottom(true), 0);
+
+      // al enviar siempre bajamos
+      stickToBottomRef.current = true;
+
+      await loadMessages({ silent: false });
+      requestAnimationFrame(() => scrollToBottom(true));
     } catch (e) {
       console.error("Error enviando mensaje:", e);
       const status = e?.status || e?.response?.status;
+      const apiErr = String(e?.data?.error || e?.message || "");
+
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para enviar mensajes aquí.");
+      else if (status === 404 && apiErr.toLowerCase().includes("eliminado"))
+        setErrMsg("Has eliminado este chat. Vuelve atrás y reábrelo desde la conversación.");
       else setErrMsg(e?.data?.error || "No se pudo enviar el mensaje.");
     } finally {
       setSending(false);
@@ -325,9 +468,7 @@ export default function ChatPage() {
 
         <div className="df-chat__titleWrap">
           <div className="df-chat__title">Chat</div>
-          <div className="df-chat__subtitle">
-            Conversación privada entre cliente y adiestrador
-          </div>
+          <div className="df-chat__subtitle">Conversación privada entre cliente y adiestrador</div>
         </div>
 
         <div className="df-chat__meta">
@@ -350,13 +491,24 @@ export default function ChatPage() {
               const mine = myUserId && String(m.senderId) === String(myUserId);
               const atts = Array.isArray(m.attachments) ? m.attachments : [];
 
+              // ✅ Name/avatar desde backend (fallback: token local solo para “mine”)
+              const senderName = getSenderName(m) || (mine ? myName : "");
+              const senderAvatarRaw = getSenderAvatar(m) || (mine ? myAvatar : "");
+              const senderAvatar = normalizeAvatarUrl(senderAvatarRaw);
+              const senderInitial = initialFromName(senderName);
+
               return (
                 <div key={m.id} className={`df-msg ${mine ? "df-msg--mine" : "df-msg--theirs"}`}>
-                  {!mine && (
-                    <div className="df-msg__avatar" aria-hidden="true">
-                      {initials(m.senderId)}
-                    </div>
-                  )}
+                  <div
+                    className={`df-msg__avatar ${mine ? "df-msg__avatar--mine" : ""}`}
+                    aria-hidden="true"
+                  >
+                    {senderAvatar ? (
+                      <img className="df-msg__avatarImg" src={senderAvatar} alt="" />
+                    ) : (
+                      <span className="df-msg__avatarInitial">{senderInitial}</span>
+                    )}
+                  </div>
 
                   <div className="df-msg__bubble">
                     {m.body ? <div className="df-msg__text">{m.body}</div> : null}
@@ -415,12 +567,6 @@ export default function ChatPage() {
 
                     <div className="df-msg__meta">{fmt(m.createdAt)}</div>
                   </div>
-
-                  {mine && (
-                    <div className="df-msg__avatar df-msg__avatar--mine" aria-hidden="true">
-                      {initials(myUserId)}
-                    </div>
-                  )}
                 </div>
               );
             })

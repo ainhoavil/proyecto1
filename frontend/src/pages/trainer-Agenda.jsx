@@ -15,6 +15,10 @@ function statusLabel(status) {
   return s || "Estado";
 }
 
+function ymd(v) {
+  return String(v || "").slice(0, 10);
+}
+
 export default function TrainerAgenda() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -191,6 +195,29 @@ export default function TrainerAgenda() {
     return arr;
   }, [misReservas]);
 
+  // ✅ Set para comprobación rápida (no duplica estados: deriva de reservasDia)
+  const reservasDiaIdSet = useMemo(() => {
+    const s = new Set();
+    for (const r of Array.isArray(reservasDia) ? reservasDia : []) {
+      if (r?.id != null) s.add(String(r.id));
+    }
+    return s;
+  }, [reservasDia]);
+
+  const reservaYaEnAgendaSeleccionada = (r) => {
+    if (!r?.id) return false;
+    if (!fecha) return false;
+
+    const rf = ymd(r.fecha);
+    const sf = ymd(fecha);
+    if (!rf || !sf) return false;
+
+    // Solo evaluamos “ya está en agenda” si estamos viendo el mismo día de esa reserva.
+    if (rf !== sf) return false;
+
+    return reservasDiaIdSet.has(String(r.id));
+  };
+
   /* ======================== Render ============================ */
   return (
     <div className="reservas-page">
@@ -217,61 +244,70 @@ export default function TrainerAgenda() {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-            {misReservasOrdenadas.map((r) => (
-              <div key={r.id} className="card" style={{ padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 900 }}>
-                      {r.servicioTitulo || r.servicioId || "Reserva"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 14 }}>
-                      <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{" "}
-                      {r.modalidad ? <>· <i>{r.modalidad}</i></> : null}
-                    </div>
-                    {r.email && (
-                      <div style={{ marginTop: 2, fontSize: 13, opacity: 0.9 }}>
-                        <b>Cliente:</b> {r.email}
+            {misReservasOrdenadas.map((r) => {
+              const enAgenda = reservaYaEnAgendaSeleccionada(r);
+
+              return (
+                <div key={r.id} className="card" style={{ padding: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 900 }}>
+                        {r.servicioTitulo || r.servicioId || "Reserva"}
                       </div>
-                    )}
-                    {r.adminNote && (
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-                        <b>Nota:</b> {r.adminNote}
+                      <div style={{ marginTop: 4, fontSize: 14 }}>
+                        <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{" "}
+                        {r.modalidad ? <>· <i>{r.modalidad}</i></> : null}
                       </div>
-                    )}
+                      {r.email && (
+                        <div style={{ marginTop: 2, fontSize: 13, opacity: 0.9 }}>
+                          <b>Cliente:</b> {r.email}
+                        </div>
+                      )}
+                      {r.adminNote && (
+                        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
+                          <b>Nota:</b> {r.adminNote}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>Estado</div>
+                      <div style={{ fontWeight: 800 }}>{statusLabel(r.status)}</div>
+                    </div>
                   </div>
 
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>Estado</div>
-                    <div style={{ fontWeight: 800 }}>{statusLabel(r.status)}</div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    onClick={() => handleOpenChat(r)}
-                    disabled={!puedeChat(r.status) || openingChatId === r.id}
-                    title={!puedeChat(r.status) ? "Chat no disponible para este estado" : "Abrir chat de la reserva"}
-                  >
-                    {openingChatId === r.id ? "Abriendo chat…" : "💬 Abrir chat"}
-                  </button>
-
-                  {/* opcional: saltar a agenda diaria del día de la reserva */}
-                  {r.fecha && (
+                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <button
-                      className="btn-secondary"
+                      className="btn-primary"
                       type="button"
-                      onClick={() => setFecha(String(r.fecha).slice(0, 10))}
+                      onClick={() => handleOpenChat(r)}
+                      disabled={!puedeChat(r.status) || openingChatId === r.id}
+                      title={!puedeChat(r.status) ? "Chat no disponible para este estado" : "Abrir chat de la reserva"}
                     >
-                      Ver en agenda
+                      {openingChatId === r.id ? "Abriendo chat…" : "💬 Abrir chat"}
                     </button>
-                  )}
 
-                  {/* opcional: si quieres, aquí podrías añadir “Cancelar/Modificar” según tu lógica */}
+                    {/* ✅ Ver en agenda (condición correcta)
+                        - Si la reserva ya está en la agenda del día actualmente seleccionado: deshabilitar
+                        - Si no: permite saltar a ese día
+                    */}
+                    {r.fecha && (
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        onClick={() => setFecha(ymd(r.fecha))}
+                        disabled={enAgenda}
+                        title={enAgenda ? "Esta reserva ya está en la agenda del día seleccionado" : "Ver esta reserva en la agenda"}
+                      >
+                        {enAgenda ? "En agenda" : "Ver en agenda"}
+                      </button>
+                    )}
+
+                    {/* opcional: si quieres, aquí podrías añadir “Cancelar/Modificar” según tu lógica */}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

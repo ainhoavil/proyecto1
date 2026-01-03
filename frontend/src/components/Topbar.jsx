@@ -14,21 +14,37 @@ export default function TopBar() {
       try {
         const r = await fetch('http://localhost:5000/api/settings/topbar');
         const j = await r.json();
-        setData(prev => ({ ...prev, ...j, social: { instagram: j.social?.instagram || '', facebook: j.social?.facebook || '' } }));
-      } catch (_) {/* deja los defaults */}
+        setData(prev => ({ 
+          ...prev, 
+          ...j, 
+          social: { 
+            instagram: j.social?.instagram || '', 
+            facebook: j.social?.facebook || '' 
+          } 
+        }));
+      } catch (_) {
+        /* Fallback silencioso */
+      }
     })();
   }, []);
 
   return (
     <div className="topbar">
-      <div className="left">
-        <span>{data.schedule}</span>
-        <span>📧 {data.email}</span>
-        <span>📱 {data.phone}</span>
-      </div>
-      <div className="right">
-        {data.social?.instagram && <a href={data.social.instagram} target="_blank" rel="noreferrer">Instagram</a>}
-        {data.social?.facebook  && <a href={data.social.facebook}  target="_blank" rel="noreferrer">Facebook</a>}
+      <div className="container-top">
+        <div className="left">
+          <span>🕒 {data.schedule}</span>
+          <span>📧 {data.email}</span>
+          <span>📱 {data.phone}</span>
+        </div>
+        
+        <div className="right">
+          {data.social?.instagram && (
+            <a href={data.social.instagram} target="_blank" rel="noreferrer">Instagram</a>
+          )}
+          {data.social?.facebook && (
+            <a href={data.social.facebook} target="_blank" rel="noreferrer">Facebook</a>
+          )}
+        </div>
       </div>
     </div>
   );
