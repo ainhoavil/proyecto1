@@ -6,6 +6,7 @@
 // ✅ Emoticonos (picker simple)
 // ✅ Avatar por mensaje: foto si existe, si no inicial (o "?" si no hay nombre)
 // ✅ Polling sin saltos visuales (solo auto-scroll si el usuario está abajo)
+// ✅ Borrado lógico desde UI (botón "Borrar chat")
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -149,6 +150,9 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [text, setText] = useState("");
   const [errMsg, setErrMsg] = useState("");
+
+  // ✅ borrado lógico desde UI
+  const [deletingChat, setDeletingChat] = useState(false);
 
   // adjuntos
   const [attachments, setAttachments] = useState([]); // [{id,mime,name,size}]
@@ -458,6 +462,37 @@ export default function ChatPage() {
     send();
   };
 
+  const handleDeleteChat = async () => {
+    if (!conversationId) return;
+    if (deletingChat) return;
+
+    const ok = window.confirm(
+      "¿Seguro que quieres borrar este chat?\n\nSolo desaparecerá para ti. La otra persona lo seguirá viendo."
+    );
+    if (!ok) return;
+
+    setDeletingChat(true);
+    setErrMsg("");
+
+    try {
+      await http(`/api/chats/${conversationId}`, {
+        method: "DELETE",
+        auth: true,
+      });
+
+      // ✅ tras borrar, salimos a la lista
+      navigate("/chats", { replace: true });
+    } catch (e) {
+      console.error("Error borrando chat:", e);
+      const status = e?.status || e?.response?.status;
+      if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
+      else if (status === 403) setErrMsg("No tienes permisos para borrar este chat.");
+      else setErrMsg(e?.data?.error || "No se pudo borrar el chat.");
+    } finally {
+      setDeletingChat(false);
+    }
+  };
+
   return (
     <div className="df-chat">
       {/* Header */}
@@ -474,6 +509,27 @@ export default function ChatPage() {
         <div className="df-chat__meta">
           <span className="df-chat__metaLabel">ID</span>
           <span className="df-chat__metaValue">{conversationId}</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+          <button
+            className="df-btn df-btn--ghost"
+            type="button"
+            onClick={() => navigate("/chats")}
+            title="Ver lista de chats"
+          >
+            Mis chats
+          </button>
+
+          <button
+            className="df-btn df-btn--ghost"
+            type="button"
+            onClick={handleDeleteChat}
+            disabled={deletingChat}
+            title="Borrar chat (solo para ti)"
+          >
+            {deletingChat ? "Borrando…" : "Borrar chat"}
+          </button>
         </div>
       </div>
 
@@ -499,10 +555,7 @@ export default function ChatPage() {
 
               return (
                 <div key={m.id} className={`df-msg ${mine ? "df-msg--mine" : "df-msg--theirs"}`}>
-                  <div
-                    className={`df-msg__avatar ${mine ? "df-msg__avatar--mine" : ""}`}
-                    aria-hidden="true"
-                  >
+                  <div className={`df-msg__avatar ${mine ? "df-msg__avatar--mine" : ""}`} aria-hidden="true">
                     {senderAvatar ? (
                       <img className="df-msg__avatarImg" src={senderAvatar} alt="" />
                     ) : (

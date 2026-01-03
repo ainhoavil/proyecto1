@@ -1,3 +1,4 @@
+// frontend/src/App.jsx
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 // Layout
@@ -34,6 +35,7 @@ import TrainerClientDetail from "./pages/trainer-client-detail.jsx";
 
 // ✅ Chat
 import ChatPage from "./pages/ChatPage.jsx";
+import ChatsPage from "./pages/ChatsPage.jsx";
 
 // Styles
 import "./styles/global.scss";
@@ -41,7 +43,6 @@ import "./styles/global.scss";
 export default function App() {
   const location = useLocation();
 
-  // Rutas "pantalla completa" (sin container global)
   const fullWidthPaths = new Set([
     "/login",
     "/register",
@@ -51,7 +52,6 @@ export default function App() {
 
   const isFullWidth =
     fullWidthPaths.has(location.pathname) ||
-    // Por si el reset trae querystring (?token=...)
     location.pathname.startsWith("/reset-password");
 
   return (
@@ -92,7 +92,17 @@ export default function App() {
             }
           />
 
-          {/* ✅ CHAT POR RESERVA (PROTEGIDA) */}
+          {/* ✅ LISTA DE CHATS */}
+          <Route
+            path="/chats"
+            element={
+              <ProtectedRoute>
+                <ChatsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ✅ CHAT */}
           <Route
             path="/chat/:conversationId"
             element={
@@ -114,7 +124,7 @@ export default function App() {
             }
           />
 
-          {/* ===== AGENDA ADIESTRADOR ===== */}
+          {/* ===== AGENDA ADIESTRADOR (opcional, la principal ya está en /reservas por rol) ===== */}
           <Route
             path="/trainer-agenda"
             element={
@@ -126,7 +136,7 @@ export default function App() {
             }
           />
 
-          {/* ===== PANEL ADIESTRADOR: CLIENTES + NOTAS PRIVADAS ===== */}
+          {/* ===== PANEL ADIESTRADOR ===== */}
           <Route
             path="/trainer/clientes"
             element={

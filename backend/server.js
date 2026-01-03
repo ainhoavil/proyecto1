@@ -20,6 +20,7 @@ import filesRoutes from "./routes/files.js";
 import trainersRoutes from "./routes/trainers.js";
 import trainerProfilesRoutes from "./routes/trainerProfiles.js";
 import trainerNotesRoutes from "./routes/trainerNotes.js";
+import bloqueosRoutes from "./routes/bloqueos.js"; // ✅ AÑADIDO
 
 // Chat
 import chatsRoutes from "./routes/chat.js";
@@ -89,6 +90,9 @@ app.use("/api/cuestionarios", cuestionariosRoutes);
 app.use("/api/perfil", perfilRoutes);
 app.use("/api/perros", perrosRoutes);
 app.use("/api", filesRoutes);
+
+// ✅ Bloqueos de agenda (adiestrador/admin)
+app.use("/api/bloqueos", bloqueosRoutes);
 
 // Rutas de adiestradores
 app.use("/api/trainers", trainersRoutes);

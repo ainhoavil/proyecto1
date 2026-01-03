@@ -1,0 +1,407 @@
+.trainer-agenda {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  &__metaLine {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8f6b53;
+    margin-bottom: 10px;
+  }
+
+  &__metaEmail {
+    font-weight: 600;
+    color: #3b281c;
+  }
+
+  &__notice {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    border: 1px solid transparent;
+
+    &.success {
+      background-color: #e6f6eb;
+      border-color: #7ac69b;
+      color: #22623d;
+    }
+
+    &.error {
+      background-color: #fde8e8;
+      border-color: #f39b9b;
+      color: #9c1b1b;
+    }
+  }
+
+  &__trace {
+    font-size: 12px;
+    background-color: #fff5e9;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    padding: 10px 12px;
+
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #c35a26;
+    }
+
+    pre {
+      margin-top: 8px;
+      white-space: pre-wrap;
+    }
+  }
+
+  &__layout {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  @media (max-width: 980px) {
+    &__layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  &__panel {
+    border: 1px solid #f3d8c6;
+    background: #fffaf6;
+    border-radius: 18px;
+    padding: 16px;
+  }
+
+  &__panel--list {
+    background: #fffdfb;
+  }
+
+  &__panelHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  &__panelHeader--compact {
+    align-items: center;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #3b281c;
+  }
+
+  &__subtitle {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #a08168;
+  }
+
+  &__controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  &__date {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #7b5b45;
+
+    input {
+      border-radius: 10px;
+      border: 1px solid #f2d8c6;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #ffffff;
+    }
+  }
+
+  &__mode {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 12px 0 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid #f3e1d4;
+    background: #fffdfb;
+  }
+
+  &__modeLabel {
+    font-size: 12px;
+    color: #7b5b45;
+    font-weight: 600;
+  }
+
+  &__modeBtns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  &__form {
+    margin-top: 10px;
+    border-radius: 14px;
+    border: 1px solid #f3e1d4;
+    padding: 12px;
+    background-color: #fffdfb;
+  }
+
+  &__formGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+
+    @media (max-width: 980px) {
+      grid-template-columns: 1fr;
+    }
+
+    label {
+      font-size: 12px;
+      color: #7b5b45;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    select,
+    input {
+      border-radius: 10px;
+      border: 1px solid #f2d8c6;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #ffffff;
+    }
+  }
+
+  &__hint {
+    margin: 10px 2px 0;
+    font-size: 12px;
+    color: #a08168;
+    line-height: 1.4;
+  }
+
+  &__inlineError {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: #fde8e8;
+    border: 1px solid #f39b9b;
+    color: #9c1b1b;
+    font-size: 13px;
+  }
+
+  &__loadingRow {
+    display: flex;
+    gap: 12px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #a08168;
+  }
+
+  &__bucket {
+    margin-top: 12px;
+  }
+
+  &__bucketTitle {
+    margin: 0 0 8px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #c49c7f;
+  }
+
+  &__muted {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #a08168;
+  }
+
+  &__resCard {
+    border: 1px solid #f3d8c6;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 10px 24px rgba(148, 95, 52, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    & + & {
+      margin-top: 10px;
+    }
+  }
+
+  &__resCard--muted {
+    opacity: 0.85;
+    background: #fffaf6;
+  }
+
+  &__resHead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  &__resTitle {
+    font-weight: 700;
+    color: #3b281c;
+    font-size: 14px;
+  }
+
+  &__resMeta {
+    font-size: 12px;
+    color: #7b5b45;
+    line-height: 1.5;
+  }
+
+  &__resActions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+}
+
+/* ===== Pills de estado ===== */
+
+.pill {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &--confirmed {
+    background: #e6f6eb;
+    border-color: #7ac69b;
+    color: #22623d;
+  }
+
+  &--pending,
+  &--pending_user {
+    background: #fff3d6;
+    border-color: #f2c36b;
+    color: #7a4c00;
+  }
+
+  &--rejected,
+  &--cancelled,
+  &--deleted {
+    background: #fde8e8;
+    border-color: #f39b9b;
+    color: #9c1b1b;
+  }
+}
+
+/* ===== Grid horas ===== */
+
+.horas-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.hora,
+.hora-bloqueada {
+  border-radius: 16px;
+  border: 1px solid #f0d7c7;
+  padding: 12px 12px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.hora {
+  background: #ffffff;
+
+  &:hover {
+    background: #fff3ea;
+    border-color: #f08a3c;
+    transform: translateY(-1px);
+  }
+}
+
+.hora-bloqueada {
+  background: #fff5eb;
+  border-color: #f2d8c6;
+
+  &:hover {
+    background: #ffe8d7;
+  }
+}
+
+.hora-slot__time {
+  font-weight: 800;
+  color: #3b281c;
+  font-size: 14px;
+}
+
+.hora-slot__label {
+  font-size: 12px;
+  color: #8f6b53;
+}
+
+.hora-ocupada {
+  border-radius: 16px;
+  border: 1px solid #f3d8c6;
+  background: #ffffff;
+  padding: 12px;
+  box-shadow: 0 10px 22px rgba(148, 95, 52, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hora-ocupada__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hora-ocupada__time {
+  font-weight: 800;
+  color: #3b281c;
+  font-size: 14px;
+}
+
+.hora-ocupada__service {
+  font-weight: 700;
+  color: #3b281c;
+  font-size: 13px;
+}
+
+.hora-ocupada__client {
+  font-size: 12px;
+  color: #7b5b45;
+}
+
+.hora-ocupada__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}

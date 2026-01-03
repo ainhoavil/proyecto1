@@ -365,3 +365,37 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Divider + Google */
+.register-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background-color: rgba(0, 0, 0, 0.06);
+  }
+
+  span {
+    font-size: 12px;
+    color: #a4968a;
+  }
+}
+
+.register-google {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.register-google__button {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}

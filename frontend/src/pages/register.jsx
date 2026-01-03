@@ -1,5 +1,5 @@
 // frontend/src/pages/Register.jsx
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useAuth } from "../context/auth";
@@ -39,7 +39,122 @@ export default function Register() {
   const params = new URLSearchParams(location.search);
   const nextParam = params.get("next") || "";
 
-  /* ---------------- REGISTER LOGIC ---------------- */
+  // Google Identity Services (Registrarse con Google)
+  const googleBtnRef = useRef(null);
+  const gisInitRef = useRef(false);
+  const loadingRef = useRef(false);
+  const termsRef = useRef(false);
+  const nextRef = useRef({ nextParam: "", stateNext: null });
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    termsRef.current = aceptaTerminos;
+  }, [aceptaTerminos]);
+
+  useEffect(() => {
+    nextRef.current = { nextParam, stateNext: location.state?.next || null };
+  }, [nextParam, location.state]);
+
+  useEffect(() => {
+    const clientId = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
+    if (!clientId) return;
+
+    let cancelled = false;
+
+    const init = () => {
+      if (cancelled) return;
+      if (gisInitRef.current) return;
+
+      const google = window.google;
+      if (!google?.accounts?.id) return;
+      if (!googleBtnRef.current) return;
+
+      gisInitRef.current = true;
+
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response) => {
+          const credential = response?.credential;
+          if (!credential) {
+            setError("No se pudo obtener credenciales de Google.");
+            return;
+          }
+
+          // Para registrar con Google también exigimos aceptación de términos
+          if (!termsRef.current) {
+            setError("Debes aceptar los términos y condiciones para continuar.");
+            return;
+          }
+
+          if (loadingRef.current) return;
+          setError("");
+          loadingRef.current = true;
+          setLoading(true);
+
+          try {
+            const res = await http("/api/auth/google", {
+              method: "POST",
+              data: { credential },
+            });
+
+            if (typeof loginSuccess === "function") {
+              loginSuccess(res);
+            }
+
+            const next =
+              nextRef.current?.nextParam || nextRef.current?.stateNext || "/";
+            navigate(next, { replace: true });
+          } catch (err) {
+            const status =
+              err?.status || err?.httpStatus || err?.response?.status;
+            if (status === 401)
+              setError("No se pudo validar tu cuenta de Google.");
+            else
+              setError("No se pudo registrarte con Google. Inténtalo de nuevo.");
+          } finally {
+            loadingRef.current = false;
+            setLoading(false);
+          }
+        },
+      });
+
+      google.accounts.id.renderButton(googleBtnRef.current, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "signup_with",
+        shape: "pill",
+        width: 420,
+      });
+    };
+
+    const t = setInterval(() => {
+      if (window.google?.accounts?.id && googleBtnRef.current) {
+        clearInterval(t);
+        init();
+      }
+    }, 100);
+
+    init();
+
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canSubmit =
+    !loading &&
+    nombre.trim().length > 1 &&
+    email.trim().length > 5 &&
+    pass.length >= 6 &&
+    pass2.length >= 6 &&
+    aceptaTerminos;
+
   const handleRegister = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -59,33 +174,27 @@ export default function Register() {
       return;
     }
 
-    const emailNorm = email.trim().toLowerCase();
-
     setLoading(true);
     try {
       const res = await http("/auth/register", {
         method: "POST",
         data: {
           name: `${nombre} ${apellidos}`.trim(),
-          email: emailNorm,
+          email: email.trim().toLowerCase(),
           password: pass,
+          telefono: telefono.trim(),
+          zona: zona.trim(),
+          perroNombre: perroNombre.trim(),
+          perroTamano: perroTamano.trim(),
+          intereses,
+          aceptaTips,
         },
       });
 
-      const token = res?.token || null;
-      const role = res?.rol || res?.user?.role || "user";
-
-      const user = res?.user || {
-        uid: res?.uid,
-        email: emailNorm,
-        nombre,
-        apellidos,
-        role,
-      };
-
-      if (token) {
-        loginSuccess({ token, role, user });
-
+      if (res?.token) {
+        if (typeof loginSuccess === "function") {
+          loginSuccess(res);
+        }
         const next = nextParam || location.state?.next || "/";
         navigate(next, { replace: true });
       } else {
@@ -96,51 +205,41 @@ export default function Register() {
       }
     } catch (err) {
       const status = err?.status || err?.response?.status;
-      const backendMsg =
-        err?.data?.error || err?.response?.data?.error || "";
+      const backendMsg = err?.data?.error || err?.response?.data?.error || "";
 
-      if (status === 409) {
-        setError(backendMsg || "Ese email ya está registrado.");
-      } else if (status === 400) {
-        setError(backendMsg || "Datos inválidos. Revisa el formulario.");
-      } else {
-        setError(
-          backendMsg || "No se pudo crear la cuenta. Inténtalo de nuevo."
-        );
-      }
+      if (status === 409) setError("Este email ya está registrado.");
+      else if (status === 400)
+        setError(backendMsg || "Revisa los campos del formulario.");
+      else setError("No se pudo crear la cuenta. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
   };
 
-  const canSubmit = email && pass && pass2 && aceptaTerminos && !loading;
-
-  /* -------------------- UI --------------------- */
-
   return (
     <div className="register-page">
       <div className="register-container">
-        {/* Cabecera */}
         <header className="register-header">
-          <span className="register-eyebrow">NUEVO USUARIO</span>
+          <span className="register-eyebrow">CREAR CUENTA</span>
           <h1 className="register-title">Crea tu cuenta en DogForm</h1>
           <p className="register-lead">
-            Configura tu perfil y el de tu perro para reservar adiestramiento,
-            paseos y educación en Madrid con un solo inicio de sesión.
+            Empieza a gestionar reservas, seguimiento y comunicación con el
+            equipo. Puedes completar más detalles después.
           </p>
         </header>
 
         <div className="register-grid">
-          {/* -----------------------------------
-                CARD IZQUIERDA (FORMULARIO)
-          ----------------------------------- */}
           <section className="register-card register-card--form">
-            {/* Tabs */}
             <div className="register-tabs">
-              <Link to="/login" className="register-tab">
+              <Link
+                to={
+                  nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : "/login"
+                }
+                className="register-tab"
+              >
                 Acceder
               </Link>
-              <button className="register-tab register-tab--active">
+              <button className="register-tab register-tab--active" type="button">
                 Crear cuenta
               </button>
             </div>
@@ -150,7 +249,8 @@ export default function Register() {
                 Información básica para empezar
               </h2>
               <p className="register-section-sub">
-                Solo te llevará un minuto. Podrás completar más detalles de tu perro más adelante.
+                Solo te llevará un minuto. Podrás completar más detalles de tu
+                perro más adelante.
               </p>
 
               {error && (
@@ -160,12 +260,10 @@ export default function Register() {
               )}
 
               <form className="register-form" onSubmit={handleRegister}>
-                {/* Grid 2 columnas */}
                 <div className="form-grid">
                   <label>
                     Nombre
                     <input
-                      type="text"
                       value={nombre}
                       onChange={(e) => setNombre(e.target.value)}
                       placeholder="Tu nombre"
@@ -176,7 +274,6 @@ export default function Register() {
                   <label>
                     Apellidos
                     <input
-                      type="text"
                       value={apellidos}
                       onChange={(e) => setApellidos(e.target.value)}
                       placeholder="Tus apellidos"
@@ -195,24 +292,96 @@ export default function Register() {
                   </label>
 
                   <label>
-                    Teléfono de contacto
+                    Teléfono (opcional)
                     <input
-                      type="tel"
                       value={telefono}
                       onChange={(e) => setTelefono(e.target.value)}
-                      placeholder="+34 600 000 000"
+                      placeholder="+34 600 123 456"
                     />
                   </label>
 
                   <label>
-                    Barrio / zona en Madrid
+                    Zona (opcional)
                     <input
-                      type="text"
                       value={zona}
                       onChange={(e) => setZona(e.target.value)}
-                      placeholder="Ej. Chamberí, Retiro…"
+                      placeholder="Madrid / Centro / etc."
                     />
                   </label>
+
+                  <label>
+                    Nombre del perro (opcional)
+                    <input
+                      value={perroNombre}
+                      onChange={(e) => setPerroNombre(e.target.value)}
+                      placeholder="Kira"
+                    />
+                  </label>
+
+                  <label>
+                    Tamaño del perro (opcional)
+                    <select
+                      value={perroTamano}
+                      onChange={(e) => setPerroTamano(e.target.value)}
+                    >
+                      <option value="">Selecciona</option>
+                      <option value="pequeño">Pequeño</option>
+                      <option value="mediano">Mediano</option>
+                      <option value="grande">Grande</option>
+                    </select>
+                  </label>
+
+                  <div className="full">
+                    <p className="subhead">¿Qué te interesa?</p>
+                    <div className="checks">
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={intereses.adiestramiento}
+                          onChange={() =>
+                            setIntereses((p) => ({
+                              ...p,
+                              adiestramiento: !p.adiestramiento,
+                            }))
+                          }
+                        />
+                        Adiestramiento
+                      </label>
+
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={intereses.paseos}
+                          onChange={() =>
+                            setIntereses((p) => ({ ...p, paseos: !p.paseos }))
+                          }
+                        />
+                        Paseos
+                      </label>
+
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={intereses.educacion}
+                          onChange={() =>
+                            setIntereses((p) => ({ ...p, educacion: !p.educacion }))
+                          }
+                        />
+                        Educación
+                      </label>
+
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={intereses.conducta}
+                          onChange={() =>
+                            setIntereses((p) => ({ ...p, conducta: !p.conducta }))
+                          }
+                        />
+                        Conducta
+                      </label>
+                    </div>
+                  </div>
 
                   <label>
                     Contraseña
@@ -226,7 +395,8 @@ export default function Register() {
                       />
                       <button
                         type="button"
-                        onClick={() => setShowPass1(!showPass1)}
+                        className="link-btn"
+                        onClick={() => setShowPass1((v) => !v)}
                       >
                         {showPass1 ? "Ocultar" : "Ver"}
                       </button>
@@ -240,120 +410,56 @@ export default function Register() {
                         type={showPass2 ? "text" : "password"}
                         value={pass2}
                         onChange={(e) => setPass2(e.target.value)}
-                        placeholder="Repite la contraseña"
+                        placeholder="Repite tu contraseña"
                         required
                       />
                       <button
                         type="button"
-                        onClick={() => setShowPass2(!showPass2)}
+                        className="link-btn"
+                        onClick={() => setShowPass2((v) => !v)}
                       >
                         {showPass2 ? "Ocultar" : "Ver"}
                       </button>
                     </div>
                   </label>
 
-                  <label>
-                    Nombre de tu perro
-                    <input
-                      type="text"
-                      value={perroNombre}
-                      onChange={(e) => setPerroNombre(e.target.value)}
-                      placeholder="Nombre del perro"
-                    />
-                  </label>
+                  <div className="full">
+                    <p className="subhead">Condiciones</p>
 
-                  <label>
-                    Tamaño del perro
-                    <input
-                      type="text"
-                      value={perroTamano}
-                      onChange={(e) => setPerroTamano(e.target.value)}
-                      placeholder="Pequeño · Mediano · Grande"
-                    />
-                  </label>
-                </div>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={aceptaTerminos}
+                        onChange={(e) => setAceptaTerminos(e.target.checked)}
+                        required
+                      />
+                      Acepto los términos y condiciones y la política de privacidad.
+                    </label>
 
-                {/* Intereses */}
-                <div className="intereses">
-                  <span>Servicios que te interesan</span>
-                  <div className="chips">
-                    <button
-                      type="button"
-                      className={intereses.adiestramiento ? "chip chip--active" : "chip"}
-                      onClick={() =>
-                        setIntereses((p) => ({
-                          ...p,
-                          adiestramiento: !p.adiestramiento,
-                        }))
-                      }
-                    >
-                      Adiestramiento básico
-                    </button>
-                    <button
-                      type="button"
-                      className={intereses.paseos ? "chip chip--active" : "chip"}
-                      onClick={() =>
-                        setIntereses((p) => ({
-                          ...p,
-                          paseos: !p.paseos,
-                        }))
-                      }
-                    >
-                      Paseos diarios
-                    </button>
-                    <button
-                      type="button"
-                      className={intereses.educacion ? "chip chip--active" : "chip"}
-                      onClick={() =>
-                        setIntereses((p) => ({
-                          ...p,
-                          educacion: !p.educacion,
-                        }))
-                      }
-                    >
-                      Educación cachorros
-                    </button>
-                    <button
-                      type="button"
-                      className={intereses.conducta ? "chip chip--active" : "chip"}
-                      onClick={() =>
-                        setIntereses((p) => ({
-                          ...p,
-                          conducta: !p.conducta,
-                        }))
-                      }
-                    >
-                      Modificación de conducta
-                    </button>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={aceptaTips}
+                        onChange={(e) => setAceptaTips(e.target.checked)}
+                      />
+                      Quiero recibir recomendaciones y consejos para el cuidado de mi perro.
+                    </label>
                   </div>
                 </div>
 
-                {/* Checkboxes */}
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={aceptaTerminos}
-                    onChange={(e) => setAceptaTerminos(e.target.checked)}
-                    required
-                  />
-                  Acepto los términos y condiciones y la política de privacidad.
-                </label>
+                <div className="register-divider">
+                  <span>O continúa con</span>
+                </div>
 
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={aceptaTips}
-                    onChange={(e) => setAceptaTips(e.target.checked)}
+                <div className="register-google">
+                  <div
+                    ref={googleBtnRef}
+                    className="register-google__button"
+                    aria-label="Registrarse con Google"
                   />
-                  Quiero recibir recomendaciones y consejos para el cuidado de mi perro.
-                </label>
+                </div>
 
-                {/* Submit */}
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={!canSubmit}
-                >
+                <button type="submit" className="btn-primary" disabled={!canSubmit}>
                   {loading ? "Creando…" : "Crear cuenta y continuar"}
                 </button>
 
@@ -366,34 +472,20 @@ export default function Register() {
                         : "/login"
                     }
                   >
-                    Iniciar sesión
+                    Acceder
                   </Link>
                 </p>
               </form>
             </div>
           </section>
 
-          {/* -----------------------------------
-                CARD DERECHA (INFORMACIÓN)
-          ----------------------------------- */}
           <aside className="register-card register-card--info">
-            <h2 className="register-info-title">
-              ¿Qué ocurre después de crear tu cuenta?
-            </h2>
-
+            <h3 className="register-info-title">Lo que obtienes con tu cuenta</h3>
             <ul className="register-info-list">
-              <li>
-                Te acompañamos paso a paso para que organizar el cuidado de tu perro sea sencillo.
-              </li>
-              <li>
-                Completa el perfil de tu perro con su edad, rutina y necesidades especiales para personalizar los servicios.
-              </li>
-              <li>
-                Explora el calendario y reserva sesiones de adiestramiento, paseos o educación en los horarios que mejor encajen.
-              </li>
-              <li>
-                Haz seguimiento de cada servicio, recibe notas de nuestro equipo y ajusta el plan de tu perro cuando lo necesites.
-              </li>
+              <li>Reserva y gestiona servicios fácilmente.</li>
+              <li>Consulta historial y seguimiento del adiestramiento.</li>
+              <li>Comunicación directa con el equipo.</li>
+              <li>Acceso rápido a materiales y recomendaciones.</li>
             </ul>
 
             <p className="register-help">

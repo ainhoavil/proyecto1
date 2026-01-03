@@ -8,7 +8,7 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   const esAdmin = role === "admin" || user?.isAdmin;
-  const esTrainer = role === "adiestrador";
+  const esTrainer = role === "adiestrador" || role === "trainer";
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -33,39 +33,66 @@ export default function Navbar() {
           </Link>
 
           <ul className="navbar__links">
-            <li>
-              <Link to="/servicios">Servicios</Link>
-            </li>
+            {/* Para adiestrador ocultamos las secciones de contratación */}
+            {!esTrainer && (
+              <>
+                <li>
+                  <Link to="/servicios" onClick={closeMenu}>
+                    Servicios
+                  </Link>
+                </li>
 
-            <li>
-              <Link to="/adiestradores">Adiestradores</Link>
-            </li>
+                <li>
+                  <Link to="/adiestradores" onClick={closeMenu}>
+                    Adiestradores
+                  </Link>
+                </li>
+              </>
+            )}
 
             {isAuthenticated && !esTrainer && (
               <li>
-                <Link to="/reservas">Reservas</Link>
+                <Link to="/reservas" onClick={closeMenu}>
+                  Reservas
+                </Link>
+              </li>
+            )}
+
+            {isAuthenticated && (
+              <li>
+                <Link to="/chats" onClick={closeMenu}>
+                  Chats
+                </Link>
               </li>
             )}
 
             <li>
-              <Link to="/contacto">Contacto</Link>
+              <Link to="/contacto" onClick={closeMenu}>
+                Contacto
+              </Link>
             </li>
 
             {esTrainer && (
               <li>
-                <Link to="/reservas">Agenda</Link>
+                <Link to="/reservas" onClick={closeMenu}>
+                  Agenda
+                </Link>
               </li>
             )}
 
             {esTrainer && (
               <li>
-                <Link to="/trainer/clientes">Clientes</Link>
+                <Link to="/trainer/clientes" onClick={closeMenu}>
+                  Clientes
+                </Link>
               </li>
             )}
 
             {esAdmin && (
               <li>
-                <Link to="/admin">Panel admin</Link>
+                <Link to="/admin" onClick={closeMenu}>
+                  Panel admin
+                </Link>
               </li>
             )}
           </ul>
@@ -76,7 +103,9 @@ export default function Navbar() {
           {isAuthenticated ? (
             <>
               <li>
-                <Link to="/perfil">{user?.email || "Mi perfil"}</Link>
+                <Link to="/perfil" onClick={closeMenu}>
+                  {user?.email || "Mi perfil"}
+                </Link>
               </li>
               <li>
                 <button className="logout-btn" onClick={handleLogout}>
@@ -87,10 +116,12 @@ export default function Navbar() {
           ) : (
             <>
               <li>
-                <Link to="/login">Iniciar sesión</Link>
+                <Link to="/login" onClick={closeMenu}>
+                  Iniciar sesión
+                </Link>
               </li>
               <li>
-                <Link to="/register" className="btn-small">
+                <Link to="/register" className="btn-small" onClick={closeMenu}>
                   Regístrate
                 </Link>
               </li>
@@ -112,31 +143,39 @@ export default function Navbar() {
 
       {/* MOBILE */}
       <div className="navbar__mobile">
-        <button
-          className="close-mobile"
-          onClick={closeMenu}
-          aria-label="Cerrar menú"
-        >
+        <button className="close-mobile" onClick={closeMenu} aria-label="Cerrar menú">
           ✕
         </button>
 
         <ul>
-          <li>
-            <Link to="/servicios" onClick={closeMenu}>
-              Servicios
-            </Link>
-          </li>
+          {!esTrainer && (
+            <>
+              <li>
+                <Link to="/servicios" onClick={closeMenu}>
+                  Servicios
+                </Link>
+              </li>
 
-          <li>
-            <Link to="/adiestradores" onClick={closeMenu}>
-              Adiestradores
-            </Link>
-          </li>
+              <li>
+                <Link to="/adiestradores" onClick={closeMenu}>
+                  Adiestradores
+                </Link>
+              </li>
+            </>
+          )}
 
           {isAuthenticated && !esTrainer && (
             <li>
               <Link to="/reservas" onClick={closeMenu}>
                 Reservas
+              </Link>
+            </li>
+          )}
+
+          {isAuthenticated && (
+            <li>
+              <Link to="/chats" onClick={closeMenu}>
+                Chats
               </Link>
             </li>
           )}

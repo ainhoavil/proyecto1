@@ -3,6 +3,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import axios from "axios";
 import { query } from "../db.js";
 import { nanoid } from "nanoid";
 import { verifyToken, requireAdmin } from "../middleware/auth.js";
@@ -34,6 +35,31 @@ async function ensureAuthTables() {
       role TEXT DEFAULT 'client'
     )
   `);
+
+  // === Migraciones suaves (ALTER TABLE si faltan columnas) ===
+  // Nota: CREATE TABLE IF NOT EXISTS NO actualiza tablas existentes.
+  const ensureColumn = async (table, columnName, definitionSql) => {
+    const info = await query(`PRAGMA table_info(${table})`);
+    const exists = (info || []).some(
+      (c) => String(c?.name || "").toLowerCase() === String(columnName).toLowerCase()
+    );
+    if (!exists) {
+      await query(`ALTER TABLE ${table} ADD COLUMN ${definitionSql}`);
+    }
+  };
+
+  // Para login con Google (GIS / ID Token)
+  await ensureColumn("users", "google_sub", "google_sub TEXT");
+  await ensureColumn(
+    "users",
+    "auth_provider",
+    "auth_provider TEXT DEFAULT 'local'"
+  );
+
+  // Índices (idempotentes)
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub)`
+  );
 
   // 2. Tabla de perfil / roles
   await query(`
@@ -82,6 +108,101 @@ function signToken({ uid, email, rol = "client" }) {
     isTrainer: rol === "adiestrador",
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+}
+
+/* ============================================================
+   ✅ Login con Google (Google Identity Services)
+   - Frontend env:  VITE_GOOGLE_CLIENT_ID
+   - Backend env:   GOOGLE_CLIENT_ID
+   Flujo:
+     1) El frontend obtiene un ID token (credential) con GIS.
+     2) El backend valida firma/audience/issuer y crea/inicia sesión.
+============================================================ */
+
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || "").trim();
+const GOOGLE_ISSUERS = ["accounts.google.com", "https://accounts.google.com"];
+const GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v1/certs";
+
+let googleCertsCache = {
+  certs: null,
+  expiresAt: 0,
+};
+
+function parseMaxAgeSeconds(cacheControl) {
+  const cc = String(cacheControl || "");
+  const m = cc.match(/max-age=(\d+)/i);
+  return m ? Number(m[1]) : 0;
+}
+
+async function getGoogleCerts({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && googleCertsCache.certs && now < googleCertsCache.expiresAt) {
+    return googleCertsCache.certs;
+  }
+
+  const resp = await axios.get(GOOGLE_CERTS_URL, {
+    timeout: 7000,
+    validateStatus: (s) => s >= 200 && s < 500,
+  });
+
+  if (resp.status !== 200 || !resp.data) {
+    throw new Error("No se pudieron obtener los certificados de Google");
+  }
+
+  const maxAge = parseMaxAgeSeconds(resp.headers?.["cache-control"]);
+  // Si no hay max-age, cachea poco para no martillear
+  const ttlMs = (maxAge > 0 ? maxAge : 3600) * 1000;
+
+  googleCertsCache = {
+    certs: resp.data,
+    expiresAt: now + ttlMs,
+  };
+
+  return googleCertsCache.certs;
+}
+
+async function verifyGoogleIdToken(idToken) {
+  if (!GOOGLE_CLIENT_ID) {
+    const e = new Error("Falta GOOGLE_CLIENT_ID en el backend (.env)");
+    e.statusCode = 500;
+    throw e;
+  }
+
+  const decoded = jwt.decode(String(idToken || ""), { complete: true });
+  const kid = decoded?.header?.kid;
+  if (!kid) {
+    const e = new Error("ID token inválido");
+    e.statusCode = 401;
+    throw e;
+  }
+
+  // Obtener cert correspondiente al kid
+  let certs = await getGoogleCerts();
+  let cert = certs?.[kid];
+  if (!cert) {
+    // Rotación de keys: fuerza refresh
+    certs = await getGoogleCerts({ force: true });
+    cert = certs?.[kid];
+  }
+  if (!cert) {
+    const e = new Error("No se encontró el certificado para verificar el token");
+    e.statusCode = 401;
+    throw e;
+  }
+
+  try {
+    const payload = jwt.verify(String(idToken), cert, {
+      algorithms: ["RS256"],
+      audience: GOOGLE_CLIENT_ID,
+      issuer: GOOGLE_ISSUERS,
+    });
+    return payload;
+  } catch (err) {
+    const e = new Error("ID token inválido o expirado");
+    e.statusCode = 401;
+    e.cause = err;
+    throw e;
+  }
 }
 
 /* ============================================================
@@ -222,6 +343,131 @@ router.post("/login", async (req, res) => {
   } catch (e) {
     console.error("[LOGIN] ERROR", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/* ============================================================
+   POST /api/auth/google (Público)
+   body: { credential }
+   - credential es el ID token (JWT) devuelto por Google Identity Services.
+   - Si el email existe, vincula google_sub.
+   - Si no existe, crea cuenta "client".
+============================================================ */
+router.post("/google", async (req, res) => {
+  try {
+    const { credential } = req.body || {};
+    if (!credential) {
+      return res.status(400).json({ error: "Falta credential" });
+    }
+
+    const payload = await verifyGoogleIdToken(credential);
+
+    const email = String(payload?.email || "").trim().toLowerCase();
+    const emailVerified = payload?.email_verified;
+    const googleSub = String(payload?.sub || "").trim();
+
+    if (!email || !googleSub) {
+      return res.status(401).json({ error: "Token sin email válido" });
+    }
+    if (emailVerified === false || emailVerified === "false") {
+      return res
+        .status(401)
+        .json({ error: "Email de Google no verificado" });
+    }
+
+    const nombre =
+      String(payload?.name || payload?.given_name || "").trim() || null;
+    const foto = String(payload?.picture || "").trim() || null;
+
+    // 1) Buscar por google_sub o email
+    const rows = await query(
+      `SELECT *
+         FROM users
+        WHERE google_sub = ? OR email = ?
+        LIMIT 1`,
+      [googleSub, email]
+    );
+
+    let user = rows[0] || null;
+
+    // 2) Crear si no existe
+    if (!user) {
+      const uid = nanoid();
+      const id = nanoid();
+      const emptyHash = ""; // NOT NULL en schema, pero se permite vacío
+
+      await query(
+        `INSERT INTO users (
+           id, uid, email, password_hash,
+           nombre, foto,
+           created_at, updated_at,
+           role, google_sub, auth_provider
+         )
+         VALUES (
+           ?, ?, ?, ?,
+           ?, ?,
+           datetime('now'), datetime('now'),
+           'client', ?, 'google'
+         )`,
+        [id, uid, email, emptyHash, nombre, foto, googleSub]
+      );
+
+      user = {
+        uid,
+        email,
+        password_hash: emptyHash,
+      };
+
+      // Asegura rol/perfil en tabla usuarios
+      await ensureUsuariosRow({ uid, email, rol: "client", passwordHash: "" });
+    } else {
+      // 3) Vincula/actualiza datos si ya existía
+      await query(
+        `UPDATE users
+            SET google_sub = COALESCE(google_sub, ?),
+                auth_provider = CASE
+                  WHEN auth_provider IS NULL OR auth_provider = '' THEN 'google'
+                  ELSE auth_provider
+                END,
+                nombre = COALESCE(?, nombre),
+                foto = COALESCE(?, foto),
+                updated_at = datetime('now')
+          WHERE uid = ?`,
+        [googleSub, nombre, foto, user.uid]
+      );
+    }
+
+    // 4) Rol desde BD (tabla usuarios manda)
+    let rol = "client";
+    const ru = await query(
+      "SELECT rol FROM usuarios WHERE id = ? OR email = ? LIMIT 1",
+      [user.uid, email]
+    );
+    if (ru.length) rol = ru[0].rol || "client";
+    else {
+      await ensureUsuariosRow({
+        uid: user.uid,
+        email,
+        rol,
+        passwordHash: user.password_hash || "",
+      });
+    }
+
+    // Truco para admin demo
+    if (email === "admin@demo.com") rol = "admin";
+
+    const token = signToken({ uid: user.uid, email, rol });
+    return res.json({
+      token,
+      uid: user.uid,
+      email,
+      rol,
+      user: { uid: user.uid, email, rol, nombre, foto },
+    });
+  } catch (e) {
+    const status = e?.statusCode || 500;
+    console.error("[GOOGLE LOGIN] ERROR", e?.cause || e);
+    return res.status(status).json({ error: e?.message || "Server error" });
   }
 });
 

@@ -3,6 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { http } from "../helpers/http";
 import "../styles/contratar.scss";
 
+const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+const absUrl = (u = "") =>
+  !u ? "" : /^https?:\/\//i.test(u) ? u : `${API_BASE}${u.startsWith("/") ? "" : "/"}${u}`;
+
 function fmt(ts) {
   if (!ts) return "";
   try {
@@ -17,6 +21,34 @@ function fmt(ts) {
     });
   } catch {
     return String(ts);
+  }
+}
+
+function fmtDateOnly(v) {
+  if (!v) return "";
+  try {
+    // nacimiento suele venir como YYYY-MM-DD
+    const s = String(v).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return d.toLocaleDateString("es-ES", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    }
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("es-ES", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    }
+    return s;
+  } catch {
+    return String(v);
   }
 }
 
@@ -90,6 +122,16 @@ export default function TrainerClientDetail() {
   }, [dogFilter]);
 
   const dogs = Array.isArray(client?.perros) ? client.perros : [];
+
+  // Perfil del cliente (normalizado)
+  const clientProfile = client?.profile || client || {};
+  const clientPhoto = absUrl(clientProfile.foto || clientProfile.avatarURL || "");
+  const clientPhone = String(clientProfile.telefono || "").trim();
+  const clientPrefix = String(clientProfile.prefix || "").trim();
+  const clientAddress = String(clientProfile.direccion || "").trim();
+  const clientProfileNotes = String(
+    clientProfile.notas || client?.profileNotes || ""
+  ).trim();
 
   const dogNameById = useMemo(() => {
     const m = new Map();
@@ -226,27 +268,170 @@ export default function TrainerClientDetail() {
               borderRadius: 12,
               background: "#fff",
               display: "grid",
-              gap: 8,
+              gap: 12,
             }}
           >
-            <div style={{ display: "grid", gap: 2 }}>
-              <h3 style={{ margin: 0 }}>{client.nombre || client.email}</h3>
-              <p style={{ margin: 0, opacity: 0.75 }}>{client.email}</p>
+            <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+              {/* Foto */}
+              <div style={{ width: 92, height: 92, flex: "0 0 auto" }}>
+                {clientPhoto ? (
+                  <img
+                    src={clientPhoto}
+                    alt="foto cliente"
+                    style={{
+                      width: 92,
+                      height: 92,
+                      borderRadius: 14,
+                      objectFit: "cover",
+                      border: "1px solid rgba(0,0,0,0.08)",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 92,
+                      height: 92,
+                      borderRadius: 14,
+                      background: "rgba(0,0,0,0.06)",
+                      display: "grid",
+                      placeItems: "center",
+                      color: "rgba(0,0,0,0.55)",
+                      fontWeight: 700,
+                      border: "1px solid rgba(0,0,0,0.08)",
+                    }}
+                    title="Sin foto"
+                  >
+                    👤
+                  </div>
+                )}
+              </div>
+
+              {/* Datos */}
+              <div style={{ display: "grid", gap: 6, minWidth: 240, flex: "1 1 280px" }}>
+                <div style={{ display: "grid", gap: 2 }}>
+                  <h3 style={{ margin: 0 }}>{client.nombre || client.email}</h3>
+                  <p style={{ margin: 0, opacity: 0.75 }}>{client.email}</p>
+                </div>
+
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div>
+                    <b>Teléfono:</b>{" "}
+                    {clientPhone ? `${clientPrefix || ""}${clientPrefix && clientPhone ? " " : ""}${clientPhone}` : "—"}
+                  </div>
+                  <div>
+                    <b>Dirección:</b> {clientAddress || "—"}
+                  </div>
+                </div>
+              </div>
             </div>
 
+            {/* Notas del perfil (del cliente) */}
+            {clientProfileNotes ? (
+              <div>
+                <b>Notas del cliente (perfil)</b>
+                <div
+                  style={{
+                    marginTop: 6,
+                    whiteSpace: "pre-wrap",
+                    padding: 10,
+                    borderRadius: 10,
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    background: "#fbfbfb",
+                  }}
+                >
+                  {clientProfileNotes}
+                </div>
+              </div>
+            ) : null}
+
             {/* Perros */}
-            <div>
+            <div style={{ display: "grid", gap: 10 }}>
               <b>Perros del cliente</b>
               {dogs.length === 0 ? (
-                <p style={{ margin: "6px 0 0", opacity: 0.7 }}>No hay perros registrados.</p>
+                <p style={{ margin: 0, opacity: 0.7 }}>No hay perros registrados.</p>
               ) : (
-                <ul style={{ margin: "6px 0 0 16px" }}>
-                  {dogs.map((d) => (
-                    <li key={d.id}>
-                      {d.nombre} {d.raza ? `(${d.raza})` : ""}
-                    </li>
-                  ))}
-                </ul>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {dogs.map((d) => {
+                    const dogPhoto = absUrl(d.avatarURL || "");
+                    const born = fmtDateOnly(d.nacimiento);
+                    return (
+                      <div
+                        key={d.id}
+                        style={{
+                          border: "1px solid rgba(0,0,0,0.08)",
+                          borderRadius: 12,
+                          padding: 12,
+                          background: "#fffdfb",
+                          display: "grid",
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                          <div style={{ width: 82, height: 82, flex: "0 0 auto" }}>
+                            {dogPhoto ? (
+                              <img
+                                src={dogPhoto}
+                                alt={d.nombre || "perro"}
+                                style={{
+                                  width: 82,
+                                  height: 82,
+                                  borderRadius: 14,
+                                  objectFit: "cover",
+                                  border: "1px solid rgba(0,0,0,0.08)",
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: 82,
+                                  height: 82,
+                                  borderRadius: 14,
+                                  background: "rgba(0,0,0,0.06)",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  color: "rgba(0,0,0,0.55)",
+                                  fontWeight: 700,
+                                  border: "1px solid rgba(0,0,0,0.08)",
+                                }}
+                                title="Sin foto"
+                              >
+                                🐶
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ display: "grid", gap: 6, flex: "1 1 260px", minWidth: 220 }}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 800, fontSize: 16 }}>{d.nombre || "Perro"}</span>
+                              {d.raza ? <span style={{ opacity: 0.75 }}>{d.raza}</span> : null}
+                            </div>
+
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <div>
+                                <b>Nacimiento:</b> {born || "—"}
+                              </div>
+                              <div>
+                                <b>Castrado:</b> {d.castrado ? "Sí" : "No"}
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", opacity: 0.75, fontSize: 12 }}>
+                              {d.createdAt ? <span>Creado: {fmt(d.createdAt)}</span> : null}
+                              {d.updatedAt ? <span>Actualizado: {fmt(d.updatedAt)}</span> : null}
+                            </div>
+                          </div>
+                        </div>
+
+                        {d.notas ? (
+                          <div>
+                            <b>Notas del perro (perfil)</b>
+                            <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{d.notas}</div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

@@ -1,5 +1,5 @@
 // frontend/src/pages/Login.jsx
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useAuth } from "../context/auth";
@@ -13,6 +13,13 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Google Identity Services
+  const googleBtnRef = useRef(null);
+  const gisInitRef = useRef(false);
+  const loadingRef = useRef(false);
+  const rememberRef = useRef(false);
+  const nextRef = useRef({ nextParam: "", stateNext: null });
+
   const location = useLocation();
   const navigate = useNavigate();
   const { loginSuccess } = useAuth();
@@ -20,6 +27,113 @@ export default function Login() {
   // Propaga ?next= tanto al enlace de registro como a la redirección post-login
   const params = new URLSearchParams(location.search);
   const nextParam = params.get("next") || "";
+
+  // Mantener valores actuales accesibles desde el callback de Google (sin re-inicializar GIS)
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    rememberRef.current = recordar;
+  }, [recordar]);
+
+  useEffect(() => {
+    nextRef.current = {
+      nextParam,
+      stateNext: location.state?.next || null,
+    };
+  }, [nextParam, location.state]);
+
+  // ============================================================
+  // GOOGLE SIGN-IN (GIS)
+  // ============================================================
+  useEffect(() => {
+    const clientId = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
+
+    // Si no hay client id, no inicializamos.
+    if (!clientId) return;
+
+    let cancelled = false;
+
+    const init = () => {
+      if (cancelled) return;
+      if (gisInitRef.current) return;
+
+      const google = window.google;
+      if (!google?.accounts?.id) return;
+      if (!googleBtnRef.current) return;
+
+      gisInitRef.current = true;
+
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response) => {
+          const credential = response?.credential;
+          if (!credential) {
+            setError("No se pudo obtener credenciales de Google.");
+            return;
+          }
+
+          if (loadingRef.current) return;
+          setError("");
+          loadingRef.current = true;
+          setLoading(true);
+
+          try {
+            const res = await http("/api/auth/google", {
+              method: "POST",
+              data: { credential },
+            });
+
+            if (typeof loginSuccess === "function") {
+              loginSuccess(res, { remember: rememberRef.current });
+            }
+
+            const next =
+              nextRef.current?.nextParam ||
+              nextRef.current?.stateNext ||
+              "/";
+            navigate(next, { replace: true });
+          } catch (err) {
+            const status = err?.status || err?.httpStatus || err?.response?.status;
+            if (status === 401)
+              setError("No se pudo validar tu cuenta de Google.");
+            else
+              setError("No se pudo iniciar sesión con Google. Inténtalo de nuevo.");
+          } finally {
+            loadingRef.current = false;
+            setLoading(false);
+          }
+        },
+      });
+
+      // Renderiza el botón oficial de Google dentro del div
+      google.accounts.id.renderButton(googleBtnRef.current, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "pill",
+        width: 420,
+      });
+    };
+
+    // Puede que el script aún no haya cargado; reintenta un poco.
+    const t = setInterval(() => {
+      if (window.google?.accounts?.id && googleBtnRef.current) {
+        clearInterval(t);
+        init();
+      }
+    }, 100);
+
+    init();
+
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -184,9 +298,11 @@ export default function Login() {
                   <span>O continúa con</span>
                 </div>
 
-                <button type="button" className="access-btn access-btn--secondary">
-                  Continuar con Google
-                </button>
+                {/* Botón oficial de Google (renderizado por GIS) */}
+                <div
+                  ref={googleBtnRef}
+                  style={{ width: "100%", display: "flex", justifyContent: "center" }}
+                />
 
                 <p className="access-muted access-muted--small">
                   Al continuar aceptas nuestras políticas de privacidad y

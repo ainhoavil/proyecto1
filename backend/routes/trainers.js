@@ -289,7 +289,14 @@ router.get(
           SELECT
             cu.id AS id,
             cu.email AS email,
-            COALESCE(NULLIF(up.nombre,''), cu.email) AS nombre
+            COALESCE(NULLIF(up.nombre,''), cu.email) AS nombre,
+            COALESCE(NULLIF(up.telefono,''), '') AS telefono,
+            COALESCE(NULLIF(up.direccion,''), '') AS direccion,
+            COALESCE(NULLIF(up.foto,''), '') AS foto,
+            COALESCE(NULLIF(up.prefix,''), '') AS prefix,
+            COALESCE(NULLIF(up.notas,''), '') AS profileNotes,
+            up.created_at AS profileCreatedAt,
+            up.updated_at AS profileUpdatedAt
           FROM usuarios cu
           LEFT JOIN users up ON up.uid = cu.id
           WHERE cu.id = ?
@@ -302,10 +309,34 @@ router.get(
       let perros = [];
       try {
         const dogRows = await query(
-          `SELECT id, nombre, raza FROM perros WHERE user_id = ? ORDER BY nombre COLLATE NOCASE ASC`,
+          `
+            SELECT
+              id,
+              nombre,
+              raza,
+              nacimiento,
+              castrado,
+              notas,
+              COALESCE(avatar_url, avatarURL) AS avatarURL,
+              created_at AS createdAt,
+              updated_at AS updatedAt
+            FROM perros
+            WHERE user_id = ?
+            ORDER BY nombre COLLATE NOCASE ASC
+          `,
           [clientId]
         );
-        perros = dogRows.map((d) => ({ id: d.id, nombre: d.nombre, raza: d.raza }));
+        perros = dogRows.map((d) => ({
+          id: d.id,
+          nombre: d.nombre,
+          raza: d.raza,
+          nacimiento: d.nacimiento,
+          castrado: !!d.castrado,
+          notas: d.notas,
+          avatarURL: d.avatarURL,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        }));
       } catch {
         perros = [];
       }
@@ -314,6 +345,23 @@ router.get(
         id: u[0].id,
         email: u[0].email,
         nombre: u[0].nombre,
+        telefono: u[0].telefono || "",
+        direccion: u[0].direccion || "",
+        foto: u[0].foto || "",
+        prefix: u[0].prefix || "",
+        profileNotes: u[0].profileNotes || "",
+        profile: {
+          id: u[0].id,
+          email: u[0].email,
+          nombre: u[0].nombre,
+          telefono: u[0].telefono || "",
+          direccion: u[0].direccion || "",
+          foto: u[0].foto || "",
+          prefix: u[0].prefix || "",
+          notas: u[0].profileNotes || "",
+          createdAt: u[0].profileCreatedAt || null,
+          updatedAt: u[0].profileUpdatedAt || null,
+        },
         perros,
       });
     } catch (err) {
