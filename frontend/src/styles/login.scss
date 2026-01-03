@@ -15,6 +15,13 @@
 
 /* Cabecera */
 
+.access-header {
+  /* ✅ mejora ligera: da estructura al bloque superior */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .access-header__eyebrow {
   font-size: 11px;
   letter-spacing: 0.18em;
@@ -209,9 +216,7 @@
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    box-shadow 0.15s ease,
+  transition: background-color 0.15s ease, box-shadow 0.15s ease,
     transform 0.1s ease;
 }
 
@@ -303,6 +308,13 @@
   background-color: #fde8e8;
   border-color: #f39b9b;
   color: #b83232;
+}
+
+/* ✅ NUEVO: alerta de éxito (necesaria para forgot/reset) */
+.access-alert--success {
+  background-color: #eaf7ef;
+  border-color: #9ed9b2;
+  color: #1f6a3d;
 }
 
 /* Columna derecha: beneficios */

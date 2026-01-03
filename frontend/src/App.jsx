@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 // Layout
 import Navbar from "./components/navbar";
@@ -21,6 +21,8 @@ import Register from "./pages/register.jsx";
 import Contratar from "./pages/contratar.jsx";
 import TrainersList from "./pages/TrainersList.jsx";
 import TrainerPublicProfile from "./pages/TrainerPublicProfile.jsx";
+import ForgotPassword from "./pages/ForgotPassword.jsx";
+import ResetPassword from "./pages/ResetPassword.jsx";
 
 // Páginas protegidas
 import Reservas from "./pages/reservas.jsx";
@@ -35,12 +37,27 @@ import ChatPage from "./pages/ChatPage.jsx";
 import "./styles/global.scss";
 
 export default function App() {
+  const location = useLocation();
+
+  // Rutas "pantalla completa" (sin container global)
+  const fullWidthPaths = new Set([
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+  ]);
+
+  const isFullWidth =
+    fullWidthPaths.has(location.pathname) ||
+    // Por si el reset trae querystring (?token=...)
+    location.pathname.startsWith("/reset-password");
+
   return (
     <AuthProvider>
       <Topbar />
       <Navbar />
 
-      <main className="container">
+      <main className={isFullWidth ? "" : "container"}>
         <Routes>
           {/* ===== PÚBLICAS ===== */}
           <Route path="/" element={<Home />} />
@@ -51,6 +68,8 @@ export default function App() {
           <Route path="/contacto" element={<Contacto />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* ===== PROTEGIDAS ===== */}
           <Route

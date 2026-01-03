@@ -2,6 +2,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { query } from "../db.js";
 import { nanoid } from "nanoid";
 import { verifyToken, requireAdmin } from "../middleware/auth.js";
@@ -43,6 +44,25 @@ async function ensureAuthTables() {
       created_at TEXT NOT NULL
     )
   `);
+
+  // 3. Tokens para recuperación de contraseña
+  await query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id TEXT PRIMARY KEY,
+      uid TEXT NOT NULL,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      ip TEXT,
+      user_agent TEXT
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_prt_uid ON password_reset_tokens(uid)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_prt_hash ON password_reset_tokens(token_hash)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_prt_email ON password_reset_tokens(email)`);
 }
 
 // Ejecutamos al cargar el archivo
@@ -58,6 +78,7 @@ function signToken({ uid, email, rol = "client" }) {
     email,
     rol,
     isAdmin: rol === "admin",
+    isTrainer: rol === "adiestrador",
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
@@ -70,6 +91,7 @@ async function ensureUsuariosRow({ uid, email, rol = "client", passwordHash }) {
     "SELECT id FROM usuarios WHERE id = ? OR email = ? LIMIT 1",
     [uid, email]
   );
+
   if (!r.length) {
     await query(
       `INSERT INTO usuarios (id, email, password_hash, rol, created_at)
@@ -77,21 +99,36 @@ async function ensureUsuariosRow({ uid, email, rol = "client", passwordHash }) {
       [uid, email, passwordHash || "", rol]
     );
   } else if (rol && rol !== "client") {
-    await query(
-      `UPDATE usuarios SET rol = ? WHERE id = ?`,
-      [rol, r[0].id]
-    );
+    await query(`UPDATE usuarios SET rol = ? WHERE id = ?`, [rol, r[0].id]);
   }
 }
 
 /* ============================================================
+   Email helper (SIN nodemailer, para no romper)
+   - Si no tienes SMTP aún, dejamos el sistema preparado:
+     - loguea URL en consola
+============================================================ */
+async function sendResetEmail({ to, resetUrl, minutes }) {
+  console.warn(
+    `[RESET EMAIL - PREPARADO] Para: ${to} | Caduca en ${minutes} min | URL: ${resetUrl}`
+  );
+}
+
+/* ============================================================
    POST /api/auth/register (Público)
+   - Aquí ya puedes exigir nombre si quieres (prioridad futura).
+   - Si todavía no lo quieres obligatorio, quita la validación de name.
 ============================================================ */
 router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body || {};
     if (!email || !password) {
       return res.status(400).json({ error: "Faltan email y/o password" });
+    }
+
+    // (Opcional) nombre obligatorio (según tu lista de tareas)
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "El nombre es obligatorio" });
     }
 
     const emailNorm = email.trim().toLowerCase();
@@ -108,16 +145,16 @@ router.post("/register", async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const uid = nanoid(); // ID compartido entre ambas tablas
 
-    // 1. Insertar en users (login + algunos datos básicos)
+    // 1. Insertar en users
     await query(
       `INSERT INTO users (
          id, uid, email, password_hash, nombre, created_at, updated_at, role
        )
        VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), 'client')`,
-      [nanoid(), uid, emailNorm, hash, name || ""]
+      [nanoid(), uid, emailNorm, hash, String(name).trim()]
     );
 
-    // 2. Insertar en usuarios (según tu tabla real)
+    // 2. Insertar en usuarios
     await query(
       `INSERT INTO usuarios (id, email, password_hash, rol, created_at)
        VALUES (?, ?, ?, ?, datetime('now'))`,
@@ -131,7 +168,7 @@ router.post("/register", async (req, res) => {
       token,
       email: emailNorm,
       rol: "client",
-      user: { uid, email: emailNorm, role: "client" },
+      user: { uid, email: emailNorm, role: "client", nombre: String(name).trim() },
     });
   } catch (e) {
     console.error("[REGISTER] ERROR", e);
@@ -150,10 +187,9 @@ router.post("/login", async (req, res) => {
     }
 
     const emailNorm = email.trim().toLowerCase();
-    const rows = await query(
-      "SELECT * FROM users WHERE email = ? LIMIT 1",
-      [emailNorm]
-    );
+    const rows = await query("SELECT * FROM users WHERE email = ? LIMIT 1", [
+      emailNorm,
+    ]);
 
     if (!rows.length) {
       return res.status(401).json({ error: "Usuario no encontrado" });
@@ -176,13 +212,15 @@ router.post("/login", async (req, res) => {
       "SELECT rol FROM usuarios WHERE id = ? OR email = ? LIMIT 1",
       [user.uid, user.email]
     );
+
     if (ru.length) rol = ru[0].rol || "client";
-    else await ensureUsuariosRow({
-      uid: user.uid,
-      email: user.email,
-      rol,
-      passwordHash: user.password_hash,
-    });
+    else
+      await ensureUsuariosRow({
+        uid: user.uid,
+        email: user.email,
+        rol,
+        passwordHash: user.password_hash,
+      });
 
     // Truco para admin demo
     if (emailNorm === "admin@demo.com") rol = "admin";
@@ -192,6 +230,159 @@ router.post("/login", async (req, res) => {
   } catch (e) {
     console.error("[LOGIN] ERROR", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/* ============================================================
+   ✅ POST /api/auth/forgot-password (Público)
+   - Respuesta genérica (no filtra si existe el email)
+   - Guarda SOLO hash del token
+============================================================ */
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    // Respuesta genérica SIEMPRE
+    const generic = {
+      ok: true,
+      message: "Si el email existe, enviaremos instrucciones.",
+    };
+
+    if (!email) return res.json(generic);
+
+    const emailNorm = String(email).trim().toLowerCase();
+
+    // Buscar usuario
+    const rows = await query(
+      "SELECT uid, email FROM users WHERE email = ? LIMIT 1",
+      [emailNorm]
+    );
+
+    // No reveles si existe
+    if (!rows.length) return res.json(generic);
+
+    const { uid } = rows[0];
+
+    // Token en claro para URL (solo se devuelve/usa fuera), en BD guardamos hash
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    const minutes = Number(process.env.PASSWORD_RESET_MINUTES || 30);
+    const expiresAtISO = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+
+    const ip =
+      req.headers["x-forwarded-for"]?.toString() ||
+      req.socket?.remoteAddress ||
+      "";
+    const userAgent = req.headers["user-agent"] || "";
+
+    // Guardar token
+    await query(
+      `INSERT INTO password_reset_tokens
+        (id, uid, email, token_hash, expires_at, used_at, created_at, ip, user_agent)
+       VALUES
+        (?, ?, ?, ?, ?, NULL, datetime('now'), ?, ?)`,
+      [nanoid(), uid, emailNorm, tokenHash, expiresAtISO, ip, userAgent]
+    );
+
+    // Construir URL frontend
+    const baseFront = (process.env.FRONTEND_URL || "http://localhost:5173")
+      .toString()
+      .replace(/\/+$/, "");
+
+    const resetUrl = `${baseFront}/reset-password?token=${rawToken}`;
+
+    // Envío preparado (log) para no romper
+    await sendResetEmail({ to: emailNorm, resetUrl, minutes });
+
+    return res.json(generic);
+  } catch (e) {
+    console.error("[FORGOT-PASSWORD] ERROR", e);
+    // Siempre genérico
+    return res.json({
+      ok: true,
+      message: "Si el email existe, enviaremos instrucciones.",
+    });
+  }
+});
+
+/* ============================================================
+   ✅ POST /api/auth/reset-password (Público)
+   body: { token, newPassword }
+============================================================ */
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, newPassword } = req.body || {};
+    if (!token || !newPassword) {
+      return res
+        .status(400)
+        .json({ error: "Token y nueva contraseña requeridos" });
+    }
+
+    if (String(newPassword).length < 8) {
+      return res
+        .status(400)
+        .json({ error: "La contraseña debe tener al menos 8 caracteres" });
+    }
+
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(String(token))
+      .digest("hex");
+
+    const rows = await query(
+      `SELECT id, uid, email, expires_at, used_at
+         FROM password_reset_tokens
+        WHERE token_hash = ?
+        LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (!rows.length) {
+      return res.status(400).json({ error: "Token inválido o expirado" });
+    }
+
+    const row = rows[0];
+    if (row.used_at) {
+      return res.status(400).json({ error: "Token ya utilizado" });
+    }
+
+    const expMs = new Date(row.expires_at).getTime();
+    if (Number.isNaN(expMs) || Date.now() > expMs) {
+      return res.status(400).json({ error: "Token inválido o expirado" });
+    }
+
+    const hash = await bcrypt.hash(String(newPassword), 10);
+
+    // Actualiza en users
+    await query(
+      `UPDATE users
+          SET password_hash = ?, updated_at = datetime('now')
+        WHERE uid = ?`,
+      [hash, row.uid]
+    );
+
+    // Refleja en usuarios
+    await query(`UPDATE usuarios SET password_hash = ? WHERE id = ?`, [
+      hash,
+      row.uid,
+    ]);
+
+    // Marca token como usado
+    await query(
+      `UPDATE password_reset_tokens
+          SET used_at = datetime('now')
+        WHERE id = ?`,
+      [row.id]
+    );
+
+    return res.json({
+      ok: true,
+      message: "Contraseña actualizada. Ya puedes iniciar sesión.",
+    });
+  } catch (e) {
+    console.error("[RESET-PASSWORD] ERROR", e);
+    return res.status(500).json({ error: "Error interno" });
   }
 });
 
@@ -219,10 +410,10 @@ router.get("/users", verifyToken, requireAdmin, async (req, res) => {
 router.post("/users", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { email, password, name, rol = "client" } = req.body || {};
-    if (!email || !password) {
-      return res
-        .status(400)
-        .json({ error: "Email y contraseña obligatorios" });
+    if (!email || !password || !name) {
+      return res.status(400).json({
+        error: "Email, contraseña y nombre obligatorios",
+      });
     }
 
     const emailNorm = email.trim().toLowerCase();
@@ -233,13 +424,17 @@ router.post("/users", verifyToken, requireAdmin, async (req, res) => {
     if (exists.length)
       return res.status(409).json({ error: "Email ya existe" });
 
+    if (!ROLES.includes(rol)) {
+      return res.status(400).json({ error: "Rol inválido" });
+    }
+
     const hash = await bcrypt.hash(password, 10);
     const uid = nanoid();
 
     await query(
       `INSERT INTO users (id, uid, email, password_hash, nombre, created_at, updated_at, role)
        VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)`,
-      [nanoid(), uid, emailNorm, hash, name || "", rol]
+      [nanoid(), uid, emailNorm, hash, String(name).trim(), rol]
     );
 
     await query(
@@ -329,11 +524,10 @@ router.patch("/password", verifyToken, async (req, res) => {
       [newHash, user.id]
     );
 
-    // Opcional: reflejar también en usuarios
-    await query(
-      "UPDATE usuarios SET password_hash = ? WHERE id = ?",
-      [newHash, uid]
-    );
+    await query("UPDATE usuarios SET password_hash = ? WHERE id = ?", [
+      newHash,
+      uid,
+    ]);
 
     return res.json({ ok: true, message: "Contraseña actualizada" });
   } catch (err) {

@@ -60,6 +60,11 @@ export default function Login() {
     ? `/register?next=${encodeURIComponent(nextParam)}`
     : "/register";
 
+  // ✅ Forgot password: conserva ?next= por si luego quieres redirigir tras reset
+  const forgotHref = nextParam
+    ? `/forgot-password?next=${encodeURIComponent(nextParam)}`
+    : "/forgot-password";
+
   return (
     <div className="access-page">
       <div className="access-page__container">
@@ -97,10 +102,7 @@ export default function Login() {
               </p>
 
               {error && (
-                <div
-                  className="access-alert access-alert--error"
-                  role="alert"
-                >
+                <div className="access-alert access-alert--error" role="alert">
                   {error}
                 </div>
               )}
@@ -154,12 +156,13 @@ export default function Login() {
                     <span>Recordar en este dispositivo</span>
                   </label>
 
-                  <button
-                    type="button"
+                  {/* ✅ ahora es Link y funciona */}
+                  <Link
+                    to={forgotHref}
                     className="access-link-btn access-link-btn--right"
                   >
                     He olvidado mi contraseña
-                  </button>
+                  </Link>
                 </div>
 
                 <button
@@ -181,10 +184,7 @@ export default function Login() {
                   <span>O continúa con</span>
                 </div>
 
-                <button
-                  type="button"
-                  className="access-btn access-btn--secondary"
-                >
+                <button type="button" className="access-btn access-btn--secondary">
                   Continuar con Google
                 </button>
 
@@ -240,8 +240,8 @@ export default function Login() {
             <p className="access-help">
               Si tienes cualquier problema para acceder, también puedes
               escribirnos a{" "}
-              <a href="mailto:hola@dogform.es">hola@dogform.es</a> o por
-              WhatsApp al <a href="tel:+34600123456">+34 600 123 456</a>.
+              <a href="mailto:hola@dogform.es">hola@dogform.es</a> o por WhatsApp
+              al <a href="tel:+34600123456">+34 600 123 456</a>.
             </p>
           </aside>
         </div>
