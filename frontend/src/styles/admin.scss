@@ -1,0 +1,175 @@
+@import "./global.scss";
+
+/* =========================================
+   PANEL ADMIN – DOGFORM
+   (evita estilos "dependientes" de haber visitado /servicios)
+========================================= */
+
+.admin.page-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: $sp-6 0;
+}
+
+.admin__title {
+  margin: 0 0 $sp-5;
+  color: $color-text;
+}
+
+/* Card contenedora de accesos */
+.admin__navCard {
+  background: $color-white;
+  border: 1px solid $color-border;
+  border-radius: $radius-large;
+  box-shadow: $shadow-soft;
+  padding: $sp-5;
+  margin-bottom: $sp-6;
+}
+
+.admin__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $sp-3;
+  align-items: center;
+}
+
+/* Ajuste de tamaño para que parezca "píldoras" */
+.admin__nav .btn-primary,
+.admin__nav .btn-ghost,
+.admin__nav a.btn-ghost {
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.admin__separator {
+  width: 1px;
+  height: 34px;
+  background: rgba(0, 0, 0, 0.10);
+  margin: 0 $sp-2;
+}
+
+.admin__note {
+  margin: $sp-4 0 0;
+  color: $color-text-light;
+  font-size: 14px;
+}
+
+/* Tarjetas internas (scoped a admin para no contaminar el resto) */
+.admin .card {
+  background: $color-white;
+  border: 1px solid $color-border;
+  border-radius: $radius-large;
+  box-shadow: $shadow-soft;
+}
+
+/* Form elements */
+.admin label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: $color-text;
+}
+
+.admin input,
+.admin select,
+.admin textarea {
+  width: 100%;
+  border: 1px solid $color-border;
+  border-radius: $radius;
+  padding: 10px 12px;
+  outline: none;
+  background: $color-white;
+  color: $color-text;
+  font-family: inherit;
+  font-size: 16px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin textarea {
+  line-height: 1.5;
+}
+
+.admin input:focus,
+.admin select:focus,
+.admin textarea:focus {
+  border-color: $color-brand;
+  box-shadow: 0 0 0 2px rgba(230, 138, 78, 0.20);
+}
+
+
+
+/* Foto de adiestradores (upload por archivo) */
+.admin__photoField {
+  display: flex;
+  gap: $sp-3;
+  align-items: flex-start;
+  padding: $sp-3;
+  border: 1px dashed $color-border;
+  border-radius: $radius-large;
+  background: $color-bg-alt;
+}
+
+.admin__photoThumbWrap {
+  flex: 0 0 auto;
+}
+
+.admin__photoThumb {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: $radius-large;
+  border: 1px solid $color-border;
+  background: $color-bg;
+}
+
+.admin__photoPlaceholder {
+  width: 80px;
+  height: 80px;
+  border-radius: $radius-large;
+  border: 1px solid $color-border;
+  background: $color-bg;
+  display: grid;
+  place-items: center;
+  color: $color-text-light;
+  font-size: 12px;
+  text-align: center;
+  padding: 6px;
+}
+
+.admin__photoLabel {
+  flex: 1 1 auto;
+}
+
+.admin input[type='file'] {
+  padding: 8px;
+}
+
+/* Servicios embebidos dentro del panel */
+.admin .servicios--embedded {
+  padding: 0;
+}
+
+.admin .servicios--embedded .servicios__header {
+  display: none;
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  .admin__navCard {
+    padding: $sp-4;
+  }
+
+  .admin__separator {
+    display: none;
+  }
+
+  .admin__nav .btn-primary,
+  .admin__nav .btn-ghost,
+  .admin__nav a.btn-ghost {
+    width: 100%;
+    justify-content: center;
+  }
+}

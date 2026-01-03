@@ -7,10 +7,12 @@
 // ✅ Avatar por mensaje: foto si existe, si no inicial (o "?" si no hay nombre)
 // ✅ Polling sin saltos visuales (solo auto-scroll si el usuario está abajo)
 // ✅ Borrado lógico desde UI (botón "Borrar chat")
+// ✅ Mejora: si vienes desde Reservas, al volver/borrar te lleva a /reservas
+// ✅ Mejora: decode JWT base64url robusto
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";
 import { isLogged } from "../helpers/auth";
 import "../styles/contratar.scss";
@@ -33,6 +35,20 @@ function fmt(ts) {
     });
   } catch {
     return String(ts);
+  }
+}
+
+// JWT base64url safe decode
+function decodeJwtPayload(token) {
+  try {
+    const part = (token || "").split(".")[1] || "";
+    if (!part) return null;
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4 ? "=".repeat(4 - (base64.length % 4)) : "";
+    const json = atob(base64 + pad);
+    return JSON.parse(json);
+  } catch {
+    return null;
   }
 }
 
@@ -118,32 +134,20 @@ function niceSize(bytes) {
 }
 
 const EMOJIS = [
-  "😀",
-  "😅",
-  "😂",
-  "😊",
-  "😍",
-  "😎",
-  "🤔",
-  "😴",
-  "😭",
-  "😡",
-  "👍",
-  "🙏",
-  "👏",
-  "✅",
-  "⚠️",
-  "❤️",
-  "🎉",
-  "📅",
-  "📎",
-  "🐶",
-  "🐾",
+  "😀","😅","😂","😊","😍","😎","🤔","😴","😭","😡",
+  "👍","🙏","👏","✅","⚠️","❤️","🎉","📅","📎","🐶","🐾",
 ];
 
 export default function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ✅ si vienes desde reservas, volvemos ahí
+  const backUrl = useMemo(() => {
+    const from = location?.state?.from;
+    return typeof from === "string" && from.trim() ? from : "/reservas";
+  }, [location?.state]);
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
@@ -163,51 +167,39 @@ export default function ChatPage() {
   const [emojiOpen, setEmojiOpen] = useState(false);
 
   const myUserId = useMemo(() => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) return "";
-      const payload = JSON.parse(atob(token.split(".")[1] || ""));
-      return String(payload?.id || payload?.uid || payload?.sub || "");
-    } catch {
-      return "";
-    }
+    const token = localStorage.getItem("token");
+    if (!token) return "";
+    const payload = decodeJwtPayload(token);
+    return String(payload?.id || payload?.uid || payload?.sub || "");
   }, []);
 
   const myName = useMemo(() => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) return "";
-      const payload = JSON.parse(atob(token.split(".")[1] || ""));
-      return String(
-        payload?.name ||
-          payload?.nombre ||
-          payload?.username ||
-          payload?.userName ||
-          payload?.email ||
-          ""
-      ).trim();
-    } catch {
-      return "";
-    }
+    const token = localStorage.getItem("token");
+    if (!token) return "";
+    const payload = decodeJwtPayload(token);
+    return String(
+      payload?.name ||
+        payload?.nombre ||
+        payload?.username ||
+        payload?.userName ||
+        payload?.email ||
+        ""
+    ).trim();
   }, []);
 
   const myAvatar = useMemo(() => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) return "";
-      const payload = JSON.parse(atob(token.split(".")[1] || ""));
-      return String(
-        payload?.avatar ||
-          payload?.avatarUrl ||
-          payload?.photo ||
-          payload?.photoURL ||
-          payload?.picture ||
-          payload?.image ||
-          ""
-      ).trim();
-    } catch {
-      return "";
-    }
+    const token = localStorage.getItem("token");
+    if (!token) return "";
+    const payload = decodeJwtPayload(token);
+    return String(
+      payload?.avatar ||
+        payload?.avatarUrl ||
+        payload?.photo ||
+        payload?.photoURL ||
+        payload?.picture ||
+        payload?.image ||
+        ""
+    ).trim();
   }, []);
 
   const listRef = useRef(null);
@@ -247,7 +239,6 @@ export default function ChatPage() {
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
-    // init
     stickToBottomRef.current = true;
 
     return () => {
@@ -268,7 +259,6 @@ export default function ChatPage() {
       const data = await http(`/api/chats/${conversationId}/messages`, { auth: true });
       const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
 
-      // ✅ Evita re-render innecesario (reduce “saltos”)
       setItems((prev) => {
         const prevLast = prev?.length ? prev[prev.length - 1] : null;
         const nextLast = arr?.length ? arr[arr.length - 1] : null;
@@ -285,7 +275,6 @@ export default function ChatPage() {
         return arr;
       });
 
-      // ✅ Auto-scroll solo si corresponde
       requestAnimationFrame(() => {
         if (shouldStick) scrollToBottom(false);
       });
@@ -297,7 +286,6 @@ export default function ChatPage() {
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para ver este chat.");
       else if (status === 404) {
-        // ✅ incluye caso “Chat eliminado” (borrado lógico)
         if (apiErr.toLowerCase().includes("eliminado")) setErrMsg("Has eliminado este chat.");
         else setErrMsg("Chat no encontrado.");
       } else setErrMsg("No se pudieron cargar los mensajes.");
@@ -317,7 +305,6 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  // Polling ligero para refrescar el chat
   useEffect(() => {
     if (!conversationId) return;
     const t = setInterval(() => {
@@ -341,7 +328,6 @@ export default function ChatPage() {
     setText(next);
     setEmojiOpen(false);
 
-    // re-poner cursor
     requestAnimationFrame(() => {
       try {
         el.focus();
@@ -362,7 +348,6 @@ export default function ChatPage() {
     setUploading(true);
 
     try {
-      // límite total por mensaje
       const maxTotal = 5;
       const availableSlots = Math.max(0, maxTotal - attachments.length);
       const slice = list.slice(0, availableSlots);
@@ -400,11 +385,13 @@ export default function ChatPage() {
       }
     } catch (e) {
       console.error("Error subiendo archivo:", e);
-      const msg = e?.data?.error || e?.message || "No se pudo subir el archivo. Revisa el tipo o el tamaño.";
+      const msg =
+        e?.data?.error ||
+        e?.message ||
+        "No se pudo subir el archivo. Revisa el tipo o el tamaño.";
       setUploadErr(msg);
     } finally {
       setUploading(false);
-      // reset input para poder re-seleccionar el mismo archivo
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -437,7 +424,6 @@ export default function ChatPage() {
       setAttachments([]);
       setEmojiOpen(false);
 
-      // al enviar siempre bajamos
       stickToBottomRef.current = true;
 
       await loadMessages({ silent: false });
@@ -450,7 +436,7 @@ export default function ChatPage() {
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para enviar mensajes aquí.");
       else if (status === 404 && apiErr.toLowerCase().includes("eliminado"))
-        setErrMsg("Has eliminado este chat. Vuelve atrás y reábrelo desde la conversación.");
+        setErrMsg("Has eliminado este chat. Vuelve atrás y reábrelo desde la reserva.");
       else setErrMsg(e?.data?.error || "No se pudo enviar el mensaje.");
     } finally {
       setSending(false);
@@ -480,8 +466,8 @@ export default function ChatPage() {
         auth: true,
       });
 
-      // ✅ tras borrar, salimos a la lista
-      navigate("/chats", { replace: true });
+      // ✅ tras borrar, volvemos a donde veníamos (reservas por defecto)
+      navigate(backUrl, { replace: true });
     } catch (e) {
       console.error("Error borrando chat:", e);
       const status = e?.status || e?.response?.status;
@@ -497,7 +483,7 @@ export default function ChatPage() {
     <div className="df-chat">
       {/* Header */}
       <div className="df-chat__header">
-        <button className="df-btn df-btn--ghost" type="button" onClick={() => navigate(-1)}>
+        <button className="df-btn df-btn--ghost" type="button" onClick={() => navigate(backUrl)}>
           Volver
         </button>
 
@@ -547,7 +533,6 @@ export default function ChatPage() {
               const mine = myUserId && String(m.senderId) === String(myUserId);
               const atts = Array.isArray(m.attachments) ? m.attachments : [];
 
-              // ✅ Name/avatar desde backend (fallback: token local solo para “mine”)
               const senderName = getSenderName(m) || (mine ? myName : "");
               const senderAvatarRaw = getSenderAvatar(m) || (mine ? myAvatar : "");
               const senderAvatar = normalizeAvatarUrl(senderAvatarRaw);
@@ -683,7 +668,6 @@ export default function ChatPage() {
               placeholder="Escribe un mensaje…"
             />
 
-            {/* Adjuntos pendientes */}
             {attachments.length > 0 && (
               <div className="df-pending">
                 {attachments.map((a) => (

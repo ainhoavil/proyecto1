@@ -7,6 +7,12 @@ import { useAuth } from '../context/auth';
 // ✅ Reservas admin unificadas dentro del panel /admin
 import ReservasAdmin from './reservas/reservasAdmin.jsx';
 
+// ✅ Servicios web embebidos dentro del panel /admin
+import Servicios from './servicios.jsx';
+
+// Styles
+import '../styles/admin.scss';
+
 /* ==================== UTILS ==================== */
 function formatEUR(value, currency = 'EUR') {
   if (value == null) return 'A consultar';
@@ -16,11 +22,24 @@ function formatEUR(value, currency = 'EUR') {
     return `${value} ${currency}`;
   }
 }
+// Base del backend para construir URLs absolutas (imágenes / archivos)
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
+const absUrl = (u = '') =>
+  !u ? '' : /^https?:\/\//i.test(u) ? u : `${API_BASE}${u.startsWith('/') ? '' : '/'}${u}`;
+
+const getTrainerPhotoSrc = (u = '') => {
+  const s = String(u || '');
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith('/api/') || s.startsWith('/files/')) return absUrl(s);
+  return s;
+};
+
 
 // helper para evitar keys null/undefined
 const getServicioKey = (s) => String(s.id ?? s.uuid ?? s._id ?? s.title ?? `srv-${Math.random()}`);
 
-const ALLOWED_TABS = ['usuarios', 'reservas', 'servicios'];
+const ALLOWED_TABS = ['usuarios', 'reservas', 'servicios', 'adiestradores'];
 const normalizeTab = (t) => {
   const x = String(t || '').toLowerCase().trim();
   return ALLOWED_TABS.includes(x) ? x : 'usuarios';
@@ -64,49 +83,53 @@ export default function Admin() {
   if (!isAdmin) return null;
 
   return (
-    <div
-      className="admin page-wrapper"
-      style={{ padding: '2rem 0', maxWidth: '1200px', margin: '0 auto' }}
-    >
-      <h1 style={{ marginBottom: '1.5rem', color: '#2f6f62' }}>
-        Panel de Administración
-      </h1>
+    <div className="admin page-wrapper">
+      <h1 className="admin__title">Panel de Administración</h1>
 
-      {/* Navegación por pestañas */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 10,
-          marginBottom: 20,
-          borderBottom: '2px solid #eee',
-          paddingBottom: 10,
-          overflowX: 'auto',
-        }}
-      >
-        <button
-          className={tab === 'usuarios' ? 'btn-primary' : 'btn-ghost'}
-          onClick={() => setTabAndUrl('usuarios')}
-        >
-          👥 Usuarios
-        </button>
-        <button
-          className={tab === 'reservas' ? 'btn-primary' : 'btn-ghost'}
-          onClick={() => setTabAndUrl('reservas')}
-        >
-          📅 Reservas
-        </button>
-        <button
-          className={tab === 'servicios' ? 'btn-primary' : 'btn-ghost'}
-          onClick={() => setTabAndUrl('servicios')}
-        >
-          🛠 Servicios
-        </button>
+      {/* Accesos (navegación unificada del panel admin) */}
+      <div className="admin__navCard">
+        <div className="admin__nav">
+          <button
+            className={tab === 'usuarios' ? 'btn-primary' : 'btn-ghost'}
+            onClick={() => setTabAndUrl('usuarios')}
+          >
+            👥 Usuarios
+          </button>
+          <button
+            className={tab === 'reservas' ? 'btn-primary' : 'btn-ghost'}
+            onClick={() => setTabAndUrl('reservas')}
+          >
+            📅 Reservas
+          </button>
+
+          <button
+            className={tab === 'servicios' ? 'btn-primary' : 'btn-ghost'}
+            onClick={() => setTabAndUrl('servicios')}
+          >
+            🧾 Servicios
+          </button>
+
+          <span className="admin__separator" />
+
+          <button
+            className={tab === 'adiestradores' ? 'btn-primary' : 'btn-ghost'}
+            onClick={() => setTabAndUrl('adiestradores')}
+          >
+            🐕 Adiestradores
+          </button>
+        </div>
+
+        <p className="admin__note">
+          Nota: “Chats” y “Contacto” se han retirado del navbar en rol admin. Si más adelante se
+          necesitan, se pueden reubicar aquí como accesos del panel.
+        </p>
       </div>
 
       <div className="tab-content">
         {tab === 'usuarios' && <UsersTab />}
         {tab === 'reservas' && <ReservasAdmin />}
-        {tab === 'servicios' && <ServiciosTab />}
+        {tab === 'servicios' && <Servicios embedded />}
+        {tab === 'adiestradores' && <AdiestradoresTab />}
       </div>
     </div>
   );
@@ -468,6 +491,256 @@ function ServiciosTab() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ==================== PESTAÑA ADIESTRADORES ==================== */
+function AdiestradoresTab() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const refresh = async () => {
+    setLoading(true);
+    setMsg('');
+    try {
+      const data = await http('/api/trainers/public');
+      const list = Array.isArray(data) ? data : [];
+      setItems(
+        list.map((t) => ({
+          ...t,
+          specialtiesInput: Array.isArray(t.specialties) ? t.specialties.join(', ') : '',
+        }))
+      );
+    } catch (e) {
+      console.error(e);
+      setMsg('❌ No se pudo cargar el listado de adiestradores');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const setField = (trainerId, patch) => {
+    setItems((prev) =>
+      prev.map((t) => (String(t.trainerId) === String(trainerId) ? { ...t, ...patch } : t))
+    );
+  };
+
+  const parseSpecialtiesInput = (raw) => {
+    return String(raw || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  const uploadTrainerPhoto = async (file) => {
+    if (!file) throw new Error('No hay archivo');
+
+    const form = new FormData();
+    form.append('file', file);
+
+    const res = await http('/upload-db', {
+      method: 'POST',
+      data: form,
+      auth: true,
+      timeoutMs: 60000,
+    });
+
+    const url = res?.url || res?.path;
+    if (!url) throw new Error('No se recibió URL de imagen');
+
+    return absUrl(url);
+  };
+
+  const pickPhoto = (trainerId, file) => {
+    if (!file) {
+      setField(trainerId, { photoFile: null, photoPreview: '' });
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    setField(trainerId, { photoFile: file, photoPreview: preview });
+  };
+
+  const clearPhoto = (trainerId) => {
+    setField(trainerId, { photoUrl: '', photoFile: null, photoPreview: '' });
+  };
+
+  const guardar = async (t) => {
+    setMsg('');
+    try {
+      let photoUrl = t.photoUrl || '';
+
+      if (t.photoFile) {
+        setMsg('Subiendo foto…');
+        photoUrl = await uploadTrainerPhoto(t.photoFile);
+      }
+
+      await http(`/api/trainers/${t.trainerId}/profile`, {
+        method: 'POST',
+        auth: true,
+        data: {
+          displayName: t.displayName || '',
+          bio: t.bio || '',
+          photoUrl,
+          experienceYears: t.experienceYears === '' ? null : t.experienceYears,
+          specialties: parseSpecialtiesInput(t.specialtiesInput),
+        },
+      });
+
+      setMsg('✅ Cambios guardados');
+      // limpia el archivo local para evitar re-subidas por error
+      setField(t.trainerId, { photoUrl, photoFile: null, photoPreview: '' });
+      refresh();
+    } catch (e) {
+      console.error(e);
+      const msg = e?.data?.error || e?.data?.message || e?.message || 'Error guardando el perfil del adiestrador';
+      alert(msg);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <h3 style={{ marginTop: 0 }}>Gestión de Adiestradores</h3>
+        <button className="btn-ghost" onClick={refresh} disabled={loading}>
+          ↻ Recargar
+        </button>
+      </div>
+
+      {msg && (
+        <p style={{ marginTop: 8, color: msg.includes('✅') ? '#2f6f62' : 'crimson' }}>{msg}</p>
+      )}
+
+      {loading ? (
+        <p>Cargando...</p>
+      ) : (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {items.map((t) => (
+            <div
+              key={String(t.trainerId)}
+              style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div>
+                  <strong>{t.displayName || t.email || `#${t.trainerId}`}</strong>
+                  {t.email ? (
+                    <div style={{ fontSize: 12, color: '#666' }}>{t.email}</div>
+                  ) : null}
+                </div>
+
+                <button className="btn-primary" onClick={() => guardar(t)}>
+                  Guardar
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'grid',
+                  gap: 10,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                }}
+              >
+                <label>
+                  Nombre público
+                  <input
+                    value={t.displayName || ''}
+                    onChange={(e) => setField(t.trainerId, { displayName: e.target.value })}
+                  />
+                </label>
+
+                <div className="admin__photoField" style={{ gridColumn: '1 / -1' }}>
+                  <div className="admin__photoThumbWrap">
+                    {t.photoPreview || t.photoUrl ? (
+                      <img
+                        className="admin__photoThumb"
+                        src={t.photoPreview || getTrainerPhotoSrc(t.photoUrl)}
+                        alt="Foto del adiestrador"
+                      />
+                    ) : (
+                      <div className="admin__photoPlaceholder">Sin foto</div>
+                    )}
+                  </div>
+
+                  <label className="admin__photoLabel">
+                    Foto (archivo)
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => pickPhoto(t.trainerId, e.target.files?.[0] || null)}
+                    />
+                    {t.photoFile ? (
+                      <small>
+                        Archivo seleccionado: {t.photoFile.name}. Se subirá al guardar.
+                      </small>
+                    ) : (
+                      <small>Selecciona un archivo. Se subirá al guardar.</small>
+                    )}
+                  </label>
+
+                  {(t.photoUrl || t.photoPreview) && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => clearPhoto(t.trainerId)}
+                    >
+                      Quitar foto
+                    </button>
+                  )}
+                </div>
+                <label>
+                  Años de experiencia
+                  <input
+                    type="number"
+                    value={t.experienceYears ?? ''}
+                    onChange={(e) =>
+                      setField(t.trainerId, {
+                        experienceYears: e.target.value === '' ? '' : Number(e.target.value),
+                      })
+                    }
+                    min={0}
+                  />
+                </label>
+
+                <label style={{ gridColumn: '1 / -1' }}>
+                  Especialidades (separadas por comas)
+                  <input
+                    value={t.specialtiesInput || ''}
+                    onChange={(e) => setField(t.trainerId, { specialtiesInput: e.target.value })}
+                    placeholder="obediencia, socialización, ..."
+                  />
+                </label>
+
+                <label style={{ gridColumn: '1 / -1' }}>
+                  Bio
+                  <textarea
+                    value={t.bio || ''}
+                    onChange={(e) => setField(t.trainerId, { bio: e.target.value })}
+                    rows={4}
+                    style={{ resize: 'vertical' }}
+                  />
+                </label>
+              </div>
+            </div>
+          ))}
+
+          {!items.length && <p style={{ color: '#666' }}>No hay adiestradores para mostrar.</p>}
+        </div>
+      )}
     </div>
   );
 }

@@ -626,18 +626,32 @@ export default function TrainerAgenda() {
       <section className="reservas-section">
         <h2>Bloqueos del día</h2>
         {bloqueosDia.length ? (
-          <div className="slots-grid" style={{ marginTop: 8 }}>
-            {bloqueosDia.map((h) => (
-              <span
-                key={h}
-                className="slot"
-                style={{ backgroundColor: "#fff3f3", borderColor: "#f39b9b", color: "#b83232", cursor: "default" }}
-              >
-                {h}
-              </span>
-            ))}
-          </div>
-        ) : (
+<>
+  <div className="slots-grid" style={{ marginTop: 8 }}>
+    {bloqueosDia.map((h) => (
+      <button
+        key={h}
+        type="button"
+        className="slot"
+        title="Quitar bloqueo"
+        onClick={() => desbloquearHora(h)}
+        style={{
+          backgroundColor: "#fff3f3",
+          borderColor: "#f39b9b",
+          color: "#b83232",
+          cursor: "pointer",
+        }}
+      >
+        {h} <span style={{ marginLeft: 6, fontWeight: 700 }}>×</span>
+      </button>
+    ))}
+  </div>
+
+  <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
+    Haz click en un bloqueo para quitarlo.
+  </p>
+</>
+) : (
           <p className="reservas-empty">No hay bloqueos para este día.</p>
         )}
       </section>

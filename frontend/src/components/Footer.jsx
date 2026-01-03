@@ -2,6 +2,14 @@ import { Link } from "react-router-dom";
 import "../styles/footer.scss";
 
 export default function Footer() {
+  const openCookiePreferences = () => {
+    // ✅ Sube arriba para que el modal no aparezca “abajo raro”
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+
+    // ✅ Abre el modal
+    window.dispatchEvent(new Event("df:cookie-preferences-open"));
+  };
+
   return (
     <footer className="df-footer">
       <div className="df-footer__inner">
@@ -49,6 +57,15 @@ export default function Footer() {
           <Link to="/cookies" className="df-footer__link">
             Cookies
           </Link>
+
+          {/* ✅ Reabrir modal de preferencias */}
+          <button
+            type="button"
+            onClick={openCookiePreferences}
+            className="df-footer__link df-footer__link--button"
+          >
+            Preferencias de cookies
+          </button>
         </nav>
 
         {/* REDES SOCIALES */}

@@ -12,7 +12,7 @@
 //
 // FIX IMPORTANTE:
 // ✅ Soporta distintos nombres de columnas en la tabla reservas
-//    (uid / user_id / cliente_id / client_id, trainer_id / entrenador_id / adiestrador_id, status / estado, etc.)
+// ✅ Detecta tabla usuarios/users para nombres/fotos sin romper
 // ============================================================
 
 import express from "express";
@@ -33,50 +33,24 @@ const getUserRole = (req) => String(req.user?.rol || req.user?.role || "").toLow
 // CONFIG
 // ============================================================
 
-// Estados de reserva en los que permitimos relación de chat
-// Nota: normalizamos sinónimos (confirmada/confirmado, pendiente, etc.) a estados canónicos.
-const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "pending_user", "pending"]);
+const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "pending", "pending_user"]);
 
-function canonStatus(s) {
-  const x = String(s || "").toLowerCase().trim();
-
-  // Pending (centro)
-  if (x === "pendiente") return "pending";
-
-  // Pending user (cliente)
-  if (
-    x === "pending-user" ||
-    x === "pending user" ||
-    x === "pendiente_usuario" ||
-    x === "pendiente usuario" ||
-    x === "pendiente_user"
-  ) {
-    return "pending_user";
-  }
-
-  // Confirmed
-  if (
-    x === "confirmada" ||
-    x === "confirmado" ||
-    x === "aceptada" ||
-    x === "aceptado" ||
-    x === "accepted"
-  ) {
-    return "confirmed";
-  }
-
-  // Cancelled
-  if (x === "cancelada" || x === "cancelado" || x === "canceled") return "cancelled";
-
-  // Rejected
-  if (x === "rechazada" || x === "rechazado") return "rejected";
-
-  return x;
+function canonStatus(raw) {
+  const s = String(raw || "").toLowerCase().trim();
+  if (!s) return "";
+  if (["confirmed", "confirmada", "confirmado", "aceptada", "aceptado", "pagada", "pagado", "paid"].includes(s)) return "confirmed";
+  if (["pending", "pendiente"].includes(s)) return "pending";
+  if (["pending_user", "pending-user", "pendiente_cliente", "pendiente-cliente"].includes(s)) return "pending_user";
+  if (["cancelled", "cancelada", "cancelado"].includes(s)) return "cancelled";
+  if (["rejected", "rechazada", "rechazado"].includes(s)) return "rejected";
+  return s;
+}
+function normStatus(s) {
+  return canonStatus(s);
 }
 function pairKey(trainerId, clientId) {
   return `pair:${String(trainerId)}:${String(clientId)}`;
 }
-
 function safeJsonParse(v, fallback) {
   try {
     return JSON.parse(v);
@@ -84,7 +58,6 @@ function safeJsonParse(v, fallback) {
     return fallback;
   }
 }
-
 function normalizeAttachments(input) {
   const arr = Array.isArray(input) ? input : [];
   const out = [];
@@ -103,43 +76,152 @@ function normalizeAttachments(input) {
 }
 
 // ============================================================
+// USERS TABLE DETECTION (usuarios / users) + column map
+// ============================================================
+
+let usersMetaPromise = null;
+
+function qIdent(name) {
+  const s = String(name || "").trim();
+  if (!s) return null;
+  if (!/^[A-Za-z0-9_]+$/.test(s)) return null;
+  return `"${s}"`;
+}
+function pickCol(colMap, candidates) {
+  for (const cand of candidates) {
+    const key = String(cand || "").toLowerCase().trim();
+    if (colMap.has(key)) return colMap.get(key);
+  }
+  return null;
+}
+
+async function getUsersMeta() {
+  if (usersMetaPromise) return usersMetaPromise;
+
+  usersMetaPromise = (async () => {
+    try {
+      const t = await query(`
+        SELECT name
+        FROM sqlite_master
+        WHERE type='table' AND name IN ('usuarios','users')
+        ORDER BY CASE name WHEN 'usuarios' THEN 0 ELSE 1 END
+        LIMIT 1
+      `);
+
+      const table = String(t?.[0]?.name || "").trim();
+      if (!table) {
+        return { table: null, idCols: [], nameCol: null, emailCol: null, photoCol: null };
+      }
+
+      const cols = await query(`PRAGMA table_info(${table})`);
+      const map = new Map();
+      for (const c of cols || []) {
+        const name = String(c.name || "").trim();
+        if (!name) continue;
+        map.set(name.toLowerCase(), name);
+      }
+
+      const id1 = pickCol(map, ["uid"]);
+      const id2 = pickCol(map, ["id"]);
+      const idCols = [id1, id2].filter(Boolean);
+
+      const nameCol = pickCol(map, ["nombre", "name", "full_name", "fullname"]);
+      const emailCol = pickCol(map, ["email", "mail"]);
+      const photoCol = pickCol(map, ["foto", "photo", "avatar", "image", "picture", "photo_url"]);
+
+      return { table, idCols, nameCol, emailCol, photoCol };
+    } catch (e) {
+      console.warn("[chat] getUsersMeta falló:", e?.message || e);
+      return { table: null, idCols: [], nameCol: null, emailCol: null, photoCol: null };
+    }
+  })();
+
+  return usersMetaPromise;
+}
+
+function buildUserJoinOn(otherExprSql, usersMeta) {
+  const table = usersMeta?.table;
+  const idCols = Array.isArray(usersMeta?.idCols) ? usersMeta.idCols : [];
+  if (!table || idCols.length === 0) return { joinSql: "", selectSql: "'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl" };
+
+  const onParts = [];
+  for (const c of idCols) {
+    const qc = qIdent(c);
+    if (qc) onParts.push(`u.${qc} = ${otherExprSql}`);
+  }
+  if (!onParts.length) return { joinSql: "", selectSql: "'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl" };
+
+  const nameQ = qIdent(usersMeta.nameCol);
+  const emailQ = qIdent(usersMeta.emailCol);
+  const photoQ = qIdent(usersMeta.photoCol);
+
+  const otherName = nameQ && emailQ ? `COALESCE(u.${nameQ}, u.${emailQ}, '')` : nameQ ? `COALESCE(u.${nameQ}, '')` : emailQ ? `COALESCE(u.${emailQ}, '')` : `''`;
+  const otherEmail = emailQ ? `COALESCE(u.${emailQ}, '')` : `''`;
+  const otherPhoto = photoQ ? `COALESCE(u.${photoQ}, '')` : `''`;
+
+  return {
+    joinSql: `LEFT JOIN ${table} u ON (${onParts.join(" OR ")})`,
+    selectSql: `${otherName} AS otherName, ${otherEmail} AS otherEmail, ${otherPhoto} AS otherPhotoUrl`,
+  };
+}
+
+function buildSenderJoin(usersMeta) {
+  const table = usersMeta?.table;
+  const idCols = Array.isArray(usersMeta?.idCols) ? usersMeta.idCols : [];
+  if (!table || idCols.length === 0) return { joinSql: "", senderSelectSql: "'' AS senderName, '' AS senderPhotoUrl" };
+
+  const onParts = [];
+  for (const c of idCols) {
+    const qc = qIdent(c);
+    if (qc) onParts.push(`u.${qc} = m.sender_id`);
+  }
+  if (!onParts.length) return { joinSql: "", senderSelectSql: "'' AS senderName, '' AS senderPhotoUrl" };
+
+  const nameQ = qIdent(usersMeta.nameCol);
+  const emailQ = qIdent(usersMeta.emailCol);
+  const photoQ = qIdent(usersMeta.photoCol);
+
+  const senderName = nameQ && emailQ ? `COALESCE(u.${nameQ}, u.${emailQ}, '')` : nameQ ? `COALESCE(u.${nameQ}, '')` : emailQ ? `COALESCE(u.${emailQ}, '')` : `''`;
+  const senderPhoto = photoQ ? `COALESCE(u.${photoQ}, '')` : `''`;
+
+  return {
+    joinSql: `LEFT JOIN ${table} u ON (${onParts.join(" OR ")})`,
+    senderSelectSql: `${senderName} AS senderName, ${senderPhoto} AS senderPhotoUrl`,
+  };
+}
+
+// ============================================================
 // SCHEMA (auto-create / auto-migrate)
 // ============================================================
 
 let schemaPromise = null;
+let conversationsIdIsInteger = false;
+let messagesIdIsInteger = false;
 
 async function ensureChatSchema() {
   if (schemaPromise) return schemaPromise;
 
   schemaPromise = (async () => {
-    // conversations
     await query(`
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
         reserva_id TEXT,
-        trainer_id TEXT NOT NULL,
-        client_id TEXT NOT NULL,
+        trainer_id TEXT,
+        client_id TEXT,
         created_at TEXT,
         updated_at TEXT,
         last_message_at TEXT,
         last_message_preview TEXT,
-
-        -- ✅ borrado lógico por usuario
         deleted_by_trainer_at TEXT,
         deleted_by_client_at TEXT
       )
     `);
 
-    await query(`CREATE INDEX IF NOT EXISTS idx_conversations_reserva_id ON conversations(reserva_id)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_conversations_trainer ON conversations(trainer_id)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_conversations_client ON conversations(client_id)`);
-
-    // messages
     await query(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        sender_id TEXT NOT NULL,
+        conversation_id TEXT,
+        sender_id TEXT,
         body TEXT,
         attachments TEXT,
         created_at TEXT,
@@ -147,34 +229,70 @@ async function ensureChatSchema() {
       )
     `);
 
-    await query(`CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)`);
+    const convCols = await query(`PRAGMA table_info(conversations)`);
+    const convNames = new Set(convCols.map((c) => String(c.name || "").toLowerCase()));
 
-    // Si existían tablas antiguas sin columna attachments, la añadimos.
-    try {
-      const cols = await query(`PRAGMA table_info(messages)`);
-      const hasAttachments = cols.some((c) => String(c.name || "").toLowerCase() === "attachments");
-      if (!hasAttachments) {
-        await query(`ALTER TABLE messages ADD COLUMN attachments TEXT`);
-      }
-    } catch (e) {
-      console.warn("[chat] No se pudo asegurar columna attachments:", e?.message || e);
-    }
+    const convIdCol = convCols.find((c) => String(c.name || "").toLowerCase() === "id");
+    const convIdType = String(convIdCol?.type || "").toLowerCase();
+    conversationsIdIsInteger = !!(convIdCol && Number(convIdCol.pk) === 1 && convIdType.includes("int"));
 
-    // Si existían conversations antiguas sin columnas de borrado lógico, las añadimos.
-    try {
-      const cols = await query(`PRAGMA table_info(conversations)`);
-      const names = new Set(cols.map((c) => String(c.name || "").toLowerCase()));
+    const addConvCol = async (name, typeSql = "TEXT") => {
+      if (convNames.has(name)) return;
+      try {
+        await query(`ALTER TABLE conversations ADD COLUMN "${name}" ${typeSql}`);
+        convNames.add(name);
+      } catch (e) {
+        console.warn(`[chat] No se pudo añadir conversations.${name}:`, e?.message || e);
+      }
+    };
 
-      if (!names.has("deleted_by_trainer_at")) {
-        await query(`ALTER TABLE conversations ADD COLUMN deleted_by_trainer_at TEXT`);
+    await addConvCol("reserva_id");
+    await addConvCol("trainer_id");
+    await addConvCol("client_id");
+    await addConvCol("created_at");
+    await addConvCol("updated_at");
+    await addConvCol("last_message_at");
+    await addConvCol("last_message_preview");
+    await addConvCol("deleted_by_trainer_at");
+    await addConvCol("deleted_by_client_at");
+
+    const msgCols = await query(`PRAGMA table_info(messages)`);
+    const msgNames = new Set(msgCols.map((c) => String(c.name || "").toLowerCase()));
+
+    const msgIdCol = msgCols.find((c) => String(c.name || "").toLowerCase() === "id");
+    const msgIdType = String(msgIdCol?.type || "").toLowerCase();
+    messagesIdIsInteger = !!(msgIdCol && Number(msgIdCol.pk) === 1 && msgIdType.includes("int"));
+
+    const addMsgCol = async (name, typeSql = "TEXT") => {
+      if (msgNames.has(name)) return;
+      try {
+        await query(`ALTER TABLE messages ADD COLUMN "${name}" ${typeSql}`);
+        msgNames.add(name);
+      } catch (e) {
+        console.warn(`[chat] No se pudo añadir messages.${name}:`, e?.message || e);
       }
-      if (!names.has("deleted_by_client_at")) {
-        await query(`ALTER TABLE conversations ADD COLUMN deleted_by_client_at TEXT`);
+    };
+
+    await addMsgCol("conversation_id");
+    await addMsgCol("sender_id");
+    await addMsgCol("body");
+    await addMsgCol("attachments");
+    await addMsgCol("created_at");
+    await addMsgCol("read_at");
+
+    const tryIndex = async (sql, label) => {
+      try {
+        await query(sql);
+      } catch (e) {
+        console.warn(`[chat] No se pudo crear índice ${label}:`, e?.message || e);
       }
-    } catch (e) {
-      console.warn("[chat] No se pudo asegurar columnas de borrado lógico:", e?.message || e);
-    }
+    };
+
+    if (convNames.has("reserva_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_conversations_reserva_id ON conversations("reserva_id")`, "idx_conversations_reserva_id");
+    if (convNames.has("trainer_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_conversations_trainer ON conversations("trainer_id")`, "idx_conversations_trainer");
+    if (convNames.has("client_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_conversations_client ON conversations("client_id")`, "idx_conversations_client");
+    if (msgNames.has("conversation_id")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages("conversation_id")`, "idx_messages_conv");
+    if (msgNames.has("created_at")) await tryIndex(`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages("created_at")`, "idx_messages_created");
   })();
 
   return schemaPromise;
@@ -187,10 +305,7 @@ async function migrateLegacyConversations() {
   legacyMigrationDone = true;
 
   try {
-    const convs = await query(
-      `SELECT id, reserva_id, trainer_id, client_id, created_at, updated_at, last_message_at FROM conversations`
-    );
-
+    const convs = await query(`SELECT id, reserva_id, trainer_id, client_id, created_at, updated_at, last_message_at FROM conversations`);
     if (!Array.isArray(convs) || convs.length === 0) return;
 
     const groups = new Map();
@@ -205,7 +320,7 @@ async function migrateLegacyConversations() {
     }
 
     for (const [key, list] of groups.entries()) {
-      if (list.length === 0) continue;
+      if (!list.length) continue;
 
       let canonical = list.find((x) => String(x.reserva_id || "") === key);
       if (!canonical) {
@@ -219,11 +334,7 @@ async function migrateLegacyConversations() {
       const canonicalId = String(canonical.id);
 
       if (String(canonical.reserva_id || "") !== key) {
-        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [
-          key,
-          nowISO(),
-          canonicalId,
-        ]);
+        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [key, nowISO(), canonicalId]);
       }
 
       for (const other of list) {
@@ -234,18 +345,16 @@ async function migrateLegacyConversations() {
         await query(`DELETE FROM conversations WHERE id = ?`, [otherId]);
       }
 
-      const last = await query(
-        `SELECT body, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
-        [canonicalId]
-      );
-
+      const last = await query(`SELECT body, attachments, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`, [canonicalId]);
       if (last.length) {
         const body = String(last[0].body || "");
         const createdAt = String(last[0].created_at || "");
-        await query(
-          `UPDATE conversations SET last_message_at = ?, last_message_preview = ?, updated_at = ? WHERE id = ?`,
-          [createdAt || nowISO(), body.slice(0, 120), nowISO(), canonicalId]
-        );
+        await query(`UPDATE conversations SET last_message_at = ?, last_message_preview = ?, updated_at = ? WHERE id = ?`, [
+          createdAt || nowISO(),
+          body.slice(0, 120),
+          nowISO(),
+          canonicalId,
+        ]);
       }
     }
   } catch (e) {
@@ -254,7 +363,7 @@ async function migrateLegacyConversations() {
 }
 
 // ============================================================
-// RESERVAS SCHEMA DETECTION (FIX)
+// RESERVAS SCHEMA DETECTION (robusto)
 // ============================================================
 
 let reservasColsPromise = null;
@@ -265,7 +374,7 @@ async function getReservasColMap() {
   reservasColsPromise = (async () => {
     try {
       const cols = await query(`PRAGMA table_info(reservas)`);
-      const map = new Map(); // lower -> original
+      const map = new Map();
       for (const c of cols || []) {
         const name = String(c.name || "").trim();
         if (!name) continue;
@@ -281,34 +390,21 @@ async function getReservasColMap() {
   return reservasColsPromise;
 }
 
-function qIdent(name) {
-  const s = String(name || "").trim();
-  if (!s) return null;
-  if (!/^[A-Za-z0-9_]+$/.test(s)) return null;
-  return `"${s}"`;
-}
-
-function pickCol(colMap, candidates) {
-  for (const cand of candidates) {
-    const key = String(cand || "").toLowerCase().trim();
-    if (colMap.has(key)) return colMap.get(key);
-  }
-  return null;
-}
-
 function buildTrainerExpr(colMap) {
   const trainer1 = pickCol(colMap, ["trainer_id", "trainer_uid"]);
   const trainer2 = pickCol(colMap, ["entrenador_id", "entrenador_uid"]);
   const trainer3 = pickCol(colMap, ["adiestrador_id", "adiestrador_uid"]);
 
-  const parts = [qIdent(trainer1), qIdent(trainer2), qIdent(trainer3)].filter(Boolean);
-  if (!parts.length) return null;
-  if (parts.length === 1) return parts[0];
+  const t1 = qIdent(trainer1);
+  const t2 = qIdent(trainer2);
+  const t3 = qIdent(trainer3);
 
-  // Si hay varias posibles columnas, preferimos el primer valor no-nulo.
-  return `COALESCE(${parts.join(", ")})`;
+  if (t1 && t2) return `COALESCE(${t1}, ${t2})`;
+  if (t1) return `${t1}`;
+  if (t2) return `${t2}`;
+  if (t3) return `${t3}`;
+  return null;
 }
-
 
 function buildStatusExpr(colMap) {
   const st1 = pickCol(colMap, ["status"]);
@@ -331,67 +427,6 @@ function buildReservaIdCol(colMap) {
   return pickCol(colMap, ["id", "reserva_id"]);
 }
 
-
-function buildEmailCol(colMap) {
-  return pickCol(colMap, ["email", "correo", "mail"]);
-}
-
-function isEmailLike(v) {
-  return /@/.test(String(v || ""));
-}
-
-/**
- * Resuelve un identificador "legacy" (users.id, users.uid, usuarios.id, email)
- * a un UID canónico (el que viaja en el JWT: users.uid / usuarios.id).
- */
-async function resolveCanonicalUid({ value, email } = {}) {
-  const v = String(value || "").trim();
-  const vLower = v ? v.toLowerCase() : "";
-  const e = String(email || "").trim().toLowerCase();
-
-  // 1) Intentar resolver por el valor recibido
-  if (v) {
-    try {
-      const u = await query(
-        `SELECT uid FROM users WHERE uid = ? OR id = ? OR email = ? LIMIT 1`,
-        [v, v, vLower]
-      );
-      if (u.length && u[0]?.uid) return String(u[0].uid);
-    } catch {
-      // ignore
-    }
-
-    try {
-      const ru = await query(
-        `SELECT id FROM usuarios WHERE id = ? OR email = ? LIMIT 1`,
-        [v, vLower]
-      );
-      if (ru.length && ru[0]?.id) return String(ru[0].id);
-    } catch {
-      // ignore
-    }
-  }
-
-  // 2) Intentar resolver por email (si existe)
-  if (e) {
-    try {
-      const u2 = await query(`SELECT uid FROM users WHERE email = ? LIMIT 1`, [e]);
-      if (u2.length && u2[0]?.uid) return String(u2[0].uid);
-    } catch {
-      // ignore
-    }
-
-    try {
-      const ru2 = await query(`SELECT id FROM usuarios WHERE email = ? LIMIT 1`, [e]);
-      if (ru2.length && ru2[0]?.id) return String(ru2[0].id);
-    } catch {
-      // ignore
-    }
-  }
-
-  return null;
-}
-
 // ============================================================
 // HELPERS
 // ============================================================
@@ -403,12 +438,12 @@ async function relationshipExists(trainerId, clientId) {
   const clientCol = buildClientCol(colMap);
   const trainerExpr = buildTrainerExpr(colMap);
   const statusExpr = buildStatusExpr(colMap);
+
   if (!clientCol || !trainerExpr) return false;
 
   const clientQ = qIdent(clientCol);
   if (!clientQ) return false;
 
-  // Para el WHERE del trainer usamos las columnas reales que existan (OR)
   const trainerCols = [];
   for (const cand of ["trainer_id", "trainer_uid", "entrenador_id", "entrenador_uid", "adiestrador_id", "adiestrador_uid"]) {
     const c = pickCol(colMap, [cand]);
@@ -418,23 +453,20 @@ async function relationshipExists(trainerId, clientId) {
   if (!trainerCols.length) return false;
 
   const statusSel = statusExpr ? `${statusExpr} AS status` : `NULL AS status`;
+
   const fechaCol = pickCol(colMap, ["fecha", "date"]);
   const horaCol = pickCol(colMap, ["hora", "hour"]);
   const fechaQ = qIdent(fechaCol);
   const horaQ = qIdent(horaCol);
 
   const orderBy =
-    fechaQ && horaQ
-      ? `ORDER BY ${fechaQ} DESC, ${horaQ} DESC`
-      : fechaQ
-      ? `ORDER BY ${fechaQ} DESC`
-      : ``;
+    fechaQ && horaQ ? `ORDER BY ${fechaQ} DESC, ${horaQ} DESC` : fechaQ ? `ORDER BY ${fechaQ} DESC` : ``;
 
   const trainerWhere = trainerCols.map((c) => `${c} = ?`).join(" OR ");
 
   const rows = await query(
     `
-      SELECT id, ${statusSel}
+      SELECT ${statusSel}
       FROM reservas
       WHERE ${clientQ} = ?
         AND (${trainerWhere})
@@ -447,66 +479,56 @@ async function relationshipExists(trainerId, clientId) {
   if (!rows.length) return false;
 
   for (const r of rows) {
-    const st = canonStatus(r.status);
+    const st = normStatus(r.status);
     if (!st) return true;
     if (CHAT_ALLOWED_STATUSES.has(st)) return true;
   }
   return false;
 }
 
-
-async function getOrCreateConversationByPair({ trainerId, clientId, aliasKeys = [] }) {
+async function getOrCreateConversationByPair({ trainerId, clientId }) {
   const key = pairKey(trainerId, clientId);
 
-  // Si venimos de datos legacy, puede existir ya una conversación con una key "mal formada".
-  const keys = [key, ...(Array.isArray(aliasKeys) ? aliasKeys : [])]
-    .map((k) => String(k || "").trim())
-    .filter(Boolean);
+  const existing = await query(`SELECT id FROM conversations WHERE reserva_id = ? LIMIT 1`, [key]);
+  if (existing.length) {
+    return { conversationId: existing[0].id, exists: true };
+  }
 
-  const uniq = [...new Set(keys)];
+  const ts = nowISO();
 
-  if (uniq.length) {
-    const ph = uniq.map(() => "?").join(", ");
-    const existing = await query(
-      `SELECT id, reserva_id, trainer_id, client_id FROM conversations WHERE reserva_id IN (${ph}) LIMIT 1`,
-      uniq
+  if (conversationsIdIsInteger) {
+    await query(
+      `
+      INSERT INTO conversations (
+        reserva_id, trainer_id, client_id,
+        created_at, updated_at, last_message_at, last_message_preview
+      )
+      VALUES (?, ?, ?, ?, ?, NULL, NULL)
+    `,
+      [key, String(trainerId), String(clientId), ts, ts]
     );
 
-    if (existing.length) {
-      const c = existing[0];
-      const needUpdate =
-        String(c.reserva_id || "") !== key ||
-        String(c.trainer_id || "") !== String(trainerId) ||
-        String(c.client_id || "") !== String(clientId);
+    const rr = await query(`SELECT last_insert_rowid() AS id`);
+    const newId = String(rr?.[0]?.id || "").trim();
+    if (!newId) throw new Error("No se pudo obtener id de conversación (last_insert_rowid vacío)");
 
-      if (needUpdate) {
-        await query(
-          `UPDATE conversations SET reserva_id = ?, trainer_id = ?, client_id = ?, updated_at = ? WHERE id = ?`,
-          [key, String(trainerId), String(clientId), nowISO(), String(c.id)]
-        );
-      }
-
-      return { conversationId: c.id, exists: true };
-    }
+    return { conversationId: newId, exists: false };
   }
 
   const convId = uuidv4();
-  const ts = nowISO();
   await query(
     `
-      INSERT INTO conversations (
-        id, reserva_id, trainer_id, client_id,
-        created_at, updated_at, last_message_at, last_message_preview
-      )
-      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
-    `,
+    INSERT INTO conversations (
+      id, reserva_id, trainer_id, client_id,
+      created_at, updated_at, last_message_at, last_message_preview
+    )
+    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
+  `,
     [convId, key, String(trainerId), String(clientId), ts, ts]
   );
 
   return { conversationId: convId, exists: false };
 }
-
-
 
 async function restoreConversationForUser({ conversationId, userId }) {
   const rows = await query(
@@ -527,16 +549,10 @@ async function restoreConversationForUser({ conversationId, userId }) {
   const ts = nowISO();
 
   if (uid && uid === trainerId && String(c.deleted_by_trainer_at || "").trim()) {
-    await query(`UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`, [
-      ts,
-      conversationId,
-    ]);
+    await query(`UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`, [ts, conversationId]);
   }
   if (uid && uid === clientId && String(c.deleted_by_client_at || "").trim()) {
-    await query(`UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`, [
-      ts,
-      conversationId,
-    ]);
+    await query(`UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`, [ts, conversationId]);
   }
 }
 
@@ -586,6 +602,27 @@ async function ensureCanAccessConversation({ conversationId, userId, role, allow
   return { trainerId, clientId };
 }
 
+// ---- Files owner column detection (para adjuntos) ----
+let filesOwnerColPromise = null;
+async function getFilesOwnerCol() {
+  if (filesOwnerColPromise) return filesOwnerColPromise;
+  filesOwnerColPromise = (async () => {
+    try {
+      const cols = await query(`PRAGMA table_info(files)`);
+      const map = new Map();
+      for (const c of cols || []) {
+        const name = String(c.name || "").trim();
+        if (!name) continue;
+        map.set(name.toLowerCase(), name);
+      }
+      return pickCol(map, ["owner_uid", "owner_id", "user_id", "uid"]);
+    } catch {
+      return null;
+    }
+  })();
+  return filesOwnerColPromise;
+}
+
 async function verifyAttachmentsOwnership({ userId, attachments }) {
   if (!attachments.length) return;
 
@@ -595,11 +632,21 @@ async function verifyAttachmentsOwnership({ userId, attachments }) {
     throw err;
   }
 
+  const ownerCol = await getFilesOwnerCol();
+  const ownerQ = qIdent(ownerCol);
+
   for (const a of attachments) {
-    const rows = await query(`SELECT id, mime FROM files WHERE id = ? AND owner_uid = ? LIMIT 1`, [
+    if (!ownerQ) {
+      const err = new Error("Tabla files sin columna de propietario (owner_uid/owner_id).");
+      err.status = 500;
+      throw err;
+    }
+
+    const rows = await query(`SELECT id FROM files WHERE id = ? AND ${ownerQ} = ? LIMIT 1`, [
       String(a.id),
       String(userId),
     ]);
+
     if (!rows.length) {
       const err = new Error("Adjunto no válido (no existe o no te pertenece)");
       err.status = 400;
@@ -630,6 +677,10 @@ router.get(
       const targetUserId = isAdmin && req.query.userId ? String(req.query.userId).trim() : userId;
       if (!targetUserId) return res.status(400).json({ error: "userId requerido" });
 
+      const usersMeta = await getUsersMeta();
+      const otherExpr = `CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END`;
+      const { joinSql, selectSql } = buildUserJoinOn(otherExpr, usersMeta);
+
       const rows = await query(
         `
           SELECT
@@ -639,14 +690,10 @@ router.get(
             c.last_message_at AS lastMessageAt,
             c.last_message_preview AS lastMessagePreview,
             c.updated_at AS updatedAt,
-            CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END AS otherId,
-            COALESCE(u.nombre, u.email, '') AS otherName,
-            u.email AS otherEmail,
-            u.foto AS otherPhotoUrl
+            ${otherExpr} AS otherId,
+            ${selectSql}
           FROM conversations c
-          LEFT JOIN users u
-            ON (u.uid = CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END)
-            OR (u.id  = CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END)
+          ${joinSql}
           WHERE
             (
               c.trainer_id = ?
@@ -660,7 +707,9 @@ router.get(
           ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
           LIMIT 100
         `,
-        [targetUserId, targetUserId, targetUserId, targetUserId, targetUserId]
+        // params: otherExpr uses "?" once, and join uses same otherExpr again inside ON
+        // but the SQL has otherExpr only where written; we pass same value for that "?"
+        [targetUserId, targetUserId, targetUserId]
       );
 
       res.json({ items: rows });
@@ -684,45 +733,30 @@ router.post(
       if (!userId) return res.status(401).json({ error: "No autorizado" });
 
       const reservaId = String(req.params.reservaId || "").trim();
-      if (!reservaId) {
-        return res.status(400).json({ error: "reservaId requerido" });
-      }
+      if (!reservaId) return res.status(400).json({ error: "reservaId requerido" });
 
-      // ✅ Detectar schema real de reservas
       const colMap = await getReservasColMap();
       const idCol = buildReservaIdCol(colMap);
       const clientCol = buildClientCol(colMap);
       const trainerExpr = buildTrainerExpr(colMap);
       const statusExpr = buildStatusExpr(colMap);
 
-
-      const emailCol = buildEmailCol(colMap);
-      const emailQ = qIdent(emailCol);
-      const emailSel = emailQ ? `${emailQ} AS email` : `NULL AS email`;
       const idQ = qIdent(idCol);
       const clientQ = qIdent(clientCol);
 
-      if (!idQ) {
-        return res.status(500).json({ error: "Tabla reservas sin columna id (o reserva_id)" });
-      }
-      if (!trainerExpr) {
-        return res.status(500).json({ error: "Tabla reservas sin columnas de entrenador (trainer_id / entrenador_id / adiestrador_id)" });
-      }
-      if (!clientQ) {
-        return res.status(500).json({ error: "Tabla reservas sin columna de cliente (uid / user_id / cliente_id / client_id)" });
-      }
+      if (!idQ) return res.status(500).json({ error: "Tabla reservas sin columna id (o reserva_id)" });
+      if (!trainerExpr) return res.status(500).json({ error: "Tabla reservas sin columnas de entrenador (trainer_id / entrenador_id / adiestrador_id)" });
+      if (!clientQ) return res.status(500).json({ error: "Tabla reservas sin columna de cliente (uid / user_id / cliente_id / client_id)" });
 
       const statusSel = statusExpr ? `${statusExpr} AS status` : `NULL AS status`;
 
-      // 1) Cargar reserva con columnas reales
       const rr = await query(
         `
           SELECT
             ${idQ} AS id,
             ${clientQ} AS clientId,
             ${trainerExpr} AS trainerId,
-            ${statusSel},
-            ${emailSel}
+            ${statusSel}
           FROM reservas
           WHERE ${idQ} = ?
           LIMIT 1
@@ -730,78 +764,32 @@ router.post(
         [reservaId]
       );
 
-      if (!rr.length) {
-        return res.status(404).json({ error: "Reserva no encontrada" });
-      }
+      if (!rr.length) return res.status(404).json({ error: "Reserva no encontrada" });
 
       const r = rr[0];
-      const status = canonStatus(r.status);
+      const status = normStatus(r.status);
       if (status && !CHAT_ALLOWED_STATUSES.has(status)) {
-        return res.status(403).json({
-          error: "Chat no disponible para el estado actual de la reserva",
-          status,
-        });
+        return res.status(403).json({ error: "Chat no disponible para el estado actual de la reserva", status });
       }
 
-      
-      const clientRaw = String(r.clientId || "").trim();
-      const trainerRaw = String(r.trainerId || "").trim();
-      const reservaEmail = String(r.email || "").trim().toLowerCase();
-      const userEmail = String(req.user?.email || "").trim().toLowerCase();
-      
-      if (!clientRaw || !trainerRaw) {
-        return res.status(400).json({
-          error: "Reserva incompleta (faltan participantes)",
-          clientId: !!clientRaw,
-          trainerId: !!trainerRaw,
-        });
+      const clientId = String(r.clientId || "").trim();
+      const trainerId = String(r.trainerId || "").trim();
+      if (!clientId || !trainerId) {
+        return res.status(400).json({ error: "Reserva incompleta (faltan participantes)", clientId: !!clientId, trainerId: !!trainerId });
       }
-      
-      // ✅ Resolver IDs canónicos (tokens usan uid compartido; reservas antiguas podían guardar users.id o email)
-      const resolvedClientId =
-        (await resolveCanonicalUid({ value: clientRaw, email: reservaEmail })) ||
-        (reservaEmail ? await resolveCanonicalUid({ email: reservaEmail }) : null) ||
-        null;
-      
-      const resolvedTrainerId =
-        (await resolveCanonicalUid({ value: trainerRaw })) ||
-        (isEmailLike(trainerRaw) ? await resolveCanonicalUid({ email: trainerRaw }) : null) ||
-        null;
-      
-      const clientId = resolvedClientId || clientRaw;
-      const trainerId = resolvedTrainerId || trainerRaw;
-      
-      // 2) Permiso: solo cliente o adiestrador de esa reserva (admin también)
+
       const isAdmin = getUserRole(req) === "admin";
-      
-      const canById = userId === clientId || userId === trainerId;
-      const canByEmail = !!userEmail && !!reservaEmail && userEmail === reservaEmail;
-      
-      if (!isAdmin && !canById && !canByEmail) {
+      if (!isAdmin && userId !== clientId && userId !== trainerId) {
         return res.status(403).json({ error: "Sin permisos para este chat" });
       }
-      
-      // Si entra por email (legacy) y el id del cliente no coincide, amarramos al uid autenticado
-      const effectiveClientId = canByEmail && clientId !== userId ? userId : clientId;
-      
-      // 3) Obtener/crear conversación por pareja (con aliases para migrar conversaciones legacy)
-      const aliasKeys = [];
-      if (trainerRaw && clientRaw) aliasKeys.push(pairKey(trainerRaw, clientRaw));
-      if (trainerId && clientRaw && trainerId !== trainerRaw) aliasKeys.push(pairKey(trainerId, clientRaw));
-      if (trainerRaw && effectiveClientId && effectiveClientId !== clientRaw)
-        aliasKeys.push(pairKey(trainerRaw, effectiveClientId));
-      
-      const out = await getOrCreateConversationByPair({
-        trainerId,
-        clientId: effectiveClientId,
-        aliasKeys,
-      });
+
+      const out = await getOrCreateConversationByPair({ trainerId, clientId });
       await restoreConversationForUser({ conversationId: out.conversationId, userId });
 
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-reserva/:reservaId error:", e);
-      res.status(500).json({ error: "No se pudo abrir el chat" });
+      res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
     }
   }
 );
@@ -823,7 +811,6 @@ router.post(
 
       const isAdmin = getUserRole(req) === "admin";
       const clientId = isAdmin ? String(req.body?.clientId || userId).trim() : userId;
-
       if (!clientId) return res.status(400).json({ error: "clientId requerido" });
 
       if (!isAdmin) {
@@ -832,13 +819,12 @@ router.post(
       }
 
       const out = await getOrCreateConversationByPair({ trainerId, clientId });
-
       await restoreConversationForUser({ conversationId: out.conversationId, userId: clientId });
 
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-trainer/:trainerId error:", e);
-      res.status(500).json({ error: "No se pudo abrir el chat" });
+      res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
     }
   }
 );
@@ -868,13 +854,12 @@ router.post(
       }
 
       const out = await getOrCreateConversationByPair({ trainerId, clientId });
-
       await restoreConversationForUser({ conversationId: out.conversationId, userId: trainerId });
 
       return res.json(out);
     } catch (e) {
       console.error("POST /api/chats/by-client/:clientId error:", e);
-      res.status(500).json({ error: "No se pudo abrir el chat" });
+      res.status(500).json({ error: e?.message || "No se pudo abrir el chat" });
     }
   }
 );
@@ -908,17 +893,9 @@ router.delete(
 
       const ts = nowISO();
       if (String(userId) === String(trainerId)) {
-        await query(`UPDATE conversations SET deleted_by_trainer_at = ?, updated_at = ? WHERE id = ?`, [
-          ts,
-          ts,
-          conversationId,
-        ]);
+        await query(`UPDATE conversations SET deleted_by_trainer_at = ?, updated_at = ? WHERE id = ?`, [ts, ts, conversationId]);
       } else if (String(userId) === String(clientId)) {
-        await query(`UPDATE conversations SET deleted_by_client_at = ?, updated_at = ? WHERE id = ?`, [
-          ts,
-          ts,
-          conversationId,
-        ]);
+        await query(`UPDATE conversations SET deleted_by_client_at = ?, updated_at = ? WHERE id = ?`, [ts, ts, conversationId]);
       }
 
       return res.json({ ok: true });
@@ -942,59 +919,51 @@ router.get(
       if (!userId) return res.status(401).json({ error: "No autorizado" });
 
       const conversationId = String(req.params.conversationId || "").trim();
-      if (!conversationId) {
-        return res.status(400).json({ error: "conversationId requerido" });
-      }
+      if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
 
-      await ensureCanAccessConversation({
-        conversationId,
-        userId,
-        role: getUserRole(req),
-      });
+      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
 
       const before = req.query.before ? String(req.query.before) : null;
 
-      const rows = await query(
-        before
-          ? `
-              SELECT
-                m.id,
-                m.conversation_id AS conversationId,
-                m.sender_id AS senderId,
-                m.body,
-                m.attachments,
-                m.created_at AS createdAt,
-                m.read_at AS readAt,
-                COALESCE(u.nombre, u.email, '') AS senderName,
-                u.foto AS senderPhotoUrl
-              FROM messages m
-              LEFT JOIN users u
-                ON u.uid = m.sender_id OR u.id = m.sender_id
-              WHERE m.conversation_id = ?
-                AND m.created_at < ?
-              ORDER BY m.created_at DESC
-              LIMIT 30
-            `
-          : `
-              SELECT
-                m.id,
-                m.conversation_id AS conversationId,
-                m.sender_id AS senderId,
-                m.body,
-                m.attachments,
-                m.created_at AS createdAt,
-                m.read_at AS readAt,
-                COALESCE(u.nombre, u.email, '') AS senderName,
-                u.foto AS senderPhotoUrl
-              FROM messages m
-              LEFT JOIN users u
-                ON u.uid = m.sender_id OR u.id = m.sender_id
-              WHERE m.conversation_id = ?
-              ORDER BY m.created_at DESC
-              LIMIT 30
-            `,
-        before ? [conversationId, before] : [conversationId]
-      );
+      const usersMeta = await getUsersMeta();
+      const { joinSql, senderSelectSql } = buildSenderJoin(usersMeta);
+
+      const sql = before
+        ? `
+            SELECT
+              m.id,
+              m.conversation_id AS conversationId,
+              m.sender_id AS senderId,
+              m.body,
+              m.attachments,
+              m.created_at AS createdAt,
+              m.read_at AS readAt,
+              ${senderSelectSql}
+            FROM messages m
+            ${joinSql}
+            WHERE m.conversation_id = ?
+              AND m.created_at < ?
+            ORDER BY m.created_at DESC
+            LIMIT 30
+          `
+        : `
+            SELECT
+              m.id,
+              m.conversation_id AS conversationId,
+              m.sender_id AS senderId,
+              m.body,
+              m.attachments,
+              m.created_at AS createdAt,
+              m.read_at AS readAt,
+              ${senderSelectSql}
+            FROM messages m
+            ${joinSql}
+            WHERE m.conversation_id = ?
+            ORDER BY m.created_at DESC
+            LIMIT 30
+          `;
+
+      const rows = await query(sql, before ? [conversationId, before] : [conversationId]);
 
       const items = [...rows].reverse().map((m) => ({
         ...m,
@@ -1026,38 +995,46 @@ router.post(
 
       const conversationId = String(req.params.conversationId || "").trim();
       const body = String(req.body?.body || "");
-
       const attachments = normalizeAttachments(req.body?.attachments);
       const bodyTrim = body.trim();
 
-      if (!conversationId) {
-        return res.status(400).json({ error: "conversationId requerido" });
-      }
-      if (!bodyTrim && attachments.length === 0) {
-        return res.status(400).json({ error: "Mensaje vacío" });
-      }
+      if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
+      if (!bodyTrim && attachments.length === 0) return res.status(400).json({ error: "Mensaje vacío" });
 
-      await ensureCanAccessConversation({
-        conversationId,
-        userId,
-        role: getUserRole(req),
-      });
-
+      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
       await verifyAttachmentsOwnership({ userId, attachments });
 
-      const msgId = uuidv4();
       const ts = nowISO();
       const attachmentsJson = attachments.length ? JSON.stringify(attachments) : null;
 
-      await query(
-        `
-          INSERT INTO messages (
-            id, conversation_id, sender_id, body, attachments, created_at, read_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, NULL)
-        `,
-        [msgId, conversationId, userId, bodyTrim || null, attachmentsJson, ts]
-      );
+      let msgId = null;
+
+      if (messagesIdIsInteger) {
+        await query(
+          `
+            INSERT INTO messages (
+              conversation_id, sender_id, body, attachments, created_at, read_at
+            )
+            VALUES (?, ?, ?, ?, ?, NULL)
+          `,
+          [conversationId, userId, bodyTrim || null, attachmentsJson, ts]
+        );
+
+        const rr = await query(`SELECT last_insert_rowid() AS id`);
+        msgId = String(rr?.[0]?.id || "").trim();
+        if (!msgId) throw new Error("No se pudo obtener id de mensaje (last_insert_rowid vacío)");
+      } else {
+        msgId = uuidv4();
+        await query(
+          `
+            INSERT INTO messages (
+              id, conversation_id, sender_id, body, attachments, created_at, read_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, NULL)
+          `,
+          [msgId, conversationId, userId, bodyTrim || null, attachmentsJson, ts]
+        );
+      }
 
       const preview = bodyTrim
         ? bodyTrim.slice(0, 120)

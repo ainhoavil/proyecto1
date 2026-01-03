@@ -7,7 +7,9 @@ export default function Reservas() {
   const { loading, role, user } = useAuth();
 
   const rolBase =
-    role || user?.rol || user?.role || (user?.isAdmin ? "admin" : "user");
+    (role || user?.rol || user?.role || (user?.isAdmin ? "admin" : "user") || "")
+      .toString()
+      .toLowerCase();
 
   const esAdmin = rolBase === "admin";
   const esAdiestrador = rolBase === "adiestrador";
@@ -21,21 +23,14 @@ export default function Reservas() {
     );
   }
 
-  //  Unificamos el admin en /admin (evita duplicidad de paneles).
+  // ✅ Unificamos el admin en /admin (evita duplicidad de paneles)
   if (esAdmin) {
     return <Navigate to="/admin?tab=reservas" replace />;
   }
 
   return (
     <div className="card contratar-page">
-      <h1>
-        {esAdmin
-          ? "Panel de Reservas (Admin)"
-          : esAdiestrador
-          ? "Agenda del Adiestrador"
-          : "Mis Reservas"}
-      </h1>
-
+      <h1>{esAdiestrador ? "Agenda del Adiestrador" : "Mis Reservas"}</h1>
       {esAdiestrador ? <TrainerAgenda /> : <ReservasUser />}
     </div>
   );

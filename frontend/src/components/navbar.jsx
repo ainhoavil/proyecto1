@@ -34,7 +34,7 @@ export default function Navbar() {
 
           <ul className="navbar__links">
             {/* Para adiestrador ocultamos las secciones de contratación */}
-            {!esTrainer && (
+            {!esTrainer && !esAdmin && (
               <>
                 <li>
                   <Link to="/servicios" onClick={closeMenu}>
@@ -50,7 +50,7 @@ export default function Navbar() {
               </>
             )}
 
-            {isAuthenticated && !esTrainer && (
+            {isAuthenticated && !esTrainer && !esAdmin && (
               <li>
                 <Link to="/reservas" onClick={closeMenu}>
                   Reservas
@@ -58,19 +58,20 @@ export default function Navbar() {
               </li>
             )}
 
-            {isAuthenticated && (
+            {isAuthenticated && !esAdmin && (
               <li>
                 <Link to="/chats" onClick={closeMenu}>
                   Chats
                 </Link>
               </li>
             )}
-
-            <li>
-              <Link to="/contacto" onClick={closeMenu}>
-                Contacto
-              </Link>
-            </li>
+            {!esAdmin && (
+              <li>
+                <Link to="/contacto" onClick={closeMenu}>
+                  Contacto
+                </Link>
+              </li>
+            )}
 
             {esTrainer && (
               <li>
@@ -148,7 +149,7 @@ export default function Navbar() {
         </button>
 
         <ul>
-          {!esTrainer && (
+          {!esTrainer && !esAdmin && (
             <>
               <li>
                 <Link to="/servicios" onClick={closeMenu}>
@@ -164,7 +165,7 @@ export default function Navbar() {
             </>
           )}
 
-          {isAuthenticated && !esTrainer && (
+          {isAuthenticated && !esTrainer && !esAdmin && (
             <li>
               <Link to="/reservas" onClick={closeMenu}>
                 Reservas
@@ -172,20 +173,20 @@ export default function Navbar() {
             </li>
           )}
 
-          {isAuthenticated && (
+          {isAuthenticated && !esAdmin && (
             <li>
               <Link to="/chats" onClick={closeMenu}>
                 Chats
               </Link>
             </li>
           )}
-
-          <li>
-            <Link to="/contacto" onClick={closeMenu}>
-              Contacto
-            </Link>
-          </li>
-
+          {!esAdmin && (
+            <li>
+              <Link to="/contacto" onClick={closeMenu}>
+                Contacto
+              </Link>
+            </li>
+          )}
           {esTrainer && (
             <li>
               <Link to="/reservas" onClick={closeMenu}>

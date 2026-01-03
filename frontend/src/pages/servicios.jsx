@@ -124,7 +124,7 @@ async function deleteServiceImageByUrl(imageUrl) {
    Componente principal
 ========================== */
 
-export default function Servicios() {
+export default function Servicios({ embedded = false } = {}) {
   const [items, setItems] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -329,7 +329,11 @@ export default function Servicios() {
   };
 
   if (cargando) {
-    return (
+    return embedded ? (
+      <div className="servicios servicios--embedded">
+        <div className="servicios__loading card">Cargando…</div>
+      </div>
+    ) : (
       <div className="servicios">
         <div className="page-wrapper">
           <div className="servicios__loading card">Cargando…</div>
@@ -362,8 +366,9 @@ export default function Servicios() {
   };
 
   return (
-    <div className="servicios page-wrapper">
+    <div className={embedded ? "servicios servicios--embedded" : "servicios page-wrapper"}>
       {/* ===== HEADER DE PÁGINA ===== */}
+      {!embedded && (
       <header className="servicios__header">
         <h1 className="servicios__title">Servicios de Adiestramiento</h1>
         <p className="servicios__subtitle">
@@ -371,6 +376,9 @@ export default function Servicios() {
           directamente desde tu cuenta.
         </p>
       </header>
+      )}
+
+      
 
       {error && <p className="error-msg">{error}</p>}
 

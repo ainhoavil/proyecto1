@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 // Layout
@@ -24,6 +25,14 @@ import TrainerPublicProfile from "./pages/TrainerPublicProfile.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
 
+// ✅ Legales
+import AvisoLegal from "./pages/aviso-legal.jsx";
+import PoliticaPrivacidad from "./pages/privacidad.jsx";
+import PoliticaCookies from "./pages/cookies.jsx";
+
+// ✅ Cookies modal
+import CookieConsentModal from "./components/CookieConsentModal.jsx";
+
 // Páginas protegidas
 import Reservas from "./pages/reservas.jsx";
 import Perfil from "./pages/perfil.jsx";
@@ -41,6 +50,11 @@ import "./styles/global.scss";
 
 export default function App() {
   const location = useLocation();
+
+  // ✅ Siempre arriba al cambiar de ruta (arregla "abre abajo raro")
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [location.pathname]);
 
   // Rutas "pantalla completa" (sin container global)
   const fullWidthPaths = new Set([
@@ -73,6 +87,11 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+
+          {/* ✅ LEGALES */}
+          <Route path="/aviso-legal" element={<AvisoLegal />} />
+          <Route path="/privacidad" element={<PoliticaPrivacidad />} />
+          <Route path="/cookies" element={<PoliticaCookies />} />
 
           {/* ===== PROTEGIDAS ===== */}
           <Route
@@ -164,6 +183,9 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
+      {/* ✅ Modal cookies: aparece la primera vez y permite reabrir preferencias */}
+      <CookieConsentModal />
 
       <Footer />
     </AuthProvider>

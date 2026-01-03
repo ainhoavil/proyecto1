@@ -95,6 +95,91 @@ router.get("/:id/profile", async (req, res) => {
 });
 
 /* ============================================================
+   POST /api/trainers/:id/profile
+   UPSERT trainer_profiles para un adiestrador concreto
+   Roles: admin
+============================================================ */
+router.post(
+  "/:id/profile",
+  verifyToken,
+  allowRoles(["admin"]),
+  async (req, res) => {
+    try {
+      const trainerId = String(req.params.id || "");
+      if (!trainerId) return res.status(400).json({ error: "Datos inválidos" });
+
+      // valida que exista y sea adiestrador
+      const u = await query(
+        `
+        SELECT id
+        FROM usuarios
+        WHERE id = ?
+          AND rol = 'adiestrador'
+        LIMIT 1
+        `,
+        [trainerId]
+      );
+      if (!u.length) return res.status(404).json({ error: "Adiestrador no encontrado" });
+
+      const {
+        displayName = "",
+        bio = "",
+        photoUrl = "",
+        experienceYears = null,
+        specialties = [],
+      } = req.body;
+
+      const exp =
+        experienceYears === null ||
+        experienceYears === undefined ||
+        experienceYears === ""
+          ? null
+          : Number(experienceYears);
+
+      if (typeof displayName !== "string" || typeof bio !== "string") {
+        return res.status(400).json({ error: "Datos inválidos" });
+      }
+      if (exp !== null && Number.isNaN(exp)) {
+        return res.status(400).json({ error: "Datos inválidos" });
+      }
+
+      const specialtiesStr = Array.isArray(specialties)
+        ? JSON.stringify(specialties)
+        : JSON.stringify([]);
+
+      await query(
+        `
+        INSERT INTO trainer_profiles (
+          trainer_id,
+          display_name,
+          bio,
+          photo_url,
+          experience_years,
+          specialties,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(trainer_id) DO UPDATE SET
+          display_name = excluded.display_name,
+          bio = excluded.bio,
+          photo_url = excluded.photo_url,
+          experience_years = excluded.experience_years,
+          specialties = excluded.specialties,
+          updated_at = datetime('now')
+        `,
+        [trainerId, displayName, bio, photoUrl, exp, specialtiesStr]
+      );
+
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("POST /api/trainers/:id/profile", e);
+      res.status(500).json({ error: "No se pudo guardar el perfil" });
+    }
+  }
+);
+
+/* ============================================================
    GET /api/trainers/me/profile
    PERFIL PRIVADO (adiestrador / admin)
    → también con fallback a users

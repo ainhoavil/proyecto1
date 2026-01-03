@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../../helpers/http";
-import { canonStatus, serverErrMsg } from "../../helpers/reservas";
 import { useAuth } from "../../context/auth";
 import "../../styles/contratar.scss"; // reutilizamos estilos de botones / card
 
@@ -69,22 +68,22 @@ function renderPerro(perro) {
 }
 
 function statusLabel(status) {
-  const s = canonStatus(status);
-  if (s === "pending") return "Pendiente centro";
+  const s = String(status || "").toLowerCase();
+  if (s === "pending" || s === "pendiente") return "Pendiente centro";
+  if (s === "confirmed" || s === "confirmada") return "Confirmada";
+  if (s === "cancelled" || s === "cancelada") return "Cancelada";
+  if (s === "rejected" || s === "rechazada") return "Rechazada";
   if (s === "pending_user") return "Pendiente (tu aceptación)";
-  if (s === "confirmed") return "Confirmada";
-  if (s === "cancelled") return "Cancelada";
-  if (s === "rejected") return "Rechazada";
   return s || "Estado";
 }
 
 function statusClass(status) {
-  const s = canonStatus(status);
-  if (s === "pending") return "badge badge-pending";
+  const s = String(status || "").toLowerCase();
+  if (s === "pending" || s === "pendiente") return "badge badge-pending";
+  if (s === "confirmed" || s === "confirmada") return "badge badge-confirmed";
+  if (s === "cancelled" || s === "cancelada") return "badge badge-cancelled";
+  if (s === "rejected" || s === "rechazada") return "badge badge-rejected";
   if (s === "pending_user") return "badge badge-pending-user";
-  if (s === "confirmed") return "badge badge-confirmed";
-  if (s === "cancelled") return "badge badge-cancelled";
-  if (s === "rejected") return "badge badge-rejected";
   return "badge";
 }
 
@@ -108,27 +107,31 @@ function ReservaCard({
   onAddNote,
   onDeleteNote,
 }) {
-  const normalizedStatus = canonStatus(r.status);
+  const normalizedStatus = String(r.status || "").toLowerCase();
 
   const puedeCancelar =
     normalizedStatus === "pending" ||
-    normalizedStatus === "pending_user" ||
-    normalizedStatus === "confirmed";
+    normalizedStatus === "pendiente" ||
+    normalizedStatus === "confirmada" ||
+    normalizedStatus === "confirmed" ||
+    normalizedStatus === "pending_user";
 
   const puedeAceptarRechazar = normalizedStatus === "pending_user";
 
-  // ✅ Chat disponible cuando existe relación reserva (evita roturas por status legacy)
+  // ✅ Chat: alineado con backend (confirmed / pending / pending_user + equivalentes)
   const puedeChat =
     normalizedStatus === "confirmed" ||
-    normalizedStatus === "pending_user" ||
-    normalizedStatus === "pending";
+    normalizedStatus === "confirmada" ||
+    normalizedStatus === "pending" ||
+    normalizedStatus === "pendiente" ||
+    normalizedStatus === "pending_user";
 
   const countNotas =
     typeof r.notesCount === "number"
       ? r.notesCount
       : isNotesOpen && Array.isArray(notes)
-      ? notes.length
-      : null;
+        ? notes.length
+        : null;
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -263,7 +266,7 @@ function ReservaCard({
             </div>
           )}
 
-          {/* zona de “chat” para añadir nueva nota */}
+          {/* zona para añadir nueva nota */}
           <div className="reservas-notes__new">
             <textarea
               rows={2}
@@ -350,10 +353,15 @@ export default function ReservasUser() {
         return;
       }
 
-      navigate(`/chat/${conversationId}`);
+      navigate(`/chat/${conversationId}`, { state: { from: "/reservas" } });
     } catch (e) {
       console.error("Error abriendo chat:", e);
-      alert(serverErrMsg(e, "No se pudo abrir el chat para esta reserva."));
+      const msg =
+        e?.data?.error ||
+        e?.responseData?.error ||
+        e?.message ||
+        "No se pudo abrir el chat para esta reserva.";
+      alert(msg);
     } finally {
       setOpeningChatId(null);
     }
@@ -460,9 +468,7 @@ export default function ReservasUser() {
   // aceptar / rechazar cuando está en pending_user
   const handleUserDecision = async (r, action) => {
     const verb = action === "confirm" ? "aceptar" : "rechazar";
-    if (
-      !window.confirm(`¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`)
-    ) {
+    if (!window.confirm(`¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`)) {
       return;
     }
     try {
@@ -535,9 +541,7 @@ export default function ReservasUser() {
       await loadNotes({ id: openNotesId });
     } catch (e) {
       console.error("Error eliminando nota", e);
-      alert(
-        "No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón)."
-      );
+      alert("No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).");
     }
   };
 
@@ -564,8 +568,7 @@ export default function ReservasUser() {
     <div className="card contratar-page">
       <h1>Reservas</h1>
       <p className="reservas-subtitle">
-        Consulta tu calendario de reservas y gestiona su estado. Puedes comunicarte con el centro
-        directamente desde cada reserva usando el sistema de notas.
+        Consulta tu calendario de reservas, gestiona su estado y abre el chat asociado desde cada reserva.
       </p>
 
       {/* Buscador */}
@@ -584,9 +587,7 @@ export default function ReservasUser() {
           <button
             className="btn-ghost"
             type="button"
-            onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
-            }
+            onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))}
           >
             ‹
           </button>
@@ -597,9 +598,7 @@ export default function ReservasUser() {
           <button
             className="btn-ghost"
             type="button"
-            onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
-            }
+            onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))}
           >
             ›
           </button>
@@ -635,9 +634,8 @@ export default function ReservasUser() {
                 <button
                   key={i}
                   type="button"
-                  className={`daycell ${inMonth ? "" : "out"} ${isSelected ? "selected" : ""} ${
-                    hasReserva ? "has-reserva" : ""
-                  }`}
+                  className={`daycell ${inMonth ? "" : "out"} ${isSelected ? "selected" : ""} ${hasReserva ? "has-reserva" : ""
+                    }`}
                   onClick={() => {
                     if (!inMonth) return;
                     setSelectedDate(f === selectedDate ? "" : f);

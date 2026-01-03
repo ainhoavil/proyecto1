@@ -1,0 +1,145 @@
+@import "./global.scss";
+
+/* =========================================
+   PÁGINAS LEGALES – DOGFORM
+========================================= */
+
+.df-legal {
+  padding: $sp-8 0 calc(#{$sp-8} + #{$sp-3});
+}
+
+.df-legal__hero {
+  margin-bottom: $sp-7;
+  padding: $sp-6;
+  border-radius: $radius-xl;
+  background: $color-bg-alt;
+  border: 1px solid $color-border;
+  box-shadow: $shadow-soft;
+}
+
+.df-legal__eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  color: $color-text-light;
+  margin: 0 0 $sp-2;
+}
+
+.df-legal__title {
+  margin: 0 0 $sp-3;
+  font-size: clamp(30px, 4.2vw, 46px);
+  color: $color-text;
+  font-family: $font-display;
+  line-height: 1.15;
+}
+
+.df-legal__subtitle {
+  margin: 0;
+  max-width: 860px;
+  font-size: 14px;
+  color: $color-text-light;
+}
+
+.df-legal__meta {
+  margin-top: $sp-4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: $sp-3;
+  font-size: 12px;
+  color: $color-text-light;
+}
+
+.df-legal__toc {
+  margin-top: $sp-5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: $sp-2;
+}
+
+.df-legal__toc a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: $color-white;
+  border: 1px solid $color-border;
+  color: $color-brand-dark;
+  font-size: 13px;
+  font-weight: 600;
+  transition: $transition;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: $shadow-soft;
+    border-color: rgba(212, 111, 53, 0.35);
+  }
+}
+
+.df-legal__grid {
+  display: grid;
+  gap: $sp-6;
+}
+
+.df-legal__card {
+  background: $color-white;
+  border-radius: $radius-xl;
+  border: 1px solid $color-border;
+  box-shadow: $shadow-card;
+  padding: $sp-6;
+}
+
+.df-legal__card h2 {
+  margin: 0 0 $sp-3;
+  font-size: clamp(20px, 2.3vw, 28px);
+  color: $color-text;
+}
+
+.df-legal__card h3 {
+  margin: $sp-5 0 $sp-2;
+  font-size: 18px;
+  color: $color-text;
+}
+
+.df-legal__card p {
+  margin: 0;
+  color: $color-text-light;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.df-legal__card p + p {
+  margin-top: 14px;
+}
+
+.df-legal__card ul {
+  margin: 12px 0 0 18px;
+  color: $color-text-light;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.df-legal__card li + li {
+  margin-top: 8px;
+}
+
+.df-legal__note {
+  margin-top: $sp-5;
+  padding: $sp-4;
+  border-radius: $radius-large;
+  border: 1px solid rgba(212, 111, 53, 0.18);
+  background: rgba(212, 111, 53, 0.08);
+  color: $color-text;
+  font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .df-legal__hero {
+    padding: $sp-5;
+  }
+
+  .df-legal__card {
+    padding: $sp-5;
+  }
+}

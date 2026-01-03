@@ -194,3 +194,15 @@
     font-size: 12px;
   }
 }
+
+.df-footer__link--button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.df-footer__link--button:hover {
+  text-decoration: underline;
+}
