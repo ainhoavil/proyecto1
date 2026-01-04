@@ -40,6 +40,26 @@ function relativeTime(iso) {
   return `hace ${y} años`;
 }
 
+function perrosTexto(perroField) {
+  if (!perroField) return '';
+  try {
+    const j = typeof perroField === 'string' ? JSON.parse(perroField) : perroField;
+    const arr = Array.isArray(j) ? j : j && typeof j === 'object' ? [j] : [];
+    const names = arr
+      .map((p) => p?.nombre || p?.name || p?.titulo || p)
+      .filter(Boolean)
+      .map((x) => String(x).trim())
+      .filter(Boolean);
+    return Array.from(new Set(names)).join(', ');
+  } catch {
+    const s = String(perroField || '')
+      .split(',')
+      .map((x) => String(x || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(s)).join(', ');
+  }
+}
+
 /* ===================== Componente ===================== */
 
 export default function ReservasAdmin() {
@@ -49,6 +69,13 @@ export default function ReservasAdmin() {
   const [adminList, setAdminList] = useState([]);
   const [adminFilterEmail, setAdminFilterEmail] = useState('');
   const [adminLimit, setAdminLimit] = useState(300);
+
+  // Adiestradores (para asignación manual)
+  const [trainers, setTrainers] = useState([]);
+  const [loadingTrainers, setLoadingTrainers] = useState(false);
+  const [trainerPickByRes, setTrainerPickByRes] = useState({});
+  const [availableTrainersByRes, setAvailableTrainersByRes] = useState({});
+  const [loadingAvailByRes, setLoadingAvailByRes] = useState({});
 
   const [notice, setNotice] = useState({ type: '', text: '' });
   const [trace, setTrace] = useState(null);
@@ -152,6 +179,75 @@ export default function ReservasAdmin() {
     }
   };
 
+  /* ===== Adiestradores (asignación manual) ===== */
+  const loadTrainers = async () => {
+    setLoadingTrainers(true);
+    try {
+      const data = await http('/api/trainers/eligible', { auth: true });
+      const arr = normList(data?.items || data?.trainers || data || []);
+      setTrainers(arr);
+    } catch (e) {
+      setTrainers([]);
+      setTraceErr({ action: 'GET /api/trainers/eligible', error: serializeErr(e) });
+    } finally {
+      setLoadingTrainers(false);
+    }
+  };
+
+  const trainerNameById = useMemo(() => {
+    const m = new Map();
+    for (const t of Array.isArray(trainers) ? trainers : []) {
+      const id = first(t?.uid, t?.id, t?._id);
+      if (!id) continue;
+      const name = t?.displayName || t?.nombre || t?.email || String(id);
+      m.set(String(id), String(name));
+    }
+    return m;
+  }, [trainers]);
+
+  const ensureAvailableTrainers = async (r) => {
+    const rid = first(r?.id, r?._id, r?.uuid, null);
+    if (!rid) return;
+    if (availableTrainersByRes[rid] || loadingAvailByRes[rid]) return;
+
+    setLoadingAvailByRes((p) => ({ ...p, [rid]: true }));
+    try {
+      const qs = new URLSearchParams({
+        fecha: String(r?.fecha || ''),
+        hora: String(r?.hora || ''),
+        durationMin: String(r?.durationMin || 60),
+        ...(r?.servicioId ? { servicioId: String(r.servicioId) } : {}),
+        ...(r?.modalidad ? { modalidad: String(r.modalidad) } : {}),
+        reservaId: String(rid),
+      });
+      const data = await http(`/api/trainers/available?${qs.toString()}`, { auth: true });
+      const arr = normList(data?.items || data?.trainers || data || []);
+      setAvailableTrainersByRes((p) => ({ ...p, [rid]: arr }));
+    } catch (e) {
+      setAvailableTrainersByRes((p) => ({ ...p, [rid]: [] }));
+      setTraceErr({ action: 'GET /api/trainers/available', reservaId: rid, error: serializeErr(e) });
+    } finally {
+      setLoadingAvailByRes((p) => ({ ...p, [rid]: false }));
+    }
+  };
+
+  const asignarTrainer = async (reservaId, trainerId) => {
+    const rid = first(reservaId, null);
+    if (!rid) return;
+    try {
+      await http(`/api/reservas/${rid}/trainer`, {
+        method: 'PATCH',
+        auth: true,
+        data: { trainerId: trainerId ? String(trainerId) : '' },
+      });
+      showSuccess('Adiestrador actualizado');
+      await cargarAdminList();
+    } catch (e) {
+      showError(serverErrMsg(e, 'No se pudo asignar el adiestrador'));
+      setTraceErr({ action: 'PATCH /api/reservas/:id/trainer', reservaId: rid, trainerId, error: serializeErr(e) });
+    }
+  };
+
   /* ===== Listado admin ===== */
   const cargarAdminList = async () => {
     try {
@@ -236,6 +332,7 @@ export default function ReservasAdmin() {
   const [quickDogIds, setQuickDogIds] = useState([]);
   const [quickDogsWarn, setQuickDogsWarn] = useState('');
   const [quickMod, setQuickMod] = useState('presencial');
+  const [quickTrainerId, setQuickTrainerId] = useState('');
 
   useEffect(() => {
   let alive = true;
@@ -322,6 +419,7 @@ export default function ReservasAdmin() {
           hora: quickHora,
           servicioId,
           modalidad: quickMod,
+          trainerId: quickTrainerId ? String(quickTrainerId) : '',
           status: 'pending',
           perro: (() => {
             const sel = quickDogs.filter((p) => quickDogIds.includes(p.id));
@@ -332,6 +430,7 @@ export default function ReservasAdmin() {
       });
       showSuccess(`Reserva creada para ${quickEmail.trim()}`);
       setQuickEmail('');
+      setQuickTrainerId('');
       await cargarAdminList();
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo crear la reserva'));
@@ -350,7 +449,9 @@ export default function ReservasAdmin() {
       const s = String(r.status || '').toLowerCase();
       const origin = String(r.origin || '').toLowerCase();
 
-      if (s === 'pending' || s === 'pendiente') {
+      if (s === 'pending_user' || s === 'pendiente_usuario') {
+        pendingUserAccept.push(r);
+      } else if (s === 'pending' || s === 'pendiente') {
         if (origin === 'admin') pendingUserAccept.push(r);
         else pendingAdminConfirm.push(r);
       } else if (s === 'confirmed' || s === 'confirmada') {
@@ -379,6 +480,7 @@ export default function ReservasAdmin() {
 
   useEffect(() => {
     loadServicios();
+    loadTrainers();
     cargarAdminList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -460,6 +562,25 @@ export default function ReservasAdmin() {
               <option value="presencial">Presencial</option>
               <option value="online">Online</option>
               <option value="a domicilio">A domicilio</option>
+            </select>
+          </label>
+          <label>
+            Adiestrador (opcional)
+            <select
+              value={quickTrainerId}
+              onChange={(e) => setQuickTrainerId(e.target.value)}
+              disabled={loadingTrainers}
+            >
+              <option value="">Sin adiestrador seleccionado</option>
+              {trainers.map((t) => {
+                const tid = first(t?.uid, t?.id, t?._id);
+                const name = t?.displayName || t?.nombre || t?.email || String(tid);
+                return (
+                  <option key={tid} value={tid}>
+                    {name}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <div
@@ -608,6 +729,7 @@ export default function ReservasAdmin() {
                   {group.items.map((r) => {
                     const isOpen = !!notesOpen[r.id];
                     const notes = notesByRes[r.id] || [];
+                    const perros = perrosTexto(r.perro);
 
                     const rawStatus = String(r.status || '').toLowerCase();
                     const canConfirm =
@@ -615,6 +737,8 @@ export default function ReservasAdmin() {
                     const canReject =
                       rawStatus === 'pending' ||
                       rawStatus === 'pendiente' ||
+                      rawStatus === 'pending_user' ||
+                      rawStatus === 'pendiente_usuario' ||
                       rawStatus === 'confirmed' ||
                       rawStatus === 'confirmada';
                     const canDelete = [
@@ -633,7 +757,8 @@ export default function ReservasAdmin() {
                             {r.servicioTitulo || 'Servicio'}
                           </div>
                           <div className="meta">
-                            <b>De:</b> {r.email} · {r.fecha} · {r.hora} ·{' '}
+                            <b>De:</b> {r.email}
+                            {perros ? ` · Perros: ${perros}` : ''} · {r.fecha} · {r.hora} ·{' '}
                             <i>{r.modalidad}</i>
                           </div>
                         </div>
@@ -658,6 +783,88 @@ export default function ReservasAdmin() {
                             📝 Notas{' '}
                             {notes.length ? `(${notes.length})` : ''}
                           </button>
+                        </div>
+
+                        {/* Asignación manual de adiestrador */}
+                        <div
+                          style={{
+                            gridColumn: '1 / -1',
+                            display: 'flex',
+                            gap: 8,
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            marginTop: 6,
+                          }}
+                        >
+                          <span style={{ fontSize: 12, opacity: 0.85 }}>
+                            Adiestrador:
+                          </span>
+                          {(() => {
+                            const rid = String(first(r?.id, r?._id, r?.uuid) || '').trim();
+                            const currentTid = String(r.trainerId || r.trainer_id || '').trim();
+                            const picked = trainerPickByRes[rid] != null ? String(trainerPickByRes[rid]) : currentTid;
+                            const selectedTid = String(picked || '').trim();
+                            const selectedName = selectedTid
+                              ? (trainerNameById.get(selectedTid) || selectedTid)
+                              : '';
+
+                            const avail = availableTrainersByRes[rid] || [];
+                            const loadingAvail = !!loadingAvailByRes[rid];
+
+                            return (
+                              <select
+                                value={selectedTid}
+                                disabled={loadingTrainers}
+                                onFocus={() => ensureAvailableTrainers(r)}
+                                onMouseDown={() => ensureAvailableTrainers(r)}
+                                onChange={(e) => {
+                                  const tid = e.target.value;
+                                  setTrainerPickByRes((p) => ({ ...p, [rid]: tid }));
+                                  asignarTrainer(rid, tid);
+                                }}
+                                style={{ minWidth: 260 }}
+                                title="Asignar/cambiar adiestrador. En el desplegable se muestran solo los disponibles para esa franja."
+                              >
+                                {/* Opción seleccionada (siempre visible) */}
+                                {selectedTid ? (
+                                  <option value={selectedTid}>Adiestrador: {selectedName}</option>
+                                ) : (
+                                  <option value="">Sin adiestrador seleccionado</option>
+                                )}
+
+                                {/* Permitir desasignar */}
+                                {selectedTid && (
+                                  <option value="">Sin adiestrador seleccionado</option>
+                                )}
+
+                                {loadingAvail && (
+                                  <option value="__loading" disabled>
+                                    Cargando adiestradores disponibles…
+                                  </option>
+                                )}
+
+                                {(Array.isArray(avail) ? avail : []).map((t) => {
+                                  const tid = String(first(t?.uid, t?.id, t?._id) || '').trim();
+                                  if (!tid) return null;
+                                  if (tid === selectedTid) return null;
+                                  const label = t?.displayName || t?.nombre || t?.email || tid;
+                                  return (
+                                    <option key={tid} value={tid}>
+                                      {label}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            );
+                          })()}
+
+                          <span style={{ fontSize: 12, opacity: 0.8 }}>
+                            Actual: {(() => {
+                              const tid = String(r.trainerId || r.trainer_id || '').trim();
+                              if (!tid) return 'Sin adiestrador seleccionado';
+                              return `Adiestrador: ${trainerNameById.get(tid) || tid}`;
+                            })()}
+                          </span>
                         </div>
 
                         {isOpen && (

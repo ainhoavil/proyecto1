@@ -78,7 +78,11 @@ router.post(
       const telefono = req.body?.telefono != null ? String(req.body.telefono) : null;
       const direccion = req.body?.direccion != null ? String(req.body.direccion) : null;
       const perro = req.body?.perro != null ? String(req.body.perro) : null;
-      const status = String(req.body?.status || "confirmed").trim();
+
+      // Las reservas creadas por un adiestrador deben ser confirmadas por el cliente.
+      // (Admin puede forzar otro estado, pero por defecto también queda en pending_user.)
+      let status = String(req.body?.status || "pending_user").trim();
+      if (role !== "admin") status = "pending_user";
 
       if (!clienteId || !servicioId || !fecha || !hora) {
         return res.status(400).json({ error: "Faltan campos (cliente/servicio/fecha/hora)" });

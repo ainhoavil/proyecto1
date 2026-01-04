@@ -5,6 +5,43 @@ import { verifyToken, allowRoles } from "../middleware/auth.js";
 const router = express.Router();
 
 /* ============================================================
+   Helpers disponibilidad (bloqueos/reservas) por adiestrador
+============================================================ */
+let _bloqueosHasTrainerId = null;
+
+async function bloqueosHasTrainerIdColumn() {
+  if (_bloqueosHasTrainerId !== null) return _bloqueosHasTrainerId;
+  try {
+    const cols = await query(`PRAGMA table_info(bloqueos)`);
+    _bloqueosHasTrainerId = (cols || []).some(
+      (c) => String(c?.name || "").toLowerCase() === "trainer_id"
+    );
+  } catch {
+    _bloqueosHasTrainerId = false;
+  }
+  return _bloqueosHasTrainerId;
+}
+
+function padHHMM(x) {
+  if (!x) return x;
+  const [h, m = "00"] = String(x).split(":");
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+const toMin = (hhmm) => {
+  const [h, m = 0] = String(hhmm || "00:00").split(":").map(Number);
+  return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
+};
+
+const overlaps = (aStart, aDur, bStart, bDur) => {
+  const a0 = toMin(aStart);
+  const a1 = a0 + Number(aDur || 60);
+  const b0 = toMin(bStart);
+  const b1 = b0 + Number(bDur || 60);
+  return a0 < b1 && b0 < a1;
+};
+
+/* ============================================================
    GET /api/trainers/eligible
    - Si NO hay servicioId → devuelve todos los adiestradores
    - Si hay servicioId (+ modalidad) → filtra por trainer_servicios
@@ -97,6 +134,194 @@ router.get(
       res.status(500).json({
         error: "No se pudo cargar la lista de adiestradores",
       });
+    }
+  }
+);
+
+/* ============================================================
+   GET /api/trainers/available
+   Devuelve SOLO los adiestradores disponibles en una franja.
+   - Filtra por servicio/modalidad (si se pasa servicioId).
+   - Excluye solapes con reservas activas del trainer.
+   - Respeta bloqueos globales y (si existe columna) por trainer.
+   Query:
+     fecha=YYYY-MM-DD
+     hora=HH:MM
+     durationMin=60
+     servicioId? modalidad? reservaId?
+   Roles: admin
+============================================================ */
+router.get(
+  "/available",
+  verifyToken,
+  allowRoles(["admin"]),
+  async (req, res) => {
+    try {
+      const { fecha, hora, durationMin = 60, servicioId, modalidad, reservaId } = req.query;
+      if (!fecha || !hora) {
+        return res.status(400).json({ error: "Faltan fecha/hora" });
+      }
+
+      const h = padHHMM(String(hora));
+      const dur = Number(durationMin || 60);
+      const mod = modalidad ? String(modalidad) : null;
+
+      // 1) Elegibles (misma lógica que /eligible)
+      const getAll = async () => {
+        return await query(
+          `
+          SELECT
+            au.id AS uid,
+            au.email AS email,
+            COALESCE(
+              NULLIF(tp.display_name, ''),
+              NULLIF(up.nombre, ''),
+              au.email
+            ) AS displayName
+          FROM usuarios au
+          LEFT JOIN trainer_profiles tp
+            ON tp.trainer_id = au.id
+          LEFT JOIN users up
+            ON up.uid = au.id
+          WHERE au.rol = 'adiestrador'
+          ORDER BY displayName ASC, au.email ASC
+          `
+        );
+      };
+
+      let eligible = [];
+      if (!servicioId) {
+        eligible = await getAll();
+      } else {
+        try {
+          eligible = await query(
+            `
+            SELECT DISTINCT
+              au.id AS uid,
+              au.email AS email,
+              COALESCE(
+                NULLIF(tp.display_name, ''),
+                NULLIF(up.nombre, ''),
+                au.email
+              ) AS displayName
+            FROM usuarios au
+            JOIN trainer_servicios ts
+              ON ts.trainer_id = au.id
+            LEFT JOIN trainer_profiles tp
+              ON tp.trainer_id = au.id
+            LEFT JOIN users up
+              ON up.uid = au.id
+            WHERE au.rol = 'adiestrador'
+              AND ts.enabled = 1
+              AND ts.servicio_id = ?
+              AND (
+                ts.modalidad IS NULL
+                OR ts.modalidad = ''
+                OR ? IS NULL
+                OR ts.modalidad = ?
+              )
+            ORDER BY displayName ASC, au.email ASC
+            `,
+            [String(servicioId), mod, mod]
+          );
+        } catch {
+          eligible = [];
+        }
+
+        if (!eligible || eligible.length === 0) {
+          eligible = await getAll();
+        }
+      }
+
+      // 2) Reservas activas por trainer (excluyendo la reserva actual si se pasa)
+      const rParams = [String(fecha)];
+      let whereExclude = "";
+      if (reservaId) {
+        whereExclude = " AND id <> ?";
+        rParams.push(String(reservaId));
+      }
+
+      const reservas = await query(
+        `
+        SELECT id, trainer_id AS trainerId, hora, COALESCE(duration_min,60) AS durationMin
+          FROM reservas
+         WHERE fecha = ?
+           AND status IN ('pending','pending_user','confirmed')
+           AND trainer_id IS NOT NULL
+           AND trainer_id <> ''
+           ${whereExclude}
+        `,
+        rParams
+      );
+
+      const byTrainer = new Map();
+      for (const r of reservas || []) {
+        const tid = String(r.trainerId || '').trim();
+        if (!tid) continue;
+        const arr = byTrainer.get(tid) || [];
+        arr.push({ hora: String(r.hora), durationMin: Number(r.durationMin || 60) });
+        byTrainer.set(tid, arr);
+      }
+
+      // 3) Bloqueos
+      const hasTrainerCol = await bloqueosHasTrainerIdColumn();
+      let bloqueos = [];
+      if (hasTrainerCol) {
+        bloqueos = await query(
+          `SELECT hora, trainer_id AS trainerId FROM bloqueos WHERE fecha=?`,
+          [String(fecha)]
+        );
+      } else {
+        bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [String(fecha)]);
+      }
+
+      // 4) Filtrado final
+      const out = [];
+      for (const t of eligible || []) {
+        const tid = String(t?.uid || '').trim();
+        if (!tid) continue;
+
+        // Bloqueos (global o por trainer)
+        let blocked = false;
+        for (const b of bloqueos || []) {
+          const bh = String(b?.hora || '').trim();
+          if (!bh) continue;
+          if (hasTrainerCol) {
+            const bt = String(b?.trainerId || '').trim();
+            const isGlobal = !bt;
+            if (isGlobal || bt === tid) {
+              if (overlaps(h, dur, bh, 60)) {
+                blocked = true;
+                break;
+              }
+            }
+          } else {
+            if (overlaps(h, dur, bh, 60)) {
+              blocked = true;
+              break;
+            }
+          }
+        }
+        if (blocked) continue;
+
+        // Reservas solapadas
+        const mine = byTrainer.get(tid) || [];
+        let busy = false;
+        for (const r of mine) {
+          if (overlaps(h, dur, r.hora, r.durationMin)) {
+            busy = true;
+            break;
+          }
+        }
+        if (busy) continue;
+
+        out.push(t);
+      }
+
+      res.json(out);
+    } catch (err) {
+      console.error("GET /api/trainers/available error:", err);
+      res.status(500).json({ error: "No se pudo calcular disponibilidad" });
     }
   }
 );

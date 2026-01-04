@@ -35,15 +35,8 @@ const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 const getDogId = (p) => String(p?.id ?? p?.uid ?? p?._id ?? '').trim();
 /* ====================================================== */
 
-const EMPTY_PERRO = {
-  id: '',
-  nombre: '',
-  edad: '',
-  razaTamaño: '',
-  nacimiento: '',
-  castrado: false,
-  observaciones: ''
-};
+// Nota: en esta pantalla permitimos reservar para 1 o varios perros.
+// El campo "perro" que enviamos al backend se mantiene como JSON string por compatibilidad.
 
 export default function Contratar() {
   const navigate = useNavigate();
@@ -282,13 +275,9 @@ export default function Contratar() {
          PERROS
   ====================================================== */
   const [perros, setPerros] = useState([]);
-  const [perroIds, setPerroIds] = useState([]);
-
-  // ✅ perroId (single) derivado (tu UI es radio -> 1 perro)
-  const perroId = useMemo(() => (Array.isArray(perroIds) && perroIds.length ? String(perroIds[0] || '').trim() : ''), [perroIds]);
-
-  // 'existing' | 'new'
-  const [dogMode, setDogMode] = useState('new');
+  const [perroIds, setPerroIds] = useState([]); // selección múltiple
+  const [showNewDogForm, setShowNewDogForm] = useState(false);
+  const [perroNoGuardado, setPerroNoGuardado] = useState(null); // perro añadido solo para esta reserva
 
   const [nuevoPerro, setNuevoPerro] = useState({
     nombre: '',
@@ -298,40 +287,23 @@ export default function Contratar() {
     observaciones: ''
   });
 
-  const [perro, setPerro] = useState(EMPTY_PERRO);
-
   const [savingDog, setSavingDog] = useState(false);
   const [dogMsg, setDogMsg] = useState('');
 
-  // ✅ wrapper: define setPerroId (evita ReferenceError) + rellena `perro`
-  const setPerroId = (id) => {
+  const togglePerroId = (id) => {
     const pid = String(id || '').trim();
-    if (!pid) {
-      setPerroIds([]);
-      setPerro(EMPTY_PERRO);
-      return;
-    }
-
-    setPerroIds([pid]);
-
-    const found = (Array.isArray(perros) ? perros : []).find((p) => getDogId(p) === pid);
-    if (found) {
-      setPerro({
-        id: pid,
-        nombre: found.nombre || '',
-        edad: '',
-        razaTamaño: found.raza || found.razaTamaño || '',
-        nacimiento: found.nacimiento || '',
-        castrado: !!found.castrado,
-        observaciones: found.notas || found.observaciones || ''
-      });
-    }
+    if (!pid) return;
+    setPerroIds((prev) => {
+      const arr = Array.isArray(prev) ? prev.map((x) => String(x || '').trim()).filter(Boolean) : [];
+      const has = arr.includes(pid);
+      return has ? arr.filter((x) => x !== pid) : Array.from(new Set([...arr, pid]));
+    });
   };
 
   const perrosSeleccionados = useMemo(() => {
-    if (!Array.isArray(perroIds) || !perroIds.length) return [];
-    const set = new Set(perroIds.map((x) => String(x || '').trim()));
-    return (Array.isArray(perros) ? perros : []).filter((p) => set.has(getDogId(p)));
+    const ids = new Set((Array.isArray(perroIds) ? perroIds : []).map((x) => String(x || '').trim()).filter(Boolean));
+    if (!ids.size) return [];
+    return (Array.isArray(perros) ? perros : []).filter((p) => ids.has(getDogId(p)));
   }, [perroIds, perros]);
 
   useEffect(() => {
@@ -344,37 +316,26 @@ export default function Contratar() {
         const activos = arr.filter((p) => !p.archived);
         setPerros(activos);
 
-        if (activos.length > 0) {
-          setDogMode('existing');
-
+        // mantener selección si sigue existiendo
+        const aliveIds = new Set(activos.map(getDogId).filter(Boolean));
+        setPerroIds((prev) => {
+          const base = Array.isArray(prev) ? prev.map((x) => String(x || '').trim()).filter(Boolean) : [];
+          const kept = base.filter((x) => aliveIds.has(x));
+          if (kept.length) return kept;
+          // si solo hay 1 perro guardado, lo auto-seleccionamos
           if (activos.length === 1) {
-            const p = activos[0];
-            const pid = getDogId(p);
-            setPerroIds(pid ? [pid] : []);
-            setPerro({
-              id: pid,
-              nombre: p.nombre,
-              edad: '',
-              razaTamaño: p.raza || p.razaTamaño || '',
-              nacimiento: p.nacimiento || '',
-              castrado: !!p.castrado,
-              observaciones: p.notas || ''
-            });
-          } else {
-            setPerroIds([]);
-            setPerro(EMPTY_PERRO);
+            const onlyId = getDogId(activos[0]);
+            return onlyId ? [onlyId] : [];
           }
-        } else {
-          setDogMode('new');
-          setPerroIds([]);
-          setPerro(EMPTY_PERRO);
-        }
+          return [];
+        });
+
+        setShowNewDogForm(activos.length === 0);
       } catch (e) {
         console.error('Error cargando perros', e);
         setPerros([]);
-        setDogMode('new');
         setPerroIds([]);
-        setPerro(EMPTY_PERRO);
+        setShowNewDogForm(true);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -423,9 +384,11 @@ export default function Contratar() {
 
       setPerros((prev) => [...prev, createdItem]);
 
-      // ✅ seleccionar el creado
-      setDogMode('existing');
-      if (createdId) setPerroId(createdId);
+      // ✅ seleccionar el creado sin perder selección previa
+      if (createdId) {
+        setPerroIds((prev) => Array.from(new Set([...(Array.isArray(prev) ? prev : []), createdId])));
+      }
+      setShowNewDogForm(false);
 
       // limpiar formulario
       setNuevoPerro({
@@ -435,6 +398,8 @@ export default function Contratar() {
         castrado: false,
         observaciones: ''
       });
+
+      // si había un perro "no guardado" de esta reserva, lo mantenemos (no lo tocamos)
 
       const name = String(createdItem?.nombre || '').trim();
       setDogMsg(name ? `✅ ${name} añadido a tu perfil.` : '✅ Perro añadido a tu perfil.');
@@ -456,24 +421,50 @@ export default function Contratar() {
       return;
     }
 
-    setPerro({
+    setPerroNoGuardado({
       id: '',
       nombre: nuevoPerro.nombre.trim(),
-      edad: '',
-      razaTamaño: nuevoPerro.razaTamaño,
-      nacimiento: nuevoPerro.nacimiento,
+      razaTamaño: String(nuevoPerro.razaTamaño || '').trim(),
+      nacimiento: String(nuevoPerro.nacimiento || '').trim(),
       castrado: !!nuevoPerro.castrado,
-      observaciones: nuevoPerro.observaciones
+      observaciones: String(nuevoPerro.observaciones || '').trim()
     });
 
     setStep(3);
   };
 
-  const canContinueExistingDog = useMemo(() => {
-    if (perros.length === 0) return false;
-    if (perros.length === 1) return !!perro?.nombre?.trim();
-    return !!perroId && !!perro?.nombre?.trim();
-  }, [perros.length, perroId, perro?.nombre]);
+  const perrosParaReserva = useMemo(() => {
+    const base = (Array.isArray(perrosSeleccionados) ? perrosSeleccionados : []).map((p) => ({
+      id: getDogId(p) || '',
+      nombre: String(p?.nombre || '').trim(),
+      razaTamaño: String(p?.raza || p?.razaTamaño || '').trim(),
+      nacimiento: String(p?.nacimiento || '').trim(),
+      castrado: !!p?.castrado,
+      observaciones: String(p?.notas || p?.observaciones || '').trim()
+    }));
+
+    const extra = perroNoGuardado && String(perroNoGuardado?.nombre || '').trim()
+      ? [{
+          id: '',
+          nombre: String(perroNoGuardado.nombre || '').trim(),
+          razaTamaño: String(perroNoGuardado.razaTamaño || '').trim(),
+          nacimiento: String(perroNoGuardado.nacimiento || '').trim(),
+          castrado: !!perroNoGuardado.castrado,
+          observaciones: String(perroNoGuardado.observaciones || '').trim()
+        }]
+      : [];
+
+    // dedupe por (id) cuando exista
+    const seen = new Set();
+    const out = [];
+    for (const d of [...base, ...extra]) {
+      const key = d.id ? `id:${d.id}` : `name:${d.nombre.toLowerCase()}|${d.razaTamaño.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (d.nombre) out.push(d);
+    }
+    return out;
+  }, [perrosSeleccionados, perroNoGuardado]);
 
   /* =====================================================
          CONTACTO
@@ -516,7 +507,7 @@ export default function Contratar() {
 
   const telefonoValido = contacto.telefono.trim().length >= 6;
   const direccionValida = !domicilio || contacto.direccion.trim().length > 5;
-  const perroValido = String(perro?.nombre || '').trim().length > 0;
+  const perroValido = Array.isArray(perrosParaReserva) && perrosParaReserva.length > 0;
 
   /* =====================================================
          CONFIRMAR RESERVA
@@ -529,7 +520,7 @@ export default function Contratar() {
 
     if (!authReady) return setMsg('Cargando sesión…');
     if (!telefonoValido) return setMsg('Indica un teléfono válido.');
-    if (!perroValido) return setMsg('El perro necesita nombre.');
+    if (!perroValido) return setMsg('Selecciona al menos un perro.');
     if (domicilio && !direccionValida) return setMsg('Indica dirección para modalidad a domicilio.');
 
     if (!hasAnyEligibleTrainer) {
@@ -541,19 +532,19 @@ export default function Contratar() {
     try {
       let perroToSend = null;
       try {
-        const arr = dogMode === 'existing' ? perrosSeleccionados : perro ? [perro] : [];
+        const arr = Array.isArray(perrosParaReserva) ? perrosParaReserva : [];
         perroToSend = arr.length
           ? JSON.stringify(
               arr.map((p) => ({
-                id: getDogId(p),
-                nombre: p.nombre,
-                raza: p.raza || p.razaTamaño,
-                nacimiento: p.nacimiento || null
+                id: String(p.id || '').trim(),
+                nombre: String(p.nombre || '').trim(),
+                raza: String(p.razaTamaño || '').trim(),
+                nacimiento: p.nacimiento ? String(p.nacimiento) : null
               }))
             )
           : null;
       } catch {
-        perroToSend = perro?.nombre ? String(perro.nombre) : null;
+        perroToSend = null;
       }
 
       const payload = {
@@ -811,27 +802,26 @@ export default function Contratar() {
         <section>
           <h2>3) Datos del perro</h2>
 
-          {perros.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <p style={{ margin: '8px 0' }}>¿Para qué perro es la reserva?</p>
+          {perros.length > 0 ? (
+            <>
+              <p style={{ margin: '8px 0' }}>Elige uno o varios perros para esta reserva:</p>
 
               <div className="dog-choice-list">
                 {perros.map((p) => {
                   const pid = getDogId(p);
-                  const name = String(p.nombre || '').trim() || 'Perro';
-                  const raza = String(p.raza || p.razaTamaño || '').trim();
+                  const name = String(p?.nombre || '').trim() || 'Perro';
+                  const raza = String(p?.raza || p?.razaTamaño || '').trim();
+                  const checked = (Array.isArray(perroIds) ? perroIds : []).includes(pid);
 
                   return (
                     <label key={pid || name} className="dog-choice">
                       <input
-                        type="radio"
-                        name="dogPick"
+                        type="checkbox"
                         value={pid}
-                        checked={dogMode === 'existing' && perroId === pid}
+                        checked={!!pid && checked}
                         onChange={() => {
-                          setDogMode('existing');
                           setDogMsg('');
-                          setPerroId(pid);
+                          togglePerroId(pid);
                         }}
                       />
                       <span>
@@ -841,63 +831,62 @@ export default function Contratar() {
                     </label>
                   );
                 })}
-
-                <label className="dog-choice">
-                  <input
-                    type="radio"
-                    name="dogPick"
-                    value="__new"
-                    checked={dogMode === 'new'}
-                    onChange={() => {
-                      setDogMode('new');
-                      setDogMsg('');
-                    }}
-                  />
-                  <span>Añadir un perro nuevo</span>
-                </label>
               </div>
+
+              {perrosSeleccionados.length === 0 && (
+                <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>Selecciona al menos un perro o añade uno nuevo.</p>
+              )}
+            </>
+          ) : (
+            <p>No tienes perros guardados. Puedes añadir uno nuevo o continuar sin guardarlo.</p>
+          )}
+
+          {/* Resumen de selección */}
+          {perrosParaReserva.length > 0 && (
+            <div style={{ marginTop: 10, fontSize: 13, opacity: 0.95 }}>
+              <b>En esta reserva:</b>{' '}
+              {perrosParaReserva
+                .map((d) => {
+                  const name = String(d?.nombre || '').trim();
+                  const raza = String(d?.razaTamaño || '').trim();
+                  return raza ? `${name} (${raza})` : name;
+                })
+                .filter(Boolean)
+                .join(', ')}
             </div>
           )}
 
-          {/* ====== MODO EXISTING ====== */}
-          {dogMode === 'existing' && perros.length > 0 && (
+          {/* Añadir perro nuevo */}
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setDogMsg('');
+                setShowNewDogForm((v) => !v);
+              }}
+            >
+              {showNewDogForm ? 'Ocultar formulario de perro nuevo' : 'Añadir perro nuevo'}
+            </button>
+
+            {perroNoGuardado && (
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ marginLeft: 8 }}
+                onClick={() => setPerroNoGuardado(null)}
+                title="Quitar el perro no guardado de esta reserva"
+              >
+                Quitar perro no guardado
+              </button>
+            )}
+          </div>
+
+          {showNewDogForm && (
             <>
-              {!perroId && perros.length > 1 && (
-                <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>Selecciona un perro para continuar.</p>
-              )}
-
-              {perroId && (
-                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
-                  <div>
-                    <b>Perro:</b> {perro.nombre}
-                    {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
-                    {perro.castrado ? ' · castrado' : ''}
-                  </div>
-                  {perro.observaciones && (
-                    <div style={{ marginTop: 4 }}>
-                      <b>Observaciones:</b> {perro.observaciones}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="actions" style={{ marginTop: 10 }}>
-                <button onClick={atras}>Atrás</button>
-                <button className="btn-primary" disabled={!canContinueExistingDog} onClick={() => setStep(3)}>
-                  Continuar
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* ====== MODO NEW ====== */}
-          {(dogMode === 'new' || perros.length === 0) && (
-            <>
-              {perros.length === 0 ? (
-                <p>No tienes perros guardados. Puedes añadir uno nuevo o continuar sin guardarlo.</p>
-              ) : (
-                <p>Añade un perro nuevo para esta reserva (opcionalmente guardándolo en tu perfil).</p>
-              )}
+              <p style={{ marginTop: 10 }}>
+                Puedes guardar el perro en tu perfil y seleccionarlo junto con otros, o continuar sin guardarlo.
+              </p>
 
               <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
                 <label>
@@ -942,21 +931,39 @@ export default function Contratar() {
                     const created = await crearPerro();
                     if (created) setStep(3);
                   }}
-                  title="Guarda el perro en tu perfil y continúa"
+                  title="Guarda el perro en tu perfil, lo añade a la selección y continúa"
                 >
-                  {savingDog ? 'Guardando…' : 'Guardar y continuar'}
+                  {savingDog ? 'Guardando…' : 'Guardar en perfil y continuar'}
                 </button>
 
                 <button
                   className="btn-secondary"
                   disabled={!canContinueNewDogWithoutSaving}
                   onClick={continuarSinGuardarPerro}
-                  title="Continuar sin guardar el perro en tu perfil"
+                  title="Continuar sin guardar el perro en tu perfil (se incluirá en esta reserva)"
                 >
                   Continuar sin guardar
                 </button>
+
+                <button
+                  className="btn-ghost"
+                  disabled={perrosSeleccionados.length === 0 && !perroNoGuardado}
+                  onClick={() => setStep(3)}
+                  title="Continuar usando la selección actual"
+                >
+                  Continuar con selección
+                </button>
               </div>
             </>
+          )}
+
+          {!showNewDogForm && (
+            <div className="actions" style={{ marginTop: 12 }}>
+              <button onClick={atras}>Atrás</button>
+              <button className="btn-primary" disabled={perrosSeleccionados.length === 0 && !perroNoGuardado} onClick={() => setStep(3)}>
+                Continuar
+              </button>
+            </div>
           )}
         </section>
       )}
@@ -1070,9 +1077,17 @@ export default function Contratar() {
                 <b>Precio:</b> {formatEUR(servicioSel.price, servicioSel.currency)}
               </div>
               <div>
-                <b>Perro:</b> {perro.nombre}
-                {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
-                {perro.castrado ? ' · castrado' : ''}
+                <b>Perro(s):</b>{' '}
+                {perrosParaReserva.length
+                  ? perrosParaReserva
+                      .map((d) => {
+                        const name = String(d?.nombre || '').trim();
+                        const raza = String(d?.razaTamaño || '').trim();
+                        return raza ? `${name} (${raza})` : name;
+                      })
+                      .filter(Boolean)
+                      .join(', ')
+                  : '—'}
               </div>
               {contacto.telefono && (
                 <div>

@@ -19,6 +19,28 @@ function statusLabel(status) {
   return s || "Estado";
 }
 
+function perrosTexto(perroField) {
+  if (!perroField) return "";
+  try {
+    const j = typeof perroField === "string" ? JSON.parse(perroField) : perroField;
+    const arr = Array.isArray(j) ? j : j && typeof j === "object" ? [j] : [];
+    const names = arr
+      .map((p) => p?.nombre || p?.name || p?.titulo || p)
+      .filter(Boolean)
+      .map((x) => String(x).trim())
+      .filter(Boolean);
+    const uniq = Array.from(new Set(names));
+    return uniq.join(", ");
+  } catch {
+    // fallback: string plano (por si viene "Ainhoa,Tobi")
+    const s = String(perroField || "")
+      .split(",")
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set(s)).join(", ");
+  }
+}
+
 export default function TrainerAgenda() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -31,6 +53,9 @@ export default function TrainerAgenda() {
 
   const [clientes, setClientes] = useState([]);
   const [clienteId, setClienteId] = useState("");
+
+  // Perros del cliente seleccionado (selección múltiple)
+  const [perroIds, setPerroIds] = useState([]);
 
   const [servicios, setServicios] = useState([]);
   const [servicioId, setServicioId] = useState("");
@@ -110,6 +135,42 @@ const [notesError, setNotesError] = useState("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const clienteSel = useMemo(() => {
+    const cid = String(clienteId || "");
+    if (!cid) return null;
+    return (Array.isArray(clientes) ? clientes : []).find((c) => String(c?.id || "") === cid) || null;
+  }, [clientes, clienteId]);
+
+  const perrosCliente = useMemo(() => {
+    const arr = clienteSel?.perros;
+    return Array.isArray(arr) ? arr : [];
+  }, [clienteSel]);
+
+  const togglePerroId = (id) => {
+    const pid = String(id || "").trim();
+    if (!pid) return;
+    setPerroIds((prev) => {
+      const base = Array.isArray(prev) ? prev.map((x) => String(x || "").trim()).filter(Boolean) : [];
+      const has = base.includes(pid);
+      return has ? base.filter((x) => x !== pid) : Array.from(new Set([...base, pid]));
+    });
+  };
+
+  // Mantener/ajustar selección de perros cuando cambia el cliente
+  useEffect(() => {
+    const alive = new Set(perrosCliente.map((p) => String(p?.id || "")).filter(Boolean));
+    setPerroIds((prev) => {
+      const base = Array.isArray(prev) ? prev.map((x) => String(x || "").trim()).filter(Boolean) : [];
+      const kept = base.filter((x) => alive.has(x));
+      if (kept.length) return kept;
+      if (perrosCliente.length === 1) {
+        const onlyId = String(perrosCliente[0]?.id || "").trim();
+        return onlyId ? [onlyId] : [];
+      }
+      return [];
+    });
+  }, [clienteId, perrosCliente]);
+
   /* ======================== Agenda diaria ============================ */
   const loadAgendaDia = async (f) => {
     if (!f) return;
@@ -185,6 +246,32 @@ const [notesError, setNotesError] = useState("");
       return;
     }
 
+    // Si el cliente tiene perros guardados, exigimos seleccionar al menos uno.
+    const perrosElegidos = (Array.isArray(perrosCliente) ? perrosCliente : []).filter((p) => {
+      const pid = String(p?.id || "").trim();
+      return pid && (Array.isArray(perroIds) ? perroIds : []).includes(pid);
+    });
+    if ((Array.isArray(perrosCliente) ? perrosCliente : []).length && perrosElegidos.length === 0) {
+      showError("Selecciona al menos un perro del cliente.");
+      return;
+    }
+
+    let perroToSend = null;
+    try {
+      perroToSend = perrosElegidos.length
+        ? JSON.stringify(
+            perrosElegidos.map((p) => ({
+              id: String(p?.id || "").trim(),
+              nombre: String(p?.nombre || "").trim(),
+              raza: String(p?.raza || p?.razaTamaño || "").trim(),
+              nacimiento: p?.nacimiento ? String(p.nacimiento) : null,
+            }))
+          )
+        : null;
+    } catch {
+      perroToSend = null;
+    }
+
     if (bloqueosDia.includes(h)) {
       showError("Esa hora está bloqueada. Desbloquéala para poder reservar.");
       return;
@@ -204,10 +291,12 @@ const [notesError, setNotesError] = useState("");
           fecha,
           hora: h,
           modalidad,
-          status: "confirmed",
+          // El cliente debe aceptar la reserva creada por el adiestrador.
+          status: "pending_user",
+          perro: perroToSend,
         },
       });
-      showSuccess("Reserva creada.");
+      showSuccess("Reserva creada. Pendiente de confirmación del cliente.");
       setSelectedHora("");
       await refreshDia(fecha);
       await loadMisReservas();
@@ -375,7 +464,13 @@ const [notesError, setNotesError] = useState("");
   };
 
   const fechaLabel = fecha ? humanDate(fecha) : "";
-  const canCrear = mode === "create" && !!selectedHora && !!clienteId && !!servicioId && !!fecha;
+  const canCrear =
+    mode === "create" &&
+    !!selectedHora &&
+    !!clienteId &&
+    !!servicioId &&
+    !!fecha &&
+    (perrosCliente.length ? (Array.isArray(perroIds) ? perroIds.length > 0 : false) : true);
   async function loadReservaNotes(reservaId) {
   try {
     setNotesLoading(true);
@@ -553,6 +648,48 @@ async function addReservaNote() {
             </div>
           </div>
 
+          {/* Perros del cliente */}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#3b281c", marginBottom: 6 }}>
+              Perros
+            </div>
+
+            {perrosCliente.length ? (
+              <div className="dog-choice-list">
+                {perrosCliente.map((p) => {
+                  const pid = String(p?.id || "").trim();
+                  const name = String(p?.nombre || "").trim() || "Perro";
+                  const raza = String(p?.raza || p?.razaTamaño || "").trim();
+                  const checked = pid && (Array.isArray(perroIds) ? perroIds : []).includes(pid);
+                  return (
+                    <label key={pid || name} className="dog-choice">
+                      <input
+                        type="checkbox"
+                        value={pid}
+                        checked={!!checked}
+                        onChange={() => togglePerroId(pid)}
+                      />
+                      <span>
+                        <b>{name}</b>
+                        {raza ? ` · ${raza}` : ""}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                Este cliente no tiene perros guardados.
+              </div>
+            )}
+
+            {perrosCliente.length > 0 && (Array.isArray(perroIds) ? perroIds.length === 0 : true) && (
+              <div style={{ fontSize: 12, color: "#9c1b1b", marginTop: 6 }}>
+                Selecciona al menos un perro para crear la reserva.
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
             <button
               type="button"
@@ -641,8 +778,9 @@ async function addReservaNote() {
               const sKeyRaw = statusCanon || String(r.status || "").toLowerCase();
               const sKey = sKeyRaw.replaceAll("_", "-");
               const badgeCls = `badge badge-${sKey}`;
-              const cliente = r.clienteNombre || r.clienteEmail || "Cliente";
+              const cliente = r.clienteNombre || r.clienteEmail || r.email || "Cliente";
               const servicio = getServicioTitulo(r);
+              const perros = perrosTexto(r.perro);
 
               return (
                 <div
@@ -661,7 +799,8 @@ async function addReservaNote() {
                         {r.hora} · {servicio}
                       </div>
                       <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
-                        {cliente} · {r.modalidad || "presencial"}
+                        {cliente}
+                        {perros ? ` · Perros: ${perros}` : ""} · {r.modalidad || "presencial"}
                       </div>
                     </div>
                     <span className={badgeCls}>{statusLabel(r.status)}</span>
@@ -830,6 +969,7 @@ async function addReservaNote() {
                 const statusCanon = canonStatus(r.status || "");
                 const badgeRaw = (statusCanon || String(r.status || "").toLowerCase()).replaceAll("_", "-");
                 const badgeCls = `badge badge-${badgeRaw}`;
+                const perros = perrosTexto(r.perro);
                 return (
                   <div
                     key={r.id}
@@ -847,7 +987,7 @@ async function addReservaNote() {
                           {r.fecha} · {r.hora} · {getServicioTitulo(r)}
                         </div>
                         <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
-                          {r.email || "—"}
+                          {r.email || "—"}{perros ? ` · Perros: ${perros}` : ""}
                         </div>
                       </div>
                       <span className={badgeCls}>{statusLabel(r.status)}</span>

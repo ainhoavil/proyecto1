@@ -122,6 +122,76 @@ async function tx(run) {
   }
 }
 
+/* ===================== Bloqueos / disponibilidad por adiestrador ===================== */
+let _bloqueosHasTrainerId = null;
+
+async function bloqueosHasTrainerIdColumn() {
+  if (_bloqueosHasTrainerId !== null) return _bloqueosHasTrainerId;
+  try {
+    const cols = await query(`PRAGMA table_info(bloqueos)`);
+    _bloqueosHasTrainerId = (cols || []).some(
+      (c) => String(c?.name || "").toLowerCase() === "trainer_id"
+    );
+  } catch {
+    _bloqueosHasTrainerId = false;
+  }
+  return _bloqueosHasTrainerId;
+}
+
+async function isTrainerAvailableForSlot({ trainerId, fecha, hora, durationMin = 60, excludeReservaId = null }) {
+  const tid = String(trainerId || "").trim();
+  if (!tid || !fecha || !hora) return true;
+
+  // Reservas solapadas del mismo trainer
+  const params = [String(fecha), tid];
+  let whereExclude = "";
+  if (excludeReservaId) {
+    whereExclude = " AND id <> ?";
+    params.push(String(excludeReservaId));
+  }
+
+  const reservas = await query(
+    `SELECT id, hora, COALESCE(duration_min,60) AS durationMin
+       FROM reservas
+      WHERE fecha = ?
+        AND trainer_id = ?
+        AND status IN ('pending','pending_user','confirmed')
+        ${whereExclude}`,
+    params
+  );
+
+  for (const r of reservas || []) {
+    if (overlaps(String(hora), Number(durationMin || 60), String(r.hora), Number(r.durationMin || 60))) {
+      return false;
+    }
+  }
+
+  // Bloqueos (globales o por trainer)
+  const hasTrainerCol = await bloqueosHasTrainerIdColumn();
+  if (hasTrainerCol) {
+    const bloqueos = await query(
+      `SELECT hora, trainer_id AS trainerId
+         FROM bloqueos
+        WHERE fecha = ?`,
+      [String(fecha)]
+    );
+    for (const b of bloqueos || []) {
+      const bt = String(b?.trainerId || "").trim();
+      const isGlobal = !bt;
+      if (isGlobal || bt === tid) {
+        if (overlaps(String(hora), Number(durationMin || 60), String(b.hora), 60)) return false;
+      }
+    }
+  } else {
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [String(fecha)]);
+    for (const b of bloqueos || []) {
+      if (overlaps(String(hora), Number(durationMin || 60), String(b.hora), 60)) return false;
+    }
+  }
+
+  return true;
+}
+
 /* ===================== Permisos notas hilo ===================== */
 async function canSeeReservation(req, reservaId) {
   const r = (
@@ -229,25 +299,37 @@ async function validateTrainerExistsAndIsTrainer(trainerId) {
 async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
   const reqT = trainerId == null ? "" : String(trainerId).trim();
 
-  const eligible = await getEligibleTrainers({ servicioId, modalidad });
+  // Si el usuario no elige adiestrador (o marca "cualquiera"),
+  // dejamos la reserva SIN adiestrador asignado para que el admin lo adjudique.
+  if (!reqT || reqT === "any") return null;
 
-  if (reqT && reqT !== "any") {
+  if (reqT) {
     const okTrainer = await validateTrainerExistsAndIsTrainer(reqT);
     if (!okTrainer) {
       const err = new Error("Trainer inválido");
       err.statusCode = 400;
       throw err;
     }
+
+    // (Opcional) si hay filtros de servicio/modalidad, validamos compatibilidad.
+    try {
+      const eligible = await getEligibleTrainers({ servicioId, modalidad });
+      if (Array.isArray(eligible) && eligible.length) {
+        const okEligible = eligible.some((t) => String(t?.id || "") === String(reqT));
+        if (!okEligible) {
+          const err = new Error("Trainer no compatible con el servicio/modalidad");
+          err.statusCode = 400;
+          throw err;
+        }
+      }
+    } catch {
+      // si no podemos validar elegibilidad por esquema, no bloqueamos
+    }
+
     return reqT;
   }
 
-  const chosen = pickRandomTrainer(eligible);
-  if (!chosen) {
-    const err = new Error("No hay adiestradores disponibles");
-    err.statusCode = 409;
-    throw err;
-  }
-  return chosen.id;
+  return null;
 }
 
 /* ===================== Disponibilidad ===================== */
@@ -384,6 +466,22 @@ router.post("/", verifyToken, async (req, res) => {
     }
 
     const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
+
+    // Si se asigna un adiestrador, validamos que esté disponible en esa franja.
+    if (trainerIdFinal) {
+      const ok = await isTrainerAvailableForSlot({
+        trainerId: trainerIdFinal,
+        fecha: r.fecha,
+        hora: r.hora,
+        durationMin: r.durationMin || 60,
+        excludeReservaId: id,
+      });
+      if (!ok) {
+        const err = new Error("Adiestrador no disponible en esa franja");
+        err.statusCode = 409;
+        throw err;
+      }
+    }
 
     const id = uuidv4();
     const ts = nowISO();
@@ -593,7 +691,7 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
          user_note, admin_note,
          trainer_id,
          created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         null,
@@ -1252,7 +1350,12 @@ router.patch("/:id/trainer", verifyToken, requireAdmin, async (req, res) => {
 
     const r = (
       await query(
-        `SELECT id, servicio_id AS servicioId, modalidad
+        `SELECT id,
+                servicio_id AS servicioId,
+                modalidad,
+                fecha,
+                hora,
+                COALESCE(duration_min,60) AS durationMin
            FROM reservas
           WHERE id=? LIMIT 1`,
         [id]
@@ -1265,6 +1368,22 @@ router.patch("/:id/trainer", verifyToken, requireAdmin, async (req, res) => {
     const modalidad = mode ?? r.modalidad;
 
     const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
+
+    // Si se asigna un trainer, aseguramos que está disponible para esa franja.
+    if (trainerIdFinal) {
+      const ok = await isTrainerAvailableForSlot({
+        trainerId: trainerIdFinal,
+        fecha: r.fecha,
+        hora: r.hora,
+        durationMin: r.durationMin || 60,
+        excludeReservaId: id,
+      });
+      if (!ok) {
+        const err = new Error("Adiestrador no disponible para esa fecha/hora");
+        err.statusCode = 409;
+        throw err;
+      }
+    }
 
     await query(`UPDATE reservas SET trainer_id=?, updated_at=? WHERE id=?`, [
       trainerIdFinal,
