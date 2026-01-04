@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { http } from '../helpers/http';
 import { useAuth } from '../context/auth';
+import { useUi } from '../context/ui';
 
 // ✅ Reservas admin unificadas dentro del panel /admin
 import ReservasAdmin from './reservas/reservasAdmin.jsx';
@@ -48,6 +49,7 @@ const normalizeTab = (t) => {
 /* ==================== COMPONENTE PRINCIPAL ==================== */
 export default function Admin() {
   const navigate = useNavigate();
+  const ui = useUi();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, role, loading } = useAuth();
 
@@ -164,7 +166,13 @@ function UsersTab() {
   }, []);
 
   const changeRole = async (uid, newRole) => {
-    if (!window.confirm(`¿Cambiar rol a ${newRole}?`)) return;
+    const ok = await ui.confirm({
+      title: 'Cambiar rol',
+      message: `¿Cambiar rol a ${newRole}?`,
+      confirmText: 'Cambiar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
     try {
       await http('/api/auth/role', {
         method: 'POST',
@@ -173,7 +181,7 @@ function UsersTab() {
       });
       loadUsers();
     } catch (e) {
-      alert('Error cambiando rol');
+      ui.notify({ type: 'error', message: 'Error cambiando rol.' });
     }
   };
 
@@ -191,12 +199,19 @@ function UsersTab() {
   };
 
   const deleteUser = async (uid) => {
-    if (!window.confirm('⚠️ ¿ELIMINAR usuario y todos sus datos?')) return;
+    const ok = await ui.confirm({
+      title: 'Eliminar usuario',
+      message: '⚠️ ¿ELIMINAR usuario y todos sus datos?',
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await http(`/api/auth/users/${uid}`, { method: 'DELETE', auth: true });
       loadUsers();
     } catch (e) {
-      alert('Error eliminando usuario');
+      ui.notify({ type: 'error', message: 'Error eliminando usuario.' });
     }
   };
 
@@ -390,12 +405,19 @@ function ServiciosTab() {
       refresh();
       setNuevo({ title: '', short: '', price: '', duration: '', mode: '' });
     } catch {
-      alert('Error creando servicio');
+      ui.notify({ type: 'error', message: 'Error creando servicio.' });
     }
   };
 
   const borrar = async (id) => {
-    if (window.confirm('¿Borrar?')) {
+    const ok = await ui.confirm({
+      title: 'Borrar',
+      message: '¿Borrar?',
+      confirmText: 'Borrar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (ok) {
       await http(`/api/servicios/${id}`, { method: 'DELETE', auth: true });
       refresh();
     }
@@ -600,7 +622,7 @@ function AdiestradoresTab() {
     } catch (e) {
       console.error(e);
       const msg = e?.data?.error || e?.data?.message || e?.message || 'Error guardando el perfil del adiestrador';
-      alert(msg);
+      ui.notify({ type: 'error', message: msg });
     }
   };
 

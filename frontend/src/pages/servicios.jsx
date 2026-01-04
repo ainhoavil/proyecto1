@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import '../styles/servicios.scss';
 import { useAuth } from '../context/auth';
 import { http } from '../helpers/http';
+import { useUi } from '../context/ui';
 import { useState as useStateReact } from 'react';
 
 // Base del backend para construir URLs absolutas (imágenes / archivos)
@@ -133,6 +134,7 @@ export default function Servicios({ embedded = false } = {}) {
   const [saving, setSaving] = useState(false);
 
   const navigate = useNavigate();
+  const ui = useUi();
   const { isAuthenticated, role } = useAuth();
 
   const esAdmin = role === 'admin';
@@ -303,14 +305,21 @@ export default function Servicios({ embedded = false } = {}) {
         prev && prev.id === id ? { ...prev, ...payload } : prev
       );
     } catch (e) {
-      alert(e?.data?.error || e?.data?.message || 'No se pudo guardar');
+      ui.notify({ type: 'error', message: e?.data?.error || e?.data?.message || 'No se pudo guardar' });
     } finally {
       setSaving(false);
     }
   };
 
   const borrarServicio = async (id) => {
-    if (!window.confirm('¿Borrar este servicio?')) return;
+    const ok = await ui.confirm({
+      title: 'Borrar servicio',
+      message: '¿Borrar este servicio?',
+      confirmText: 'Borrar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     setSaving(true);
 
     try {
@@ -322,7 +331,7 @@ export default function Servicios({ embedded = false } = {}) {
       cerrar();
       await refresh();
     } catch (e) {
-      alert(e?.data?.error || e?.data?.message || 'No se pudo borrar');
+      ui.notify({ type: 'error', message: e?.data?.error || e?.data?.message || 'No se pudo borrar' });
     } finally {
       setSaving(false);
     }
@@ -751,7 +760,14 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
       return;
     }
 
-    if (!window.confirm('¿Eliminar la imagen de este servicio?')) return;
+    const ok = await ui.confirm({
+      title: 'Eliminar imagen',
+      message: '¿Eliminar la imagen de este servicio?',
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
 
     setMsg('');
     setWorkingImg(true);

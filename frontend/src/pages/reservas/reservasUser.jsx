@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../../helpers/http";
+import { useUi } from "../../context/ui";
 import { useAuth } from "../../context/auth";
 import "../../styles/contratar.scss"; // reutilizamos estilos de botones / card
 
@@ -295,6 +296,7 @@ function ReservaCard({
 export default function ReservasUser() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const ui = useUi();
 
   const [reservas, setReservas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -352,7 +354,7 @@ export default function ReservasUser() {
 
       const conversationId = resp?.conversationId || resp?.id;
       if (!conversationId) {
-        alert("No se pudo abrir el chat (no se recibió conversationId).");
+        ui.notify({ type: 'error', message: 'No se pudo abrir el chat (no se recibió conversationId).' });
         return;
       }
 
@@ -364,7 +366,7 @@ export default function ReservasUser() {
         e?.responseData?.error ||
         e?.message ||
         "No se pudo abrir el chat para esta reserva.";
-      alert(msg);
+      ui.notify({ type: 'error', message: msg });
     } finally {
       setOpeningChatId(null);
     }
@@ -454,7 +456,14 @@ export default function ReservasUser() {
 
   // cancelar reserva
   const handleCancel = async (r) => {
-    if (!window.confirm(`¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`)) return;
+    const ok = await ui.confirm({
+      title: 'Cancelar reserva',
+      message: `¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`,
+      confirmText: 'Cancelar',
+      cancelText: 'Volver',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await http(`/api/reservas/${r.id}/cancel`, {
         method: "PATCH",
@@ -464,14 +473,21 @@ export default function ReservasUser() {
       await cargarReservas();
     } catch (e) {
       console.error("Error cancelando reserva", e);
-      alert("No se pudo cancelar la reserva.");
+      ui.notify({ type: 'error', message: 'No se pudo cancelar la reserva.' });
     }
   };
 
   // aceptar / rechazar cuando está en pending_user
   const handleUserDecision = async (r, action) => {
     const verb = action === "confirm" ? "aceptar" : "rechazar";
-    if (!window.confirm(`¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`)) {
+    const ok = await ui.confirm({
+      title: 'Confirmar acción',
+      message: `¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`,
+      confirmText: 'Sí',
+      cancelText: 'No',
+      danger: verb === 'cancelar',
+    });
+    if (!ok) {
       return;
     }
     try {
@@ -483,7 +499,7 @@ export default function ReservasUser() {
       await cargarReservas();
     } catch (e) {
       console.error("Error actualizando reserva (user-confirm)", e);
-      alert("No se pudo actualizar la reserva.");
+      ui.notify({ type: 'error', message: 'No se pudo actualizar la reserva.' });
     }
   };
 
@@ -529,13 +545,20 @@ export default function ReservasUser() {
       await loadNotes({ id: openNotesId });
     } catch (e) {
       console.error("Error guardando nota", e);
-      alert("No se pudo guardar la nota (revisa qué campo espera el backend).");
+      ui.notify({ type: 'error', message: 'No se pudo guardar la nota (revisa qué campo espera el backend).' });
     }
   };
 
   const handleDeleteNote = async (noteId) => {
     if (!openNotesId) return;
-    if (!window.confirm("¿Eliminar esta nota?")) return;
+    const ok = await ui.confirm({
+      title: 'Eliminar nota',
+      message: '¿Eliminar esta nota?',
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await http(`/api/reservas/${openNotesId}/notes/${noteId}`, {
         method: "DELETE",
@@ -544,7 +567,7 @@ export default function ReservasUser() {
       await loadNotes({ id: openNotesId });
     } catch (e) {
       console.error("Error eliminando nota", e);
-      alert("No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).");
+      ui.notify({ type: 'error', message: 'No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).' });
     }
   };
 

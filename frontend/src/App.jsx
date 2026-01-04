@@ -8,6 +8,7 @@ import Footer from "./components/Footer";
 
 // Contextos
 import { AuthProvider } from "./context/auth";
+import { UiProvider } from "./context/ui";
 
 // Rutas protegidas
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -70,7 +71,8 @@ export default function App() {
     location.pathname.startsWith("/reset-password");
 
   return (
-    <AuthProvider>
+    <UiProvider>
+      <AuthProvider>
       <Topbar />
       <Navbar />
 
@@ -189,5 +191,6 @@ export default function App() {
 
       <Footer />
     </AuthProvider>
+    </UiProvider>
   );
 }

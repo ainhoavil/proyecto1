@@ -31,6 +31,8 @@ function addMinutes(hhmm, mins) {
   return `${hh}:${mm}`;
 }
 const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
+
+const getDogId = (p) => String(p?.id ?? p?.uid ?? p?._id ?? '').trim();
 /* ====================================================== */
 
 const EMPTY_PERRO = {
@@ -48,7 +50,7 @@ export default function Contratar() {
   const location = useLocation();
   const [params] = useSearchParams();
 
-  const { isAuthenticated, user, role, loading } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
   const authReady = !loading && isAuthenticated;
   const userEmail = (user?.email || '').trim();
 
@@ -58,8 +60,6 @@ export default function Contratar() {
   useEffect(() => {
     if (loading) return;
     if (!isAuthenticated) {
-      // Importante: conservar TODOS los query params al forzar login
-      // (por ejemplo trainerId preseleccionado).
       const next = `${location.pathname}${location.search || ''}` || '/contratar';
       navigate(`/login?next=${encodeURIComponent(next)}`, { replace: true });
     }
@@ -74,10 +74,7 @@ export default function Contratar() {
       setCargando(true);
       try {
         const list = await http('/api/servicios');
-        const arr = Array.isArray(list)
-          ? list
-          : list?.items || list?.servicios || [];
-
+        const arr = Array.isArray(list) ? list : list?.items || list?.servicios || [];
         arr.sort((a, b) => (a?.order ?? 0) - (b?.order ?? 0));
         setServicios(arr);
       } catch (e) {
@@ -133,8 +130,7 @@ export default function Contratar() {
     if (title.includes('básico') || title.includes('basico')) return ['presencial', 'online', 'a domicilio'];
     if (title.includes('paseo')) return ['presencial', 'a domicilio'];
 
-    if (Array.isArray(servicioSel.modalities) && servicioSel.modalities.length)
-      return servicioSel.modalities;
+    if (Array.isArray(servicioSel.modalities) && servicioSel.modalities.length) return servicioSel.modalities;
 
     const fromMode = String(servicioSel.mode || '').toLowerCase();
     const set = new Set();
@@ -158,7 +154,8 @@ export default function Contratar() {
     if (!allowedModalities.includes(modalidad)) {
       setModalidad(allowedModalities[0]);
     }
-  }, [allowedModalities, modalidadParam]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedModalities, modalidadParam]);
 
   /* ===== wizard ===== */
   const [step, setStep] = useState(servicioParam ? 1 : 0);
@@ -166,13 +163,10 @@ export default function Contratar() {
 
   /* =====================================================
          ADIESTRADORES COMPATIBLES
-         (Block A: preselección desde /contratar?trainerId=...)
   ====================================================== */
   const [trainers, setTrainers] = useState([]);
   const [loadingTrainers, setLoadingTrainers] = useState(false);
 
-  // ✅ Si vienes desde un perfil público de adiestrador (/contratar?trainerId=...),
-  // dejamos el adiestrador preseleccionado.
   const [trainerChoice, setTrainerChoice] = useState(() => {
     const tid = String(trainerParam || '').trim();
     return tid ? tid : 'any';
@@ -200,7 +194,6 @@ export default function Contratar() {
       const arr = Array.isArray(data) ? data : data?.items || [];
       setTrainers(arr);
 
-      // Si tenía elegido uno y ya no está, volver a any
       if (trainerChoice !== 'any') {
         const ok = arr.some((t) => getTrainerId(t) === String(trainerChoice));
         if (!ok) {
@@ -242,9 +235,7 @@ export default function Contratar() {
   /* =====================================================
         CALENDARIO + DISPONIBILIDAD
   ====================================================== */
-  const [mesBase, setMesBase] = useState(
-    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-  );
+  const [mesBase, setMesBase] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [fecha, setFecha] = useState(todayYMD());
   const [hora, setHora] = useState('');
   const [horasLibres, setHorasLibres] = useState([]);
@@ -257,7 +248,6 @@ export default function Contratar() {
         durationMin: String(durationMin)
       });
 
-      // si el usuario eligió un trainer concreto, filtrar disponibilidad por trainer
       if (trainerChoice && trainerChoice !== 'any') {
         qs.set('trainerId', String(trainerChoice));
       }
@@ -289,15 +279,15 @@ export default function Contratar() {
   };
 
   /* =====================================================
-         PERROS — GET /perros
-         Requisito adicional: si ya tiene perros, poder reservar para uno existente
-         o añadir uno nuevo desde el flujo.
+         PERROS
   ====================================================== */
   const [perros, setPerros] = useState([]);
   const [perroIds, setPerroIds] = useState([]);
 
-  // 'existing' -> reservar para perro registrado
-  // 'new'      -> reservar añadiendo perro nuevo (disponible incluso si ya hay perros)
+  // ✅ perroId (single) derivado (tu UI es radio -> 1 perro)
+  const perroId = useMemo(() => (Array.isArray(perroIds) && perroIds.length ? String(perroIds[0] || '').trim() : ''), [perroIds]);
+
+  // 'existing' | 'new'
   const [dogMode, setDogMode] = useState('new');
 
   const [nuevoPerro, setNuevoPerro] = useState({
@@ -312,45 +302,65 @@ export default function Contratar() {
 
   const [savingDog, setSavingDog] = useState(false);
   const [dogMsg, setDogMsg] = useState('');
-const perrosSeleccionados = useMemo(() => {
-  if (!Array.isArray(perroIds) || !perroIds.length) return [];
-  return perros.filter((p) => perroIds.includes(p.id));
-}, [perroIds, perros]);
 
+  // ✅ wrapper: define setPerroId (evita ReferenceError) + rellena `perro`
+  const setPerroId = (id) => {
+    const pid = String(id || '').trim();
+    if (!pid) {
+      setPerroIds([]);
+      setPerro(EMPTY_PERRO);
+      return;
+    }
+
+    setPerroIds([pid]);
+
+    const found = (Array.isArray(perros) ? perros : []).find((p) => getDogId(p) === pid);
+    if (found) {
+      setPerro({
+        id: pid,
+        nombre: found.nombre || '',
+        edad: '',
+        razaTamaño: found.raza || found.razaTamaño || '',
+        nacimiento: found.nacimiento || '',
+        castrado: !!found.castrado,
+        observaciones: found.notas || found.observaciones || ''
+      });
+    }
+  };
+
+  const perrosSeleccionados = useMemo(() => {
+    if (!Array.isArray(perroIds) || !perroIds.length) return [];
+    const set = new Set(perroIds.map((x) => String(x || '').trim()));
+    return (Array.isArray(perros) ? perros : []).filter((p) => set.has(getDogId(p)));
+  }, [perroIds, perros]);
 
   useEffect(() => {
     (async () => {
       if (!authReady) return;
       try {
         const list = await http('/perros', { auth: true });
-        const arr = Array.isArray(list?.items)
-          ? list.items
-          : Array.isArray(list)
-            ? list
-            : [];
+        const arr = Array.isArray(list?.items) ? list.items : Array.isArray(list) ? list : [];
 
         const activos = arr.filter((p) => !p.archived);
         setPerros(activos);
 
         if (activos.length > 0) {
-          // Por defecto: reservar para un perro existente (más rápido)
           setDogMode('existing');
 
-          // Si hay exactamente 1 perro, lo preseleccionamos (evita clicks extra)
           if (activos.length === 1) {
             const p = activos[0];
-            setPerroIds([p.id]);
+            const pid = getDogId(p);
+            setPerroIds(pid ? [pid] : []);
             setPerro({
-              id: p.id,
+              id: pid,
               nombre: p.nombre,
               edad: '',
-              razaTamaño: p.raza,
+              razaTamaño: p.raza || p.razaTamaño || '',
               nacimiento: p.nacimiento || '',
               castrado: !!p.castrado,
               observaciones: p.notas || ''
             });
           } else {
-            // Con varios perros, no preseleccionamos para evitar errores.
             setPerroIds([]);
             setPerro(EMPTY_PERRO);
           }
@@ -370,9 +380,7 @@ const perrosSeleccionados = useMemo(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady]);
 
-  
   const canSaveNewDog = useMemo(() => {
-    // Backend exige nombre, raza y nacimiento.
     const nombreOk = !!nuevoPerro.nombre.trim();
     const razaOk = !!nuevoPerro.razaTamaño.trim();
     const nacOk = !!String(nuevoPerro.nacimiento || '').trim();
@@ -380,7 +388,6 @@ const perrosSeleccionados = useMemo(() => {
   }, [nuevoPerro.nombre, nuevoPerro.razaTamaño, nuevoPerro.nacimiento]);
 
   const canContinueNewDogWithoutSaving = useMemo(() => {
-    // Para continuar sin guardar en perfil, exigimos al menos un nombre.
     return !!nuevoPerro.nombre.trim();
   }, [nuevoPerro.nombre]);
 
@@ -411,22 +418,14 @@ const perrosSeleccionados = useMemo(() => {
         auth: true
       });
 
-      const createdItem = created?.item || { id: created?.id, ...body };
+      const createdItem = created?.item || created || { id: created?.id, ...body };
+      const createdId = getDogId(createdItem) || String(created?.id || '').trim();
 
       setPerros((prev) => [...prev, createdItem]);
-      setPerroId(createdItem.id || '');
 
-      // Al crear uno nuevo, lo seleccionamos para la reserva
+      // ✅ seleccionar el creado
       setDogMode('existing');
-      setPerro({
-        id: createdItem.id || '',
-        nombre: createdItem.nombre,
-        edad: '',
-        razaTamaño: createdItem.raza,
-        nacimiento: createdItem.nacimiento || body.nacimiento,
-        castrado: !!createdItem.castrado,
-        observaciones: createdItem.notas || body.notas || ''
-      });
+      if (createdId) setPerroId(createdId);
 
       // limpiar formulario
       setNuevoPerro({
@@ -482,11 +481,6 @@ const perrosSeleccionados = useMemo(() => {
   const [contacto, setContacto] = useState({ telefono: '', direccion: '' });
   const domicilio = modalidad === 'a domicilio';
 
-  // =====================================================
-  // PREFILL: si el usuario tiene teléfono/dirección en su perfil,
-  // rellenamos por defecto estos campos.
-  // Importante: NO pisamos lo que el usuario ya haya escrito.
-  // =====================================================
   useEffect(() => {
     if (!authReady) return;
 
@@ -498,12 +492,11 @@ const perrosSeleccionados = useMemo(() => {
         if (cancel) return;
 
         const prof = data?.profile || data || {};
-          const prefix = String(prof.prefix || '').trim();
-          const phone = String(prof.phone || prof.telefono || '').trim();
+        const prefix = String(prof.prefix || '').trim();
+        const phone = String(prof.phone || prof.telefono || '').trim();
         const address = String(prof.address || prof.direccion || '').trim();
 
-          // Solo prefill de teléfono si existe número (evita que se rellene solo el prefijo)
-          const tel = phone ? [prefix, phone].filter(Boolean).join(' ').trim() : '';
+        const tel = phone ? [prefix, phone].filter(Boolean).join(' ').trim() : '';
 
         if (!tel && !address) return;
 
@@ -511,8 +504,8 @@ const perrosSeleccionados = useMemo(() => {
           telefono: String(prev?.telefono || '').trim() ? prev.telefono : tel,
           direccion: String(prev?.direccion || '').trim() ? prev.direccion : address
         }));
-      } catch (e) {
-        // Prefill opcional: si falla, no bloquea el flujo
+      } catch {
+        // optional
       }
     })();
 
@@ -537,8 +530,7 @@ const perrosSeleccionados = useMemo(() => {
     if (!authReady) return setMsg('Cargando sesión…');
     if (!telefonoValido) return setMsg('Indica un teléfono válido.');
     if (!perroValido) return setMsg('El perro necesita nombre.');
-    if (domicilio && !direccionValida)
-      return setMsg('Indica dirección para modalidad a domicilio.');
+    if (domicilio && !direccionValida) return setMsg('Indica dirección para modalidad a domicilio.');
 
     if (!hasAnyEligibleTrainer) {
       return setMsg('❌ No hay adiestradores disponibles para este servicio y modalidad.');
@@ -547,11 +539,19 @@ const perrosSeleccionados = useMemo(() => {
     setGuardando(true);
 
     try {
-      // Guardamos el perro como JSON string (compatible con BD y con reservasUser.jsx que parsea JSON).
       let perroToSend = null;
       try {
         const arr = dogMode === 'existing' ? perrosSeleccionados : perro ? [perro] : [];
-        perroToSend = arr.length ? JSON.stringify(arr.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza || p.razaTamaño, nacimiento: p.nacimiento || null }))) : null;
+        perroToSend = arr.length
+          ? JSON.stringify(
+              arr.map((p) => ({
+                id: getDogId(p),
+                nombre: p.nombre,
+                raza: p.raza || p.razaTamaño,
+                nacimiento: p.nacimiento || null
+              }))
+            )
+          : null;
       } catch {
         perroToSend = perro?.nombre ? String(perro.nombre) : null;
       }
@@ -561,7 +561,6 @@ const perrosSeleccionados = useMemo(() => {
         fecha,
         hora,
 
-        // ✅ enviar ID real (id/_id/uuid)
         servicioId: servicioIdResolved,
         servicioTitulo: servicioSel?.title,
 
@@ -576,7 +575,6 @@ const perrosSeleccionados = useMemo(() => {
         direccion: contacto.direccion,
         pricing: {},
 
-        // elección de trainer (any o id)
         trainerId: trainerChoice
       };
 
@@ -591,12 +589,7 @@ const perrosSeleccionados = useMemo(() => {
     } catch (e) {
       console.error('Error creando reserva', e);
 
-      const serverMsg =
-        e?.response?.data?.error ||
-        e?.error ||
-        e?.message ||
-        '';
-
+      const serverMsg = e?.response?.data?.error || e?.error || e?.message || '';
       setMsg(serverMsg ? `❌ ${serverMsg}` : '❌ No se pudo crear la reserva.');
     } finally {
       setGuardando(false);
@@ -643,11 +636,7 @@ const perrosSeleccionados = useMemo(() => {
 
           <label>
             Servicio:
-            <select
-              value={servicioId}
-              onChange={(e) => setServicioId(e.target.value)}
-              style={{ marginLeft: 8 }}
-            >
+            <select value={servicioId} onChange={(e) => setServicioId(e.target.value)} style={{ marginLeft: 8 }}>
               <option value="">— Selecciona —</option>
               {servicios.map((s) => {
                 const id = s.id || s._id || s.uuid || s.title;
@@ -677,11 +666,7 @@ const perrosSeleccionados = useMemo(() => {
           )}
 
           <div className="actions">
-            <button
-              disabled={!servicioSel}
-              className="btn-primary"
-              onClick={() => setStep(1)}
-            >
+            <button disabled={!servicioSel} className="btn-primary" onClick={() => setStep(1)}>
               Continuar
             </button>
           </div>
@@ -694,23 +679,11 @@ const perrosSeleccionados = useMemo(() => {
       {step === 1 && (
         <section className="month-scheduler">
           <div className="month-header">
-            <button
-              className="btn-ghost"
-              onClick={() =>
-                setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
-              }
-            >
+            <button className="btn-ghost" onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))}>
               ‹
             </button>
-            <div className="month-label">
-              {mesBase.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
-            </div>
-            <button
-              className="btn-ghost"
-              onClick={() =>
-                setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
-              }
-            >
+            <div className="month-label">{mesBase.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}</div>
+            <button className="btn-ghost" onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))}>
               ›
             </button>
           </div>
@@ -725,11 +698,9 @@ const perrosSeleccionados = useMemo(() => {
             {(() => {
               const first = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
               const startOffset = (first.getDay() + 6) % 7;
-
               const lastDay = new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 0).getDate();
 
               const cells = [];
-
               for (let i = 0; i < 42; i++) {
                 const dayNum = i - startOffset + 1;
                 const inMonth = dayNum >= 1 && dayNum <= lastDay;
@@ -754,9 +725,7 @@ const perrosSeleccionados = useMemo(() => {
                   <button
                     key={i}
                     type="button"
-                    className={`daycell ${inMonth ? '' : 'out'} ${disabled ? 'disabled' : ''} ${
-                      isSelected ? 'selected' : ''
-                    }`}
+                    className={`daycell ${inMonth ? '' : 'out'} ${disabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`}
                     onClick={async (ev) => {
                       ev.stopPropagation();
                       if (!inMonth || disabled) return;
@@ -780,62 +749,51 @@ const perrosSeleccionados = useMemo(() => {
             })()}
           </div>
 
-            {/*
-              IMPORTANTE (bug fix):
-              Antes se renderizaban botones de horas DENTRO de cada botón del día (button dentro de button).
-              Eso es HTML inválido y provoca comportamientos erráticos (por ejemplo, al seleccionar una hora,
-              se "clicaba" el día que hay debajo).
-  
-              Ahora las horas se muestran en un panel separado, fuera del grid.
-            */}
-            <div className="slots-panel">
-              <div className="slots-title">
-                {fecha
-                  ? `Selecciona una hora para ${new Date(`${fecha}T00:00:00`).toLocaleDateString('es-ES', {
-                      weekday: 'long',
-                      day: '2-digit',
-                      month: 'long'
-                    })}`
-                  : 'Selecciona un día para ver las horas disponibles'}
-              </div>
-
-              {fecha ? (
-                <div className="slots-grid">
-                  {(() => {
-                    const rows = [];
-                    for (let h = 9; h <= 20; h++) {
-                      if (h === 14 || h === 15) continue;
-  
-                      const t = `${String(h).padStart(2, '0')}:00`;
-                      const busy = isSlotBusy(t);
-
-                      rows.push(
-                        <button
-                          key={t}
-                          type="button"
-                          className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
-                          disabled={busy}
-                          onClick={() => {
-                            if (!busy) setHora(t);
-                          }}
-                          title={busy ? 'Ocupada' : 'Seleccionar'}
-                        >
-                          {t}–{addMinutes(t, durationMin)}
-                        </button>
-                      );
-                    }
-
-                    if (!rows.length) {
-                      return <div className="hint">Sin horas disponibles.</div>;
-                    }
-
-                    return rows;
-                  })()}
-                </div>
-              ) : (
-                <div className="hint">Selecciona un día para continuar.</div>
-              )}
+          <div className="slots-panel">
+            <div className="slots-title">
+              {fecha
+                ? `Selecciona una hora para ${new Date(`${fecha}T00:00:00`).toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    day: '2-digit',
+                    month: 'long'
+                  })}`
+                : 'Selecciona un día para ver las horas disponibles'}
             </div>
+
+            {fecha ? (
+              <div className="slots-grid">
+                {(() => {
+                  const rows = [];
+                  for (let h = 9; h <= 20; h++) {
+                    if (h === 14 || h === 15) continue;
+
+                    const t = `${String(h).padStart(2, '0')}:00`;
+                    const busy = isSlotBusy(t);
+
+                    rows.push(
+                      <button
+                        key={t}
+                        type="button"
+                        className={`slot ${busy ? 'busy' : ''} ${hora === t ? 'active' : ''}`}
+                        disabled={busy}
+                        onClick={() => {
+                          if (!busy) setHora(t);
+                        }}
+                        title={busy ? 'Ocupada' : 'Seleccionar'}
+                      >
+                        {t}–{addMinutes(t, durationMin)}
+                      </button>
+                    );
+                  }
+
+                  if (!rows.length) return <div className="hint">Sin horas disponibles.</div>;
+                  return rows;
+                })()}
+              </div>
+            ) : (
+              <div className="hint">Selecciona un día para continuar.</div>
+            )}
+          </div>
 
           <div className="actions" style={{ marginTop: 14 }}>
             <button onClick={atras}>Atrás</button>
@@ -853,90 +811,84 @@ const perrosSeleccionados = useMemo(() => {
         <section>
           <h2>3) Datos del perro</h2>
 
-            {perros.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <p style={{ margin: '8px 0' }}>¿Para qué perro es la reserva?</p>
-  
-                <div className="dog-choice-list">
-                  {perros.map((p) => {
-                    const pid = String(p.id || '').trim();
-                    const name = String(p.nombre || '').trim() || 'Perro';
-                    const raza = String(p.raza || '').trim();
-  
-                    return (
-                      <label key={pid} className="dog-choice">
-                        <input
-                          type="radio"
-                          name="dogPick"
-                          value={pid}
-                          checked={dogMode === 'existing' && perroId === pid}
-                          onChange={() => {
-                            setDogMode('existing');
-                            setDogMsg('');
-                            setPerroId(pid);
-                          }}
-                        />
-                        <span>
-                          <b>{name}</b>
-                          {raza ? ` · ${raza}` : ''}
-                        </span>
-                      </label>
-                    );
-                  })}
-  
-                  <label className="dog-choice">
-                    <input
-                      type="radio"
-                      name="dogPick"
-                      value="__new"
-                      checked={dogMode === 'new'}
-                      onChange={() => {
-                        setDogMode('new');
-                        setDogMsg('');
-                      }}
-                    />
-                    <span>Añadir un perro nuevo</span>
-                  </label>
-                </div>
+          {perros.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ margin: '8px 0' }}>¿Para qué perro es la reserva?</p>
+
+              <div className="dog-choice-list">
+                {perros.map((p) => {
+                  const pid = getDogId(p);
+                  const name = String(p.nombre || '').trim() || 'Perro';
+                  const raza = String(p.raza || p.razaTamaño || '').trim();
+
+                  return (
+                    <label key={pid || name} className="dog-choice">
+                      <input
+                        type="radio"
+                        name="dogPick"
+                        value={pid}
+                        checked={dogMode === 'existing' && perroId === pid}
+                        onChange={() => {
+                          setDogMode('existing');
+                          setDogMsg('');
+                          setPerroId(pid);
+                        }}
+                      />
+                      <span>
+                        <b>{name}</b>
+                        {raza ? ` · ${raza}` : ''}
+                      </span>
+                    </label>
+                  );
+                })}
+
+                <label className="dog-choice">
+                  <input
+                    type="radio"
+                    name="dogPick"
+                    value="__new"
+                    checked={dogMode === 'new'}
+                    onChange={() => {
+                      setDogMode('new');
+                      setDogMsg('');
+                    }}
+                  />
+                  <span>Añadir un perro nuevo</span>
+                </label>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* ====== MODO EXISTING ====== */}
-            {dogMode === 'existing' && perros.length > 0 && (
-              <>
-                {!perroId && perros.length > 1 && (
-                  <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
-                    Selecciona un perro para continuar.
-                  </p>
-                )}
+          {/* ====== MODO EXISTING ====== */}
+          {dogMode === 'existing' && perros.length > 0 && (
+            <>
+              {!perroId && perros.length > 1 && (
+                <p style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>Selecciona un perro para continuar.</p>
+              )}
 
-                {perroId && (
-                  <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
-                    <div>
-                      <b>Perro:</b> {perro.nombre}
-                      {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
-                      {perro.castrado ? ' · castrado' : ''}
-                    </div>
-                    {perro.observaciones && (
-                      <div style={{ marginTop: 4 }}>
-                        <b>Observaciones:</b> {perro.observaciones}
-                      </div>
-                    )}
+              {perroId && (
+                <div style={{ marginTop: 10, fontSize: 13, opacity: 0.9 }}>
+                  <div>
+                    <b>Perro:</b> {perro.nombre}
+                    {perro.razaTamaño ? ` · ${perro.razaTamaño}` : ''}
+                    {perro.castrado ? ' · castrado' : ''}
                   </div>
-                )}
-
-                <div className="actions" style={{ marginTop: 10 }}>
-                  <button onClick={atras}>Atrás</button>
-                  <button
-                    className="btn-primary"
-                    disabled={!canContinueExistingDog}
-                    onClick={() => setStep(3)}
-                  >
-                    Continuar
-                  </button>
+                  {perro.observaciones && (
+                    <div style={{ marginTop: 4 }}>
+                      <b>Observaciones:</b> {perro.observaciones}
+                    </div>
+                  )}
                 </div>
-              </>
-            )}
+              )}
+
+              <div className="actions" style={{ marginTop: 10 }}>
+                <button onClick={atras}>Atrás</button>
+                <button className="btn-primary" disabled={!canContinueExistingDog} onClick={() => setStep(3)}>
+                  Continuar
+                </button>
+              </div>
+            </>
+          )}
 
           {/* ====== MODO NEW ====== */}
           {(dogMode === 'new' || perros.length === 0) && (
@@ -950,10 +902,7 @@ const perrosSeleccionados = useMemo(() => {
               <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
                 <label>
                   Nombre (obligatorio)
-                  <input
-                    value={nuevoPerro.nombre}
-                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, nombre: e.target.value })}
-                  />
+                  <input value={nuevoPerro.nombre} onChange={(e) => setNuevoPerro({ ...nuevoPerro, nombre: e.target.value })} />
                 </label>
 
                 <label>
@@ -967,38 +916,21 @@ const perrosSeleccionados = useMemo(() => {
 
                 <label>
                   Fecha de nacimiento (aprox.)
-                  <input
-                    type="date"
-                    value={nuevoPerro.nacimiento}
-                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, nacimiento: e.target.value })}
-                  />
+                  <input type="date" value={nuevoPerro.nacimiento} onChange={(e) => setNuevoPerro({ ...nuevoPerro, nacimiento: e.target.value })} />
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 22 }}>
-                  <input
-                    type="checkbox"
-                    checked={nuevoPerro.castrado}
-                    onChange={(e) => setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })}
-                  />
+                  <input type="checkbox" checked={nuevoPerro.castrado} onChange={(e) => setNuevoPerro({ ...nuevoPerro, castrado: e.target.checked })} />
                   Castrado/esterilizado
                 </label>
 
                 <label style={{ gridColumn: '1 / -1' }}>
                   Observaciones
-                  <input
-                    value={nuevoPerro.observaciones}
-                    onChange={(e) =>
-                      setNuevoPerro({ ...nuevoPerro, observaciones: e.target.value })
-                    }
-                  />
+                  <input value={nuevoPerro.observaciones} onChange={(e) => setNuevoPerro({ ...nuevoPerro, observaciones: e.target.value })} />
                 </label>
               </div>
 
-              {dogMsg && (
-                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.95 }}>
-                  {dogMsg}
-                </div>
-              )}
+              {dogMsg && <div style={{ marginTop: 10, fontSize: 12, opacity: 0.95 }}>{dogMsg}</div>}
 
               <div className="actions" style={{ marginTop: 10 }}>
                 <button onClick={atras}>Atrás</button>
@@ -1059,9 +991,7 @@ const perrosSeleccionados = useMemo(() => {
                 disabled={!canLoadTrainers || loadingTrainers}
               >
                 <option value="any">Cualquiera disponible</option>
-                {trainerChoice !== 'any' && !selectedTrainerInList && (
-                  <option value={trainerChoice}>Adiestrador seleccionado</option>
-                )}
+                {trainerChoice !== 'any' && !selectedTrainerInList && <option value={trainerChoice}>Adiestrador seleccionado</option>}
                 {trainers.map((t) => {
                   const tid = getTrainerId(t);
                   const label = t.displayName || t.nombre || t.email || tid;
@@ -1073,59 +1003,30 @@ const perrosSeleccionados = useMemo(() => {
                 })}
               </select>
 
-              {loadingTrainers && (
-                <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
-                  Cargando adiestradores…
-                </div>
-              )}
-              {trainersErr && (
-                <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>
-                  {trainersErr}
-                </div>
-              )}
-              {!trainersErr && trainerHint && (
-                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
-                  {trainerHint}
-                </div>
-              )}
+              {loadingTrainers && <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>Cargando adiestradores…</div>}
+              {trainersErr && <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>{trainersErr}</div>}
+              {!trainersErr && trainerHint && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{trainerHint}</div>}
               {canLoadTrainers && !loadingTrainers && !trainersErr && trainers.length === 0 && (
-                <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>
-                  No hay adiestradores disponibles para este servicio/modalidad.
-                </div>
+                <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>No hay adiestradores disponibles para este servicio/modalidad.</div>
               )}
             </label>
 
             <label>
               Teléfono
-              <input
-                value={contacto.telefono}
-                onChange={(e) => setContacto({ ...contacto, telefono: e.target.value })}
-              />
+              <input value={contacto.telefono} onChange={(e) => setContacto({ ...contacto, telefono: e.target.value })} />
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
               Dirección {domicilio ? '(obligatoria)' : '(opcional)'}
-              <input
-                value={contacto.direccion}
-                required={domicilio}
-                onChange={(e) => setContacto({ ...contacto, direccion: e.target.value })}
-              />
+              <input value={contacto.direccion} required={domicilio} onChange={(e) => setContacto({ ...contacto, direccion: e.target.value })} />
             </label>
           </div>
 
-          {domicilio && !direccionValida && (
-            <p style={{ color: 'crimson' }}>
-              ⚠ Debes indicar una dirección para modalidad a domicilio.
-            </p>
-          )}
+          {domicilio && !direccionValida && <p style={{ color: 'crimson' }}>⚠ Debes indicar una dirección para modalidad a domicilio.</p>}
 
           <div className="actions">
             <button onClick={atras}>Atrás</button>
-            <button
-              className="btn-primary"
-              disabled={!telefonoValido || !direccionValida || !hasAnyEligibleTrainer}
-              onClick={() => setStep(4)}
-            >
+            <button className="btn-primary" disabled={!telefonoValido || !direccionValida || !hasAnyEligibleTrainer} onClick={() => setStep(4)}>
               Continuar
             </button>
           </div>
@@ -1162,10 +1063,7 @@ const perrosSeleccionados = useMemo(() => {
                 <b>Adiestrador:</b>{' '}
                 {trainerChoice === 'any'
                   ? 'Cualquiera disponible'
-                  : (selectedTrainer?.displayName ||
-                    selectedTrainer?.nombre ||
-                    selectedTrainer?.email ||
-                    trainerChoice)}
+                  : selectedTrainer?.displayName || selectedTrainer?.nombre || selectedTrainer?.email || trainerChoice}
               </div>
 
               <div>

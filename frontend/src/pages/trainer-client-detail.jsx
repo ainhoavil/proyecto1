@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { http } from "../helpers/http";
+import { useUi } from "../context/ui";
 import "../styles/contratar.scss";
 
 const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -55,6 +56,7 @@ function fmtDateOnly(v) {
 export default function TrainerClientDetail() {
   const { clientId } = useParams();
   const navigate = useNavigate();
+  const ui = useUi();
 
   const [loading, setLoading] = useState(true);
   const [client, setClient] = useState(null);
@@ -225,7 +227,14 @@ export default function TrainerClientDetail() {
   };
 
   const deleteNote = async (noteId) => {
-    if (!confirm("¿Borrar esta nota privada?")) return;
+    const ok = await ui.confirm({
+      title: 'Borrar nota',
+      message: '¿Borrar esta nota privada?',
+      confirmText: 'Borrar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await http(`/api/trainer-notes/${noteId}`, {
         method: "DELETE",

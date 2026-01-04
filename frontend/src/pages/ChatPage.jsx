@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";
+import { useUi } from "../context/ui";
 import { isLogged } from "../helpers/auth";
 import "../styles/contratar.scss";
 import "../styles/chat.scss";
@@ -141,6 +142,7 @@ const EMOJIS = [
 export default function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
+  const ui = useUi();
   const location = useLocation();
 
   // ✅ si vienes desde reservas, volvemos ahí
@@ -452,9 +454,14 @@ export default function ChatPage() {
     if (!conversationId) return;
     if (deletingChat) return;
 
-    const ok = window.confirm(
-      "¿Seguro que quieres borrar este chat?\n\nSolo desaparecerá para ti. La otra persona lo seguirá viendo."
-    );
+    const ok = await ui.confirm({
+      title: "Borrar chat",
+      message:
+        "¿Seguro que quieres borrar este chat?\n\nSolo desaparecerá para ti. La otra persona lo seguirá viendo.",
+      confirmText: "Borrar",
+      cancelText: "Cancelar",
+      danger: true,
+    });
     if (!ok) return;
 
     setDeletingChat(true);

@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { isLogged } from "../helpers/auth";
+import { useUi } from "../context/ui";
 import "../styles/contratar.scss";
 import "../styles/chat.scss";
 
@@ -173,6 +174,7 @@ function pickOtherParty({ chat, myIds }) {
 
 export default function ChatsPage() {
   const navigate = useNavigate();
+  const ui = useUi();
 
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState("");
@@ -258,9 +260,14 @@ export default function ChatsPage() {
     if (!id) return;
     if (deletingId) return;
 
-    const ok = window.confirm(
-      "¿Seguro que quieres borrar este chat?\n\nSolo desaparecerá para ti. La otra persona lo seguirá viendo."
-    );
+    const ok = await ui.confirm({
+      title: "Borrar chat",
+      message:
+        "¿Seguro que quieres borrar este chat?\n\nSolo desaparecerá para ti. La otra persona lo seguirá viendo.",
+      confirmText: "Borrar",
+      cancelText: "Cancelar",
+      danger: true,
+    });
     if (!ok) return;
 
     setDeletingId(id);

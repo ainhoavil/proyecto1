@@ -1,0 +1,147 @@
+/* ============================================================
+   UI feedback: replaces native alert/confirm ("localhost says")
+   ============================================================ */
+
+.df-ui-toast__wrap {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 28px));
+}
+
+.df-ui-toast {
+  display: grid;
+  grid-template-columns: 22px 1fr 26px;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 12px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+}
+
+.df-ui-toast__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.df-ui-toast--success .df-ui-toast__icon {
+  background: rgba(9, 150, 90, 0.12);
+}
+
+.df-ui-toast--error .df-ui-toast__icon {
+  background: rgba(220, 20, 60, 0.12);
+}
+
+.df-ui-toast--warning .df-ui-toast__icon {
+  background: rgba(255, 165, 0, 0.16);
+}
+
+.df-ui-toast__title {
+  font-weight: 900;
+  margin-bottom: 2px;
+}
+
+.df-ui-toast__message {
+  font-size: 13px;
+  opacity: 0.9;
+  line-height: 1.25;
+}
+
+.df-ui-toast__close {
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+  line-height: 18px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.65;
+}
+.df-ui-toast__close:hover {
+  opacity: 1;
+}
+
+/* Confirm modal */
+.df-ui-confirm__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: grid;
+  place-items: center;
+}
+
+.df-ui-confirm__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.df-ui-confirm__modal {
+  position: relative;
+  z-index: 1;
+  width: min(520px, calc(100vw - 28px));
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  padding: 16px 16px 14px;
+}
+
+.df-ui-confirm__title {
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.df-ui-confirm__body {
+  margin-top: 10px;
+  font-size: 13px;
+  opacity: 0.9;
+  line-height: 1.35;
+}
+
+.df-ui-confirm__line + .df-ui-confirm__line {
+  margin-top: 6px;
+}
+
+.df-ui-confirm__actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.df-ui-btn {
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 10px 14px;
+  font-weight: 900;
+  font-size: 13px;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.df-ui-btn--ghost {
+  background: transparent;
+}
+
+.df-ui-btn--primary {
+  border: 0;
+  background: #17171a;
+  color: #ffffff;
+}
+
+.df-ui-btn--danger {
+  background: #b5162e;
+}
