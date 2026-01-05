@@ -10,11 +10,25 @@
   color: $color-text;
 }
 
-.trainers-list .page-wrapper {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding-inline: 32px;
+/* Layout width (sin depender de wrappers del JSX) */
+.trainers-list__top,
+.trainers-list__head,
+.trainers-list__grid,
+.trainers-list__empty {
+  width: min(1440px, 94%);
+  margin-inline: auto;
 }
+
+@media (max-width: 720px) {
+  .trainers-list__top,
+  .trainers-list__head,
+  .trainers-list__grid,
+  .trainers-list__empty {
+    width: min(1440px, 92%);
+  }
+}
+
+
 
 /* =========================
    HEADER

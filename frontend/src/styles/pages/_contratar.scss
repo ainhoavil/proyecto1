@@ -3,18 +3,19 @@
    ========================================= */
 
 .contratar-page {
-  background-color: #ffffff;
-  border-radius: 20px;
-  border: 1px solid #f3d8c6;
-  box-shadow: 0 14px 30px rgba(148, 95, 52, 0.08);
-  padding: 24px 24px 28px;
+  background-color: $color-surface;
+  border-radius: $radius-large;
+  border: 1px solid $color-border;
+  box-shadow: $shadow-card;
+  padding: $sp-6 $sp-6 $sp-6;
 }
 
 .contratar-page h1 {
-  margin: 4px 0 8px;
-  font-size: 22px;
+  margin: 0 0 $sp-2;
+  font-family: $font-display;
+  font-size: $fs-h2;
   font-weight: 600;
-  color: #3b281c;
+  letter-spacing: 0.2px;
 }
 
 .reservas-eyebrow {
@@ -52,8 +53,8 @@
     }
 
     &:focus {
-      border-color: #f08a3c;
-      box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.18);
+      border-color: $color-brand;
+      box-shadow: 0 0 0 1px rgba(230, 138, 78, 0.18);
     }
   }
 }
@@ -62,8 +63,8 @@
 
 .month-scheduler {
   border-radius: 18px;
-  border: 1px solid #f3d8c6;
-  background-color: #fffaf6;
+  border: 1px solid $color-border;
+  background-color: $color-bg;
   padding: 14px 16px 16px;
 }
 
@@ -74,6 +75,13 @@
   gap: 8px;
   margin-bottom: 12px;
 }
+
+.month-header .btn-ghost {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
+}
+
 
 .month-label {
   font-size: 13px;
@@ -120,13 +128,13 @@
   }
 
   &.selected {
-    background-color: #f08a3c;
+    background-color: $color-brand;
     color: #ffffff;
-    box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.25);
+    box-shadow: 0 0 0 1px rgba(230, 138, 78, 0.25);
   }
 
   &.has-reserva:not(.selected) {
-    background-color: #ffe8d7;
+    background-color: $color-bg-alt;
     color: #a3683b;
   }
 }
@@ -140,7 +148,7 @@
   margin-top: 12px;
   padding: 12px;
   border-radius: 16px;
-  border: 1px solid #f3d8c6;
+  border: 1px solid $color-border;
   background-color: #fffdfb;
 }
 
@@ -168,13 +176,13 @@
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 
   &:hover {
-    background-color: #ffe8d7;
-    border-color: #f08a3c;
+    background-color: $color-bg-alt;
+    border-color: $color-brand;
   }
 
   &.active {
-    background-color: #f08a3c;
-    border-color: #f08a3c;
+    background-color: $color-brand;
+    border-color: $color-brand;
     color: #ffffff;
   }
 
@@ -242,7 +250,7 @@
   }
 
   .legend-dot--confirmed {
-    background-color: #f08a3c;
+    background-color: $color-brand;
   }
 
   .legend-dot--cancelled {
@@ -357,8 +365,8 @@
     outline: none;
 
     &:focus {
-      border-color: #f08a3c;
-      box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.18);
+      border-color: $color-brand;
+      box-shadow: 0 0 0 1px rgba(230, 138, 78, 0.18);
     }
   }
 
@@ -370,7 +378,19 @@
 
 /* Fila de botones dentro de la reserva */
 .reservas-actions-row {
-  margin-top: 8px;
+  margin-top: $sp-3;
+  display: flex;
+  gap: $sp-3;
+  flex-wrap: wrap;
+  align-items: stretch;
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost {
+    min-width: 180px;
+    justify-content: center;
+  }
 }
 
 /* ===== Responsive ===== */
@@ -405,8 +425,7 @@
   max-width: 1200px;
   margin: 32px auto 80px;
   padding-inline: 16px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Segoe UI", sans-serif;
+  font-family: $font-body;
   color: #2c2723;
 
   h1,

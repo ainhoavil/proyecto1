@@ -93,37 +93,45 @@
   flex-wrap: wrap;
 }
 
-/* BOTONES HERO (REFERENCIA) */
+/* BOTONES HERO */
 .hero .btn {
-  display: inline-block; /* Asegura animación */
-  background: $color-brand;
-  color: $color-white;
+  /* mantener el sistema de botones y el centrado */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  min-width: 190px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-  transition: background-color 0.2s ease,
-              transform 0.2s ease,
-              box-shadow 0.2s ease;
+  transition: background-color $transition, border-color $transition, transform $transition, box-shadow $transition;
 }
 
 .hero .btn:hover {
-  background: $color-brand-dark;
   transform: translateY(-3px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
 }
 
-.hero .btn-outline {
-  display: inline-block; /* Asegura animación */
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.9);
+.hero .btn--primary {
+  background: $color-brand;
+  border-color: $color-brand;
   color: $color-white;
-  transition: background-color 0.2s ease,
-              transform 0.2s ease,
-              box-shadow 0.2s ease;
 }
 
-.hero .btn-outline:hover {
-  background: rgba(255, 255, 255, 0.32);
-  transform: translateY(-3px);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
+.hero .btn--primary:hover {
+  background: $color-brand-dark;
+  border-color: $color-brand-dark;
+  color: $color-white;
+}
+
+.hero .btn--ghost {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  color: $color-white;
+}
+
+.hero .btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.20);
+  border-color: rgba(255, 255, 255, 1);
+  color: $color-white;
 }
 
 /* =========================================================
@@ -246,22 +254,27 @@
 
 /* ✅ CAMBIO: hover idéntico al Hero/CTA SOLO para botones de servicios */
 .service-card__body .btn {
-  display: inline-block; /* CRUCIAL para que funcione el transform */
+  /* No inline-block: mantenemos centrado del texto */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+
   align-self: flex-start;
 
-  /* Igual que el Hero */
   background: $color-brand;
   color: $color-white;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-  transition: background-color 0.2s ease,
-              transform 0.2s ease,
-              box-shadow 0.2s ease;
+  border-color: $color-brand;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  transition: background-color $transition, border-color $transition, transform $transition, box-shadow $transition;
 }
 
 .service-card__body .btn:hover {
   background: $color-brand-dark;
-  transform: translateY(-3px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  border-color: $color-brand-dark;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26);
+  color: $color-white;
 }
 
 /* =========================================================

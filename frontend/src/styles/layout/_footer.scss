@@ -3,22 +3,22 @@
    ============================== */
 
 .df-footer {
-  border-top: 1px solid #f1d9c7; // línea superior muy suave
-  background-color: #fff6ef;     // mismo tono de fondo que el layout
-  padding: 24px 0 28px;
-  color: #5f4637;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Segoe UI", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  border-top: 1px solid $color-border;
+  background-color: $color-bg-alt;
+  padding: $sp-6 0 $sp-6;
+  color: $color-text;
+
+  font-family: $font-body;
+  font-size: $fs-small;
+  line-height: 1.55;
 }
 
 .df-footer__inner {
-  max-width: 1120px;
+  width: min(1440px, 94%);
   margin: 0 auto;
-  padding: 0 32px;
   display: flex;
   flex-direction: column;
+  gap: $sp-4;
 }
 
 /* ===== BRAND ROW ===== */
@@ -26,27 +26,23 @@
 .df-footer__brand-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: $sp-4;
 }
 
-/* Círculo naranja con huellas (como en el navbar) */
 .df-footer__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: #f08a3c;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: $color-brand;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  box-shadow: 0 6px 16px rgba(240, 138, 60, 0.4);
+  box-shadow: 0 12px 26px rgba(230, 138, 78, 0.32);
 }
 
 .df-footer__logo-icon {
-  font-size: 18px;
+  font-size: 22px;
   line-height: 1;
-  color: #3b2140; /* tono morado oscuro de las huellas */
 }
 
 .df-footer__brand-text {
@@ -57,144 +53,83 @@
 
 .df-footer__title {
   margin: 0;
+  font-family: $font-display;
   font-size: 18px;
   font-weight: 600;
-  color: #3b281c;
+  color: $color-text;
 }
 
 .df-footer__subtitle {
-  margin: 2px 0 0;
+  margin: 0;
   font-size: 13px;
-  color: #9a7b63;
+  color: $color-text-light;
 }
 
-.df-footer__address {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: #a08168;
-}
-
-.df-footer__copy {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: #b0937a;
-}
-
-/* ===== NAV ===== */
+/* ===== NAV / LINKS ===== */
 
 .df-footer__nav {
-  margin-top: 18px;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 20px;
-  font-size: 13px;
+  gap: 10px 14px;
 }
 
 .df-footer__link {
+  color: $color-text-light;
   text-decoration: none;
-  color: #8f6b53;
-  transition: color 0.18s ease, transform 0.12s ease;
+  font-weight: 600;
+  font-size: 13px;
 
   &:hover {
-    color: #f08a3c;
-    transform: translateY(-1px);
-  }
-
-  &:active {
-    transform: translateY(0);
+    color: $color-text;
+    text-decoration: underline;
   }
 }
 
 /* ===== SOCIAL ===== */
 
 .df-footer__social {
-  margin-top: 22px;
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .df-footer__social-pill {
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  border: 1px solid #e5cdbb;
-  background-color: #ffe8d7;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(230, 138, 78, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+  color: $color-text;
   text-decoration: none;
-  color: #a47755;
-  text-transform: lowercase;
-  letter-spacing: 0.03em;
-  transition: background-color 0.18s ease, border-color 0.18s ease,
-    transform 0.12s ease, color 0.12s ease;
+  font-weight: 600;
+  font-size: 13px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 
   &:hover {
-    background-color: #f08a3c;
-    border-color: #f08a3c;
-    color: #ffffff;
     transform: translateY(-1px);
-  }
-
-  &:active {
-    transform: translateY(0);
+    box-shadow: $shadow-soft;
+    border-color: rgba(230, 138, 78, 0.34);
   }
 }
 
-/* ===== RESPONSIVE ===== */
+/* ===== META ===== */
 
-@media (max-width: 768px) {
-  .df-footer {
-    padding: 20px 0 22px;
-  }
-
-  .df-footer__inner {
-    padding-inline: 20px;
-  }
-
-  .df-footer__brand-row {
-    align-items: flex-start;
-  }
-
-  .df-footer__social {
-    justify-content: center;
-  }
-
-  .df-footer__brand-text {
-    gap: 4px;
-  }
-
-  .df-footer__nav {
-    margin-top: 16px;
-    gap: 14px;
-  }
+.df-footer__address {
+  margin: 0;
+  font-size: 13px;
+  color: $color-text-light;
 }
 
-@media (max-width: 480px) {
-  .df-footer__inner {
-    padding-inline: 16px;
-  }
-
-  .df-footer__brand-row {
-    flex-direction: row;
-  }
-
-  .df-footer__title {
-    font-size: 16px;
-  }
-
-  .df-footer__subtitle {
-    font-size: 12px;
-  }
-
-  .df-footer__nav {
-    font-size: 12px;
-  }
+.df-footer__copy {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(82, 57, 41, 0.65);
 }
 
+/* Botón para reabrir cookies (link) */
 .df-footer__link--button {
   background: transparent;
   border: 0;
@@ -202,7 +137,6 @@
   cursor: pointer;
   font: inherit;
   color: inherit;
-}
-.df-footer__link--button:hover {
-  text-decoration: underline;
+
+  &:hover { text-decoration: underline; }
 }

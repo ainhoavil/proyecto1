@@ -126,41 +126,50 @@
   margin: 0;
 }
 
-.navbar__right a {
+.navbar__right a:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-outline):not(.btn-ghost):not(.btn-danger) {
   font-size: 14px;
   color: $color-text-light;
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
-.navbar__right a:hover {
+.navbar__right a:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-outline):not(.btn-ghost):not(.btn-danger):hover {
   color: $color-text;
 }
 
-/* Botón pequeño (Registro) – mismo “feeling” que botones del sistema */
-.btn-small {
+/* CTA “Regístrate” (desktop) */
+.navbar__right .btn-primary.btn-small {
+  border-radius: 999px;
+  padding-inline: 14px;
+  color: $color-white; /* evita overrides de anchors */
+  box-shadow: 0 10px 22px rgba(230, 138, 78, 0.30);
+}
+
+.navbar__right .btn-primary.btn-small:hover {
+  color: $color-white;
+}
+
+/* CTA “Regístrate” (mobile) */
+.navbar__mobile a[href="/register"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
-  padding: 8px 14px;
+  height: $control-height;
+  padding: 0 $control-padding-x;
   border-radius: 999px;
-  background-color: $color-brand;
+  background: $color-brand;
   color: $color-white;
-  border: none;
-  font-size: 13px;
-  font-weight: 600;
   text-decoration: none;
-
-  box-shadow: 0 10px 22px rgba(230, 138, 78, 0.35);
-  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-
-  &:hover {
-    background-color: $color-brand-dark;
-    transform: translateY(-2px);
-    box-shadow: 0 14px 28px rgba(212, 111, 53, 0.35);
-  }
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 10px 22px rgba(230, 138, 78, 0.26);
 }
+
+.navbar__mobile a[href="/register"]:hover {
+  background: $color-brand-dark;
+  color: $color-white;
+}
+
 
 /* Botón salir */
 .logout-btn {
