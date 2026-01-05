@@ -22,16 +22,16 @@
 /* Si la página usa page-wrapper */
 .servicios .page-wrapper {
   width: 100%;
-  max-width: 1800px;          /* igual que .container global */
+  max-width: 1440px;          /* igual que .container global */
   margin-inline: auto;
-  padding-inline: 32px;       /* el padding del sistema */
+  padding-inline: 0;       /* el padding del sistema */
   box-sizing: border-box;
 }
 
 /* Si la página usa container en vez de page-wrapper */
 .servicios .container {
-  max-width: 1800px;          /* refuerzo por si otro CSS lo pisa */
-  padding-inline: 32px;       /* refuerzo */
+  max-width: 1440px;          /* refuerzo por si otro CSS lo pisa */
+  padding-inline: 0;       /* refuerzo */
 }
 
 /* Evitar DOBLE padding cuando hay nesting (container dentro de page-wrapper) */
@@ -78,7 +78,7 @@
 
 /* ===== MENSAJE ERROR / LOADING ===== */
 
-.error-msg {
+.servicios .error-msg {
   margin: 0 0 $sp-5;
   padding: $sp-3 $sp-4;
   border-radius: $radius;
@@ -96,7 +96,7 @@
    GRID DE SERVICIOS (vista cliente)
 ========================================= */
 
-.servicios-grid {
+.servicios .servicios-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: $sp-6;
@@ -105,7 +105,7 @@
 }
 
 /* Tarjeta */
-.service-card {
+.servicios .service-card {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -124,7 +124,7 @@
 }
 
 /* Hueco para foto (aunque no haya) */
-.card-img {
+.servicios .card-img {
   width: 100%;
   height: 140px;
   background-size: cover;
@@ -134,7 +134,7 @@
 }
 
 /* Contenido interior */
-.card-content {
+.servicios .card-content {
   padding: $sp-5 $sp-6 $sp-5;
   display: flex;
   flex-direction: column;
@@ -142,7 +142,7 @@
   flex: 1;
 }
 
-.card-header {
+.servicios .card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -158,7 +158,7 @@
   }
 }
 
-.short {
+.servicios .short {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
@@ -166,17 +166,16 @@
 }
 
 /* Chips */
-.details {
+.servicios .details {
   display: flex;
   flex-wrap: wrap;
   gap: $sp-2;
   margin-top: $sp-1;
 }
 
-.chip {
+.servicios .chip {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: center;
   padding: 6px 10px;
   border-radius: 999px;
@@ -186,13 +185,13 @@
   border: 1px solid transparent;
 }
 
-.chip--soft {
+.servicios .chip--soft {
   background-color: $color-brand-light;
   color: $color-brand-dark;
   border-color: rgba(230, 138, 78, 0.22);
 }
 
-.chip--strong {
+.servicios .chip--strong {
   background-color: $color-brand;
   color: $color-white;
   font-weight: 600;
@@ -202,18 +201,30 @@
 
 
 /* Acciones inferiores: precio izquierda, botones derecha */
-.actions {
+.servicios .actions {
   margin-top: auto;
   padding-top: $sp-4;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  flex-wrap: wrap;
+  border-top: 1px solid rgba(234, 215, 206, 0.75);
+  display: flex;
   gap: $sp-3;
-  border-top: 1px solid rgba(234, 215, 206, 0.6);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
 }
 
-.price {
+.servicios .actions > .btn-outline,
+.servicios .actions > .btn-primary {
+  flex: 1 1 180px;
+  min-width: 170px;
+  justify-content: center;
+}
+
+.servicios .actions > .btn-outline {
+  background: $color-white;
+}
+
+
+.servicios .price {
   font-family: $font-display;
   font-size: 16px;
   color: $color-text;
@@ -221,13 +232,20 @@
 }
 
 /* Grupo de botones a la derecha */
-.actions__buttons {
-  display: inline-flex;
+.servicios .actions__buttons {
+  display: flex;
   gap: $sp-3;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+.servicios .actions__buttons > .btn-outline,
+.servicios .actions__buttons > .btn-primary {
+  flex: 1 1 170px;
+  min-width: 160px;
+  justify-content: center;
+}
+
 
 /* =========================================
    BOTONES (solo para la página de Servicios)
@@ -244,19 +262,18 @@
    MODAL DETALLE SERVICIO
 ========================================= */
 
-.modal-overlay {
+.servicios .modal-overlay {
   position: fixed;
   inset: 0;
   background-color: rgba(62, 47, 37, 0.35);
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: center;
   padding: 32px 16px;
   z-index: 40;
 }
 
-.modal-card {
+.servicios .modal-card {
   position: relative;
   width: 100%;
   max-width: 680px;
@@ -269,7 +286,7 @@
   border: 1px solid $color-border;
 }
 
-.close-modal {
+.servicios .close-modal {
   position: absolute;
   top: 16px;
   right: 16px;
@@ -284,7 +301,6 @@
   color: $color-text;
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: center;
 
   &:hover {
@@ -293,7 +309,7 @@
   }
 }
 
-.modal-img {
+.servicios .modal-img {
   width: 100%;
   height: 160px;
   border-radius: $radius-large;
@@ -304,7 +320,7 @@
   border: 1px solid rgba(234, 215, 206, 0.7);
 }
 
-.modal-title {
+.servicios .modal-title {
   margin: 0 0 $sp-2;
   font-size: 20px;
   font-weight: 600;
@@ -312,20 +328,20 @@
   font-family: $font-display;
 }
 
-.modal-description {
+.servicios .modal-description {
   margin: 0 0 $sp-4;
   font-size: 14px;
   color: $color-text-light;
 }
 
-.modal-details {
+.servicios .modal-details {
   display: flex;
   flex-wrap: wrap;
   gap: $sp-2;
   margin-bottom: $sp-4;
 }
 
-.modal-field {
+.servicios .modal-field {
   margin-bottom: $sp-4;
 
   label {
@@ -353,7 +369,7 @@
   }
 }
 
-.modal-btn {
+.servicios .modal-btn {
   width: 100%;
   justify-content: center;
 }
@@ -362,23 +378,23 @@
    BLOQUE CREAR SERVICIO (ADMIN)
 ========================================= */
 
-.card {
+.servicios .card {
   background-color: $color-white;
   border-radius: $radius-large;
   border: 1px solid $color-border;
   box-shadow: $shadow-soft;
 }
 
-.admin-create {
+.servicios .admin-create {
   margin-bottom: $sp-7;
   padding: $sp-6 $sp-6 $sp-5;
 }
 
-.admin-create__header {
+.servicios .admin-create__header {
   margin-bottom: $sp-5;
 }
 
-.admin-create__breadcrumb {
+.servicios .admin-create__breadcrumb {
   display: inline-block;
   margin-bottom: $sp-2;
   font-size: 11px;
@@ -387,7 +403,7 @@
   color: $color-text-light;
 }
 
-.admin-create__title {
+.servicios .admin-create__title {
   margin: 0 0 $sp-2;
   font-size: 20px;
   font-weight: 600;
@@ -395,40 +411,40 @@
   font-family: $font-display;
 }
 
-.admin-create__subtitle {
+.servicios .admin-create__subtitle {
   margin: 0;
   font-size: 13px;
   color: $color-text-light;
 }
 
-.admin-form {
+.servicios .admin-form {
   border-radius: $radius;
   border: 1px solid rgba(234, 215, 206, 0.9);
   padding: $sp-5;
   background-color: $color-bg;
 }
 
-.admin-form__group-title {
+.servicios .admin-form__group-title {
   margin: 0 0 $sp-3;
   font-size: 13px;
   font-weight: 600;
   color: $color-text;
 }
 
-.admin-form__group {
+.servicios .admin-form__group {
   display: flex;
   flex-direction: column;
   gap: $sp-3;
 }
 
-.admin-form__row {
+.servicios .admin-form__row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: $sp-3;
 }
 
-.admin-form label,
-.admin-edit-form label {
+.servicios .admin-form label,
+.servicios .admin-edit-form label {
   font-size: 12px;
   color: $color-text;
   display: flex;
@@ -436,10 +452,10 @@
   gap: 6px;
 }
 
-.admin-form input,
-.admin-form textarea,
-.admin-edit-form input,
-.admin-edit-form textarea {
+.servicios .admin-form input,
+.servicios .admin-form textarea,
+.servicios .admin-edit-form input,
+.servicios .admin-edit-form textarea {
   border-radius: $radius;
   border: 1px solid $color-border;
   padding: 10px 12px;
@@ -450,28 +466,27 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.admin-form input:focus,
-.admin-form textarea:focus,
-.admin-edit-form input:focus,
-.admin-edit-form textarea:focus {
+.servicios .admin-form input:focus,
+.servicios .admin-form textarea:focus,
+.servicios .admin-edit-form input:focus,
+.servicios .admin-edit-form textarea:focus {
   border-color: $color-brand;
   box-shadow: 0 0 0 2px rgba(230, 138, 78, 0.2);
 }
 
-.admin-form small,
-.admin-edit-form small {
+.servicios .admin-form small,
+.servicios .admin-edit-form small {
   font-size: 11px;
   color: $color-text-light;
 }
 
-.full {
+.servicios .full {
   grid-column: 1 / -1;
 }
 
-.featured-check {
+.servicios .featured-check {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: $sp-2;
   margin-top: $sp-2;
 
@@ -482,45 +497,37 @@
   }
 }
 
-.form-actions {
+.servicios .form-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: flex-end;
   gap: $sp-3;
   margin-top: $sp-5;
 }
 
-.form-actions--edit {
+.servicios .form-actions--edit {
   margin-top: $sp-4;
   justify-content: space-between;
 }
 
-.msg-inline {
+.servicios .msg-inline {
   font-size: 12px;
   color: $color-text-light;
 }
 
-.delete-btn {
+.servicios .delete-btn {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
-
   height: $control-height;
-  padding: 0 $control-padding-x;
-
+  padding: 0 16px;
   border-radius: 999px;
   border: 1px solid rgba(190, 70, 70, 0.25);
   background-color: rgba(190, 70, 70, 0.10);
   color: #9b3b3b;
-
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
 
   &:hover {
     transform: translateY(-1px);
@@ -528,8 +535,7 @@
   }
 }
 
-
-.admin-edit-form {
+.servicios .admin-edit-form {
   margin-top: $sp-6;
   padding-top: $sp-4;
   border-top: 1px solid rgba(234, 215, 206, 0.8);
@@ -538,7 +544,7 @@
   gap: $sp-3;
 }
 
-.admin-edit-form__title {
+.servicios .admin-edit-form__title {
   margin: 0 0 $sp-2;
   font-size: 14px;
   font-weight: 600;
@@ -554,25 +560,26 @@
     padding-top: $sp-7;
   }
 
-  .admin-form__row {
+  .servicios .admin-form__row {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .servicios-grid {
+  .servicios .servicios-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .modal-card {
+  .servicios .modal-card {
     padding: 20px 16px 16px;
   }
 
-  .actions {
-    grid-template-columns: 1fr;
-    gap: $sp-3;
+  .servicios .actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .actions__buttons {
+  .servicios .actions__buttons {
     justify-content: flex-start;
+    width: 100%;
   }
 }
 
@@ -581,18 +588,18 @@
     font-size: 26px;
   }
 
-  .card-content {
+  .servicios .card-content {
     padding-inline: $sp-4;
   }
 
-  .actions__buttons {
+  .servicios .actions__buttons {
     flex-direction: column;
     align-items: stretch;
     width: 100%;
   }
 
-  .btn-primary,
-  .btn-outline {
+  .servicios .btn-primary,
+  .servicios .btn-outline {
     width: 100%;
     justify-content: center;
     text-align: center;

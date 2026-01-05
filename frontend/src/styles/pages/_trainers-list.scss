@@ -10,25 +10,11 @@
   color: $color-text;
 }
 
-/* Layout width (sin depender de wrappers del JSX) */
-.trainers-list__top,
-.trainers-list__head,
-.trainers-list__grid,
-.trainers-list__empty {
-  width: min(1440px, 94%);
-  margin-inline: auto;
+.trainers-list .page-wrapper {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-inline: 32px;
 }
-
-@media (max-width: 720px) {
-  .trainers-list__top,
-  .trainers-list__head,
-  .trainers-list__grid,
-  .trainers-list__empty {
-    width: min(1440px, 92%);
-  }
-}
-
-
 
 /* =========================
    HEADER
@@ -36,20 +22,30 @@
 
 .trainers-list__head {
   display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    "title title"
-    "subtitle search";
-  align-items: end;
-  gap: $sp-3 $sp-6;
+  /* Mantiene el título/subtítulo perfectamente centrados
+     y deja el buscador arriba a la derecha, un poco más abajo
+     del título (misma línea visual que el subtítulo). */
+  grid-template-columns: 1fr minmax(0, 760px) 1fr;
+  grid-template-rows: auto auto;
+  align-items: start;
+  column-gap: $sp-6;
+  row-gap: $sp-2;
   margin-bottom: $sp-6;
 }
 
+/* Convierte el wrapper del título en "transparent wrapper" para poder
+   posicionar h1 y subtítulo en la grid sin tocar JSX. */
+.trainers-list__head > div:first-child {
+  display: contents;
+}
+
 /* Título centrado */
-.trainers-list h1 {
-  grid-area: title;
+.trainers-list__head h1 {
+  grid-column: 2;
+  grid-row: 1;
   margin: 0;
   text-align: center;
+  justify-self: center;
   font-family: $font-display;
   color: $color-text;
   line-height: 1.2;
@@ -57,32 +53,38 @@
 
 /* Subtítulo con margen */
 .trainers-list__subtitle {
-  grid-area: subtitle;
+  grid-column: 2;
+  grid-row: 2;
   margin: 0;
   margin-top: $sp-2;
   max-width: 640px;
+  margin-inline: auto;
   color: $color-text-light;
-  text-align: left;
+  text-align: center;
 }
 
-/* Buscador a la derecha */
+/* Buscador arriba a la derecha, más pequeño */
 .trainers-list__search {
-  grid-area: search;
-  width: 420px;
+  grid-column: 3;
+  grid-row: 2;
+  width: clamp(220px, 22vw, 340px);
   max-width: 100%;
   justify-self: end;
+  align-self: start;
+  /* un poco más abajo del título */
+  margin-top: 6px;
 }
 
 .trainers-list__search input {
   width: 100%;
   border: 1px solid $color-border;
   border-radius: $radius;
-  padding: 12px 14px;
+  padding: 10px 12px;
   outline: none;
   background: $color-white;
   color: $color-text;
   font-family: inherit;
-  font-size: inherit;
+  font-size: $fs-small;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &::placeholder {
@@ -305,19 +307,27 @@
 @media (max-width: 900px) {
   .trainers-list__head {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "title"
-      "subtitle"
-      "search";
-    gap: $sp-4;
+    grid-template-rows: auto auto auto;
+    row-gap: $sp-4;
+  }
+
+  .trainers-list__head > div:first-child {
+    display: block;
+  }
+
+  .trainers-list__head h1 {
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .trainers-list__subtitle {
-    text-align: center;
-    margin-inline: auto;
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .trainers-list__search {
+    grid-column: 1;
+    grid-row: 3;
     width: 100%;
     justify-self: stretch;
   }

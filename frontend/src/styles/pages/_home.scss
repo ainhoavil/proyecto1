@@ -93,45 +93,51 @@
   flex-wrap: wrap;
 }
 
-/* BOTONES HERO */
-.hero .btn {
-  /* mantener el sistema de botones y el centrado */
+/* Badge "Actualmente disponible..." (legible sobre la imagen) */
+.hero__badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  margin-top: 18px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  max-width: 620px;
+  margin-inline: auto;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.hero__actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  padding: 0 28px;
+  border-radius: 999px;
+  font-weight: 600;
   line-height: 1;
-  min-width: 190px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-  transition: background-color $transition, border-color $transition, transform $transition, box-shadow $transition;
+  text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.hero .btn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
-}
-
-.hero .btn--primary {
+.hero__actions .btn--primary,
+.hero__actions .btn--ghost {
   background: $color-brand;
-  border-color: $color-brand;
   color: $color-white;
+  border: 1px solid transparent;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
 }
 
-.hero .btn--primary:hover {
+.hero__actions .btn--primary:hover,
+.hero__actions .btn--ghost:hover {
   background: $color-brand-dark;
-  border-color: $color-brand-dark;
-  color: $color-white;
-}
-
-.hero .btn--ghost {
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.92);
-  color: $color-white;
-}
-
-.hero .btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.20);
-  border-color: rgba(255, 255, 255, 1);
-  color: $color-white;
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
 }
 
 /* =========================================================
@@ -252,29 +258,20 @@
   text-align: justify;
 }
 
-/* ✅ CAMBIO: hover idéntico al Hero/CTA SOLO para botones de servicios */
-.service-card__body .btn {
-  /* No inline-block: mantenemos centrado del texto */
-  display: inline-flex;
+/* Footer de la card (precio + botón) */
+.service-card__footer {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  line-height: 1;
-
-  align-self: flex-start;
-
-  background: $color-brand;
-  color: $color-white;
-  border-color: $color-brand;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-  transition: background-color $transition, border-color $transition, transform $transition, box-shadow $transition;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.service-card__body .btn:hover {
-  background: $color-brand-dark;
-  border-color: $color-brand-dark;
-  transform: translateY(-2px);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26);
-  color: $color-white;
+.service-card__price {
+  margin: 0;
+  font-weight: 700;
+  color: $color-text;
 }
 
 /* =========================================================
@@ -405,37 +402,29 @@
   line-height: 1.9;
   text-align: justify;
 }
-/* Fallback: separa botones dentro del CTA aunque no haya .cta-actions */
-.section--cta .cta-box .btn + .btn,
-.section--cta .cta-box .btn + .btn-outline,
-.section--cta .cta-box .btn-outline + .btn,
-.section--cta .cta-box .btn-outline + .btn-outline {
-  margin-top: 18px !important;
+
+/* Acciones del CTA */
+.cta-box__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
 
-/* BOTONES DEL CTA */
-.section--cta .btn,
-.section--cta .btn-outline {
-  display: inline-block; /* NECESARIO para que funcione transform */
-  background: transparent;
-  color: $color-white;
-  
-  /* Borde blanco explícito */
-  border: 2px solid $color-white;
-
-  /* Física del Hero */
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-  transition: background-color 0.2s ease,
-              transform 0.2s ease,
-              box-shadow 0.2s ease;
+.cta-box__actions .btn {
+  min-width: 240px;
 }
 
-.section--cta .btn:hover,
-.section--cta .btn-outline:hover {
-  /* Efecto Hover idéntico al Hero (subir + sombra fuerte) */
-  transform: translateY(-3px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
-  background: rgba(255, 255, 255, 0.08); /* Fondo sutil al pasar el mouse */
+/* Para que el primary se lea sobre fondo naranja */
+.cta-box__actions .btn--primary.btn--light-on {
+  background: $color-white;
+  border-color: $color-white;
+  color: $color-brand-dark;
+}
+
+.cta-box__actions .btn--primary.btn--light-on:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.92);
 }
 
 /* =========================================================
@@ -467,10 +456,14 @@
     text-align: center;
   }
 
-  .cta-actions {
-    justify-content: center;
-    gap: 24px; /* Ajuste para móvil para que no se separen tanto */
-    row-gap: 20px; /* ✅ extra para evitar choque vertical también en móvil */
+  .cta-box__actions {
+    width: 100%;
+    align-items: center;
+  }
+
+  .cta-box__actions .btn {
+    width: 100%;
+    max-width: 420px;
   }
 
   .section--benefits > p,

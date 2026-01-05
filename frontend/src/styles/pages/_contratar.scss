@@ -3,19 +3,18 @@
    ========================================= */
 
 .contratar-page {
-  background-color: $color-surface;
-  border-radius: $radius-large;
-  border: 1px solid $color-border;
-  box-shadow: $shadow-card;
-  padding: $sp-6 $sp-6 $sp-6;
+  background-color: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #f3d8c6;
+  box-shadow: 0 14px 30px rgba(148, 95, 52, 0.08);
+  padding: 24px 24px 28px;
 }
 
 .contratar-page h1 {
-  margin: 0 0 $sp-2;
-  font-family: $font-display;
-  font-size: $fs-h2;
+  margin: 4px 0 8px;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: 0.2px;
+  color: #3b281c;
 }
 
 .reservas-eyebrow {
@@ -31,6 +30,50 @@
   font-size: 13px;
   color: #a08168;
 }
+
+/* ===== Acciones (Atrás / Continuar / Guardar) ===== */
+.contratar-page .actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.contratar-page .actions > .btn-primary,
+.contratar-page .actions > .btn-outline,
+.contratar-page .actions > .btn-secondary,
+.contratar-page .actions > .btn-ghost,
+.contratar-page .actions > .btn-danger,
+.contratar-page .actions > button:not([class]) {
+  flex: 1 1 180px;
+  min-width: 170px;
+  height: $control-height;
+  justify-content: center;
+}
+
+/* Botón "Atrás" (plain <button>) */
+.contratar-page .actions > button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(230, 138, 78, 0.35);
+  background-color: rgba(255, 255, 255, 0.92);
+  color: $color-brand-dark;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 18px;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.contratar-page .actions > button:not([class]):hover {
+  background-color: $color-brand-light;
+  transform: translateY(-1px);
+  box-shadow: $shadow-soft;
+}
+
 
 /* ===== Buscador ===== */
 
@@ -53,8 +96,8 @@
     }
 
     &:focus {
-      border-color: $color-brand;
-      box-shadow: 0 0 0 1px rgba(230, 138, 78, 0.18);
+      border-color: #f08a3c;
+      box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.18);
     }
   }
 }
@@ -63,8 +106,8 @@
 
 .month-scheduler {
   border-radius: 18px;
-  border: 1px solid $color-border;
-  background-color: $color-bg;
+  border: 1px solid #f3d8c6;
+  background-color: #fffaf6;
   padding: 14px 16px 16px;
 }
 
@@ -75,13 +118,6 @@
   gap: 8px;
   margin-bottom: 12px;
 }
-
-.month-header .btn-ghost {
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 12px;
-}
-
 
 .month-label {
   font-size: 13px;
@@ -128,13 +164,13 @@
   }
 
   &.selected {
-    background-color: $color-brand;
+    background-color: #f08a3c;
     color: #ffffff;
-    box-shadow: 0 0 0 1px rgba(230, 138, 78, 0.25);
+    box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.25);
   }
 
   &.has-reserva:not(.selected) {
-    background-color: $color-bg-alt;
+    background-color: #ffe8d7;
     color: #a3683b;
   }
 }
@@ -148,7 +184,7 @@
   margin-top: 12px;
   padding: 12px;
   border-radius: 16px;
-  border: 1px solid $color-border;
+  border: 1px solid #f3d8c6;
   background-color: #fffdfb;
 }
 
@@ -176,13 +212,13 @@
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 
   &:hover {
-    background-color: $color-bg-alt;
-    border-color: $color-brand;
+    background-color: #ffe8d7;
+    border-color: #f08a3c;
   }
 
   &.active {
-    background-color: $color-brand;
-    border-color: $color-brand;
+    background-color: #f08a3c;
+    border-color: #f08a3c;
     color: #ffffff;
   }
 
@@ -250,7 +286,7 @@
   }
 
   .legend-dot--confirmed {
-    background-color: $color-brand;
+    background-color: #f08a3c;
   }
 
   .legend-dot--cancelled {
@@ -365,8 +401,8 @@
     outline: none;
 
     &:focus {
-      border-color: $color-brand;
-      box-shadow: 0 0 0 1px rgba(230, 138, 78, 0.18);
+      border-color: #f08a3c;
+      box-shadow: 0 0 0 1px rgba(240, 138, 60, 0.18);
     }
   }
 
@@ -378,19 +414,7 @@
 
 /* Fila de botones dentro de la reserva */
 .reservas-actions-row {
-  margin-top: $sp-3;
-  display: flex;
-  gap: $sp-3;
-  flex-wrap: wrap;
-  align-items: stretch;
-
-  .btn-primary,
-  .btn-secondary,
-  .btn-outline,
-  .btn-ghost {
-    min-width: 180px;
-    justify-content: center;
-  }
+  margin-top: 8px;
 }
 
 /* ===== Responsive ===== */
@@ -422,7 +446,7 @@
 ============================================ */
 
 .reservas-admin {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 32px auto 80px;
   padding-inline: 16px;
   font-family: $font-body;

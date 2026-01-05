@@ -18,10 +18,9 @@
    Normalmente el JSX es:
    <nav className="navbar"><div className="container"><div className="navbar__inner">... */
 .navbar .container {
-  /* refuerzo por si algo pisa el container */
-  max-width: 1800px;
-  margin-inline: auto;
-  padding-inline: 32px;
+  /* usar el mismo ancho que el layout general */
+  max-width: none;
+  padding-inline: 0;
 }
 
 .navbar__inner {
@@ -126,50 +125,39 @@
   margin: 0;
 }
 
-.navbar__right a:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-outline):not(.btn-ghost):not(.btn-danger) {
+.navbar__right a:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-outline):not(.btn-ghost):not(.btn-danger):not(.btn-small):not(.btn--small) {
   font-size: 14px;
   color: $color-text-light;
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
-.navbar__right a:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-outline):not(.btn-ghost):not(.btn-danger):hover {
+.navbar__right a:hover {
   color: $color-text;
 }
 
-/* CTA “Regístrate” (desktop) */
-.navbar__right .btn-primary.btn-small {
+/* Asegura que los botones-link (Regístrate) mantengan el color correcto */
+.navbar__right a.btn,
+.navbar__right a.btn-primary,
+.navbar__right a.btn-secondary,
+.navbar__right a.btn-outline,
+.navbar__right a.btn-ghost,
+.navbar__right a.btn-danger {
+  color: inherit;
+}
+
+.navbar__right a.btn-primary,
+.navbar__right a.btn-danger,
+.navbar__right a.btn--primary {
+  color: $color-white;
+}
+
+
+/* Ajuste visual: píldora en botones pequeños dentro del navbar (sin cambiar altura del sistema) */
+.navbar .btn-small,
+.navbar .btn--small {
   border-radius: 999px;
-  padding-inline: 14px;
-  color: $color-white; /* evita overrides de anchors */
-  box-shadow: 0 10px 22px rgba(230, 138, 78, 0.30);
 }
-
-.navbar__right .btn-primary.btn-small:hover {
-  color: $color-white;
-}
-
-/* CTA “Regístrate” (mobile) */
-.navbar__mobile a[href="/register"] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: $control-height;
-  padding: 0 $control-padding-x;
-  border-radius: 999px;
-  background: $color-brand;
-  color: $color-white;
-  text-decoration: none;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: 0 10px 22px rgba(230, 138, 78, 0.26);
-}
-
-.navbar__mobile a[href="/register"]:hover {
-  background: $color-brand-dark;
-  color: $color-white;
-}
-
 
 /* Botón salir */
 .logout-btn {

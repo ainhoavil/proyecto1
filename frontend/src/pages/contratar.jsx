@@ -609,7 +609,10 @@ export default function Contratar() {
             style={{
               padding: '4px 8px',
               borderRadius: 8,
-              background: i === step ? '#e5f2ea' : '#eee'
+              /* Color activo alineado con la paleta de la app (naranja suave) */
+              background: i === step ? '#FBEDE3' : '#f3f3f3',
+              border: i === step ? '1px solid #E68A4E' : '1px solid #e3e3e3',
+              color: i === step ? '#7A3F1D' : 'inherit'
             }}
           >
             {i + 1}. {t}
