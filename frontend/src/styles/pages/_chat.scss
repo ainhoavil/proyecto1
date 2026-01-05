@@ -270,52 +270,12 @@
    BOTONES
    ========================================================= */
 
-.df-btn {
-  border-radius: var(--chat-radius-pill);
-  padding: 10px 18px;
-  font-weight: 900;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all .15s ease;
-}
 
-.df-btn--primary {
-  background: linear-gradient(
-    180deg,
-    var(--chat-primary),
-    var(--chat-primary-dark)
-  );
-  color: #fff;
-  box-shadow: 0 10px 24px rgba(244,127,44,.35);
-}
 
-.df-btn--primary:hover {
-  box-shadow: 0 14px 30px rgba(244,127,44,.45);
-}
 
-.df-btn--primary:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
 
-.df-btn--ghost {
-  background: #fff;
-  border-color: var(--chat-border);
-  color: var(--chat-text);
-}
 
-.df-btn--ghost:hover {
-  background: rgba(0,0,0,.04);
-}
 
-.df-btn--icon {
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 
 /* =========================================================
    ADJUNTOS EN MENSAJE

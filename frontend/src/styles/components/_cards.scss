@@ -1,0 +1,29 @@
+@import "../base/variables";
+@import "../base/mixins";
+
+/* =========================================================
+   Cards / lists
+========================================================= */
+
+.card {
+  @include card-surface;
+  padding: 18px;
+}
+
+.card--compact { padding: 14px; }
+
+.card__title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: $color-text;
+}
+
+.card__meta { font-size: 13px; color: $color-text-light; }
+
+.card__actions {
+  margin-top: $sp-3;
+  display: flex;
+  gap: $sp-3;
+  flex-wrap: wrap;
+}

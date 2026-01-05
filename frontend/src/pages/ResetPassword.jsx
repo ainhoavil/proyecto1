@@ -2,7 +2,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
-import "../styles/login.scss";
 
 export default function ResetPassword() {
   const location = useLocation();

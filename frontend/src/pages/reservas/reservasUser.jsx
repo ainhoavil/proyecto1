@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { http } from "../../helpers/http";
 import { useUi } from "../../context/ui";
 import { useAuth } from "../../context/auth";
-import "../../styles/contratar.scss"; // reutilizamos estilos de botones / card
 
 // ==== utilidades básicas ====
 function formatEUR(value, currency = "EUR") {

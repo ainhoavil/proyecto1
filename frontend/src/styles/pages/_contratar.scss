@@ -82,22 +82,6 @@
 }
 
 /* Botón fantasma para flechas calendario */
-.btn-ghost {
-  border: none;
-  background: none;
-  padding: 4px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  color: #c49c7f;
-  transition: background-color 0.15s ease, color 0.15s ease;
-
-  &:hover {
-    background-color: #ffe8d7;
-    color: #8f6b53;
-  }
-}
 
 /* Cabecera días semana */
 .weekdays {
@@ -306,34 +290,9 @@
 
 /* ===== Badges de estado ===== */
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  white-space: nowrap;
-  background-color: #f0ece8;
-  color: #7b5b45;
-}
 
-.badge-pending,
-.badge-pending-user {
-  background-color: #ffcf7b;
-  color: #7b4a06;
-}
 
-.badge-confirmed {
-  background-color: #f08a3c;
-  color: #ffffff;
-}
 
-.badge-cancelled,
-.badge-rejected {
-  background-color: #f2b8b4;
-  color: #8f2b2b;
-}
 
 /* ===== Notas dentro de cada reserva ===== */
 

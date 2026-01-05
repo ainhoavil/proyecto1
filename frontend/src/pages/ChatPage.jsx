@@ -16,8 +16,6 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useUi } from "../context/ui";
 import { isLogged } from "../helpers/auth";
-import "../styles/contratar.scss";
-import "../styles/chat.scss";
 
 // API base para construir URLs de archivos (no usa fetch helper)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");

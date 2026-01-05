@@ -1,0 +1,22 @@
+@import "./variables";
+
+/* Mixins pequeños para mantener el código limpio */
+@mixin focus-ring {
+  outline: none;
+  box-shadow: $focus-ring;
+}
+
+@mixin truncate($lines: 1) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+}
+
+@mixin card-surface {
+  background: $color-surface;
+  border: 1px solid $color-border;
+  border-radius: $radius-large;
+  box-shadow: $shadow-card;
+}

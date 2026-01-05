@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import '../styles/topbar.scss';
 
 export default function TopBar() {
   const [data, setData] = useState({

@@ -1,0 +1,42 @@
+@import "../base/variables";
+
+/* =========================================================
+   Badges (estado)
+========================================================= */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.04);
+  color: $color-text;
+}
+
+.badge-confirmed {
+  background: $color-success-bg;
+  border-color: $color-success-border;
+  color: $color-success-text;
+}
+
+.badge-pending,
+.badge-pending-user {
+  background: $color-warning-bg;
+  border-color: $color-warning-border;
+  color: $color-warning-text;
+}
+
+.badge-rejected,
+.badge-cancelled,
+.badge-canceled,
+.badge-deleted {
+  background: $color-danger-bg;
+  border-color: $color-danger-border;
+  color: $color-danger-text;
+}

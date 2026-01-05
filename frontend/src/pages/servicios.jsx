@@ -1,7 +1,6 @@
 // frontend/src/pages/servicios.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import '../styles/servicios.scss';
 import { useAuth } from '../context/auth';
 import { http } from '../helpers/http';
 import { useUi } from '../context/ui';

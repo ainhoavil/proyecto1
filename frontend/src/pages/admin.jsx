@@ -12,7 +12,6 @@ import ReservasAdmin from './reservas/reservasAdmin.jsx';
 import Servicios from './servicios.jsx';
 
 // Styles
-import '../styles/admin.scss';
 
 /* ==================== UTILS ==================== */
 function formatEUR(value, currency = 'EUR') {

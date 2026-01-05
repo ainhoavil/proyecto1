@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
-import "../styles/trainer-public-profile.scss";
 
 export default function TrainerPublicProfile() {
   const { id } = useParams();

@@ -1,4 +1,3 @@
-import "../styles/legal.scss";
 
 export default function PoliticaPrivacidad() {
   return (

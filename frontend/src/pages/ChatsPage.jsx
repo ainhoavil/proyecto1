@@ -12,8 +12,6 @@ import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { isLogged } from "../helpers/auth";
 import { useUi } from "../context/ui";
-import "../styles/contratar.scss";
-import "../styles/chat.scss";
 
 // API base para construir URLs de avatar si vienen como ruta relativa
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(

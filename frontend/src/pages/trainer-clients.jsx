@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useAuth } from "../context/auth";
-import "../styles/contratar.scss";
 
 export default function TrainerClients() {
   const { user } = useAuth();

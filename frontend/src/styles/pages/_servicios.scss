@@ -1,4 +1,3 @@
-@import "./global.scss";
 
 /* =========================================
    PÁGINA DE SERVICIOS – DOGFORM (CLIENTE/ADMIN)
@@ -199,22 +198,7 @@
 }
 
 /* Badge "Destacado" */
-.badge {
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  background-color: $color-brand-light;
-  color: $color-brand-dark;
-  border: 1px solid rgba(230, 138, 78, 0.22);
-}
 
-.badge--featured {
-  background-color: $color-brand;
-  color: $color-white;
-  border-color: $color-brand;
-}
 
 /* Acciones inferiores: precio izquierda, botones derecha */
 .actions {
@@ -246,70 +230,12 @@
    BOTONES (solo para la página de Servicios)
 ========================================= */
 
-.btn-primary,
-.btn-outline,
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  padding: 10px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background-color 0.2s ease, color 0.2s ease,
-    border-color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
-}
 
 /* Relleno (Contratar) */
-.btn-primary {
-  background-color: $color-brand;
-  border-color: $color-brand;
-  color: $color-white;
-  box-shadow: 0 8px 20px rgba(230, 138, 78, 0.35);
-
-  &:hover {
-    background-color: $color-brand-dark;
-    border-color: $color-brand-dark;
-    transform: translateY(-2px);
-    box-shadow: 0 12px 28px rgba(212, 111, 53, 0.35);
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: default;
-    box-shadow: none;
-    transform: none;
-  }
-}
 
 /* Outline (Ver más) */
-.btn-outline {
-  background-color: $color-white;
-  color: $color-text;
-  border-color: $color-border;
-
-  &:hover {
-    background-color: $color-brand-light;
-    border-color: rgba(230, 138, 78, 0.35);
-    color: $color-brand-dark;
-    transform: translateY(-2px);
-    box-shadow: $shadow-soft;
-  }
-}
 
 /* Secundario */
-.btn-secondary {
-  background-color: $color-bg;
-  color: $color-text;
-  border-color: $color-border;
-
-  &:hover {
-    background-color: $color-brand-light;
-  }
-}
 
 /* =========================================
    MODAL DETALLE SERVICIO

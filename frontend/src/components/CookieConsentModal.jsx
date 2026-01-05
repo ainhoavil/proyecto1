@@ -1,7 +1,6 @@
 // frontend/src/components/CookieConsentModal.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import "../styles/cookies.scss";
 import {
   defaultConsent,
   hasDecided,

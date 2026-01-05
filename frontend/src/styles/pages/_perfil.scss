@@ -388,111 +388,12 @@
 ================================ */
 
 /* Botón principal naranja */
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: none;
-  padding: 7px 18px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  background-color: #f37f3b;
-  color: #ffffff;
-  box-shadow: 0 14px 32px rgba(243, 127, 59, 0.45);
-  transition:
-    background-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.1s ease;
-
-  &:hover:not(:disabled) {
-    background-color: #e66d25;
-    box-shadow: 0 18px 40px rgba(243, 127, 59, 0.65);
-    transform: translateY(-1px);
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: default;
-    box-shadow: none;
-  }
-}
 
 /* Botón secundario gris/beige */
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid #f1d4c2;
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  background-color: #fff7f0;
-  color: #7f6e62;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
-
-  &:hover {
-    background-color: #fbe8d9;
-    border-color: #e8c1a3;
-  }
-}
 
 /* Botón “ghost” blanco con borde suave */
-.btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  padding: 6px 14px;
-  font-size: 12px;
-  cursor: pointer;
-  background-color: #ffffff;
-  color: #7f6e62;
-  text-decoration: none;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
-
-  &:hover {
-    background-color: #fdf2e9;
-    border-color: rgba(0, 0, 0, 0.12);
-  }
-}
 
 /* Botón peligro (Eliminar) */
-.btn-danger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid #f39b9b;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  background-color: #ffe9e5;
-  color: #b83232;
-  text-decoration: none;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
-
-  &:hover {
-    background-color: #fcd3cc;
-    border-color: #e27a7a;
-    box-shadow: 0 6px 18px rgba(184, 50, 50, 0.25);
-  }
-}
 
 /* ================================
    RESPONSIVE

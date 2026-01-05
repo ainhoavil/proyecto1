@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { http } from "../helpers/http";
 import { HOURS, humanDate, canonStatus, serverErrMsg } from "../helpers/reservas";
-import "../styles/contratar.scss";
 
 function todayYMD() {
   return new Date().toISOString().slice(0, 10);

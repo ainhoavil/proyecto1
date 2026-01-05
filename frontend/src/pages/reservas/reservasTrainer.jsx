@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { http } from '../../helpers/http';
 import { useAuth } from '../../context/auth';
-import '../../styles/contratar.scss';
 
 import {
   first,

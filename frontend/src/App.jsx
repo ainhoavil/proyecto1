@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 // Layout
 import Navbar from "./components/navbar";
-import Topbar from "./components/topbar";
+import Topbar from "./components/Topbar.jsx";
 import Footer from "./components/Footer";
 
 // Contextos
@@ -47,7 +47,6 @@ import ChatPage from "./pages/ChatPage.jsx";
 import ChatsPage from "./pages/ChatsPage.jsx";
 
 // Styles
-import "./styles/global.scss";
 
 export default function App() {
   const location = useLocation();

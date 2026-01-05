@@ -3,8 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { isLogged } from "../helpers/auth";
-import "../styles/contratar.scss";
-import "../styles/perfil.scss";
 
 function nowIso() {
   return new Date().toISOString();

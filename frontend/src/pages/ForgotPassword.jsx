@@ -2,7 +2,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";
-import "../styles/login.scss";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");

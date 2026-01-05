@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useAuth } from "../context/auth";
-import "../styles/login.scss";
 
 export default function Login() {
   const [email, setEmail] = useState("");

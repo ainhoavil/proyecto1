@@ -1,0 +1,79 @@
+/* =========================================
+   🎨 Dogform Design Tokens
+   Warm / friendly / modern (cream + orange + brown)
+========================================= */
+
+/* ---------- COLORES BASE ---------- */
+$color-brand:       #E68A4E;
+$color-brand-dark:  #D46F35;
+$color-brand-light: #FBEDE3;
+
+$color-bg:          #FFF9F5;   /* crema/arena muy claro */
+$color-bg-alt:      #FFF4EB;   /* crema ligeramente más cálido */
+/* Blancos / superficies (alias para compatibilidad) */
+$color-white:       #FFFFFF;
+$color-surface:     $color-white;
+
+$color-text:        #3E2F25;   /* marrón oscuro */
+$color-text-light:  #7B675C;
+$color-border:      #EAD7CE;
+
+/* ---------- ESTADOS ---------- */
+$color-success-bg:     #E9F7EE;
+$color-success-border: #BFE6CC;
+$color-success-text:   #25613A;
+
+$color-danger-bg:      #FDEBEB;
+$color-danger-border:  #F4B9BF;
+$color-danger-text:    #7A232B;
+
+$color-warning-bg:     #FFF3D8;
+$color-warning-border: #F6D69B;
+$color-warning-text:   #7A4B00;
+
+$color-info-bg:        #EAF3F8;
+$color-info-border:    #BBD9EA;
+$color-info-text:      #1F4F6A;
+
+/* ---------- TIPOGRAFÍA ---------- */
+$font-display: 'DM Serif Display', serif;
+$font-body: 'Inter', sans-serif;
+
+/* Base general: 16–18px */
+$fs-base: 17px;
+$fs-small: 14px;
+$fs-xs: 13px;
+
+$fs-h1: 28px;
+$fs-h2: 24px;
+$fs-h3: 20px;
+
+/* ---------- ESPACIADOS ---------- */
+$sp-1: 4px;
+$sp-2: 8px;
+$sp-3: 12px;
+$sp-4: 16px;
+$sp-5: 24px;
+$sp-6: 32px;
+$sp-7: 48px;
+$sp-8: 64px;
+
+/* ---------- RADIOS ---------- */
+$radius-small: 10px;
+$radius: 14px;
+$radius-large: 18px;
+$radius-xl: 24px;
+
+/* ---------- SOMBRAS ---------- */
+$shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.05);
+$shadow-card: 0 10px 28px rgba(148, 95, 52, 0.10);
+$shadow-strong: 0 18px 44px rgba(0, 0, 0, 0.14);
+
+/* ---------- TRANSICIONES ---------- */
+$transition: 0.22s ease;
+
+/* ---------- CONTROLES ---------- */
+$control-height: 42px;  /* inputs / buttons: 40–44px */
+$control-radius: $radius;
+$control-padding-x: 14px;
+$focus-ring: 0 0 0 3px rgba(230, 138, 78, 0.22);

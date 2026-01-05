@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/auth";
-import "../styles/navbar.scss";
 
 export default function Navbar() {
   const { isAuthenticated, user, role, logout } = useAuth();
@@ -109,7 +108,7 @@ export default function Navbar() {
                 </Link>
               </li>
               <li>
-                <button className="logout-btn" onClick={handleLogout}>
+                <button className="btn-ghost btn-small" onClick={handleLogout}>
                   Salir
                 </button>
               </li>
@@ -122,7 +121,7 @@ export default function Navbar() {
                 </Link>
               </li>
               <li>
-                <Link to="/register" className="btn-small" onClick={closeMenu}>
+                <Link to="/register" className="btn-primary btn-small" onClick={closeMenu}>
                   Regístrate
                 </Link>
               </li>
@@ -221,7 +220,7 @@ export default function Navbar() {
                 </Link>
               </li>
               <li>
-                <button className="logout-btn" onClick={handleLogout}>
+                <button className="btn-ghost btn-small" onClick={handleLogout}>
                   Salir
                 </button>
               </li>

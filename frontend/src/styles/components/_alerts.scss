@@ -1,0 +1,46 @@
+@import "../base/variables";
+
+/* =========================================================
+   Alerts (banners dentro del layout)
+========================================================= */
+
+.df-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: $radius;
+  border: 1px solid $color-border;
+  background: $color-bg-alt;
+  color: $color-text;
+}
+
+.df-alert__title {
+  margin: 0 0 2px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.df-alert__text {
+  margin: 0;
+  font-size: 14px;
+  color: $color-text;
+}
+
+.df-alert--success {
+  background: $color-success-bg;
+  border-color: $color-success-border;
+  color: $color-success-text;
+}
+
+.df-alert--error {
+  background: $color-danger-bg;
+  border-color: $color-danger-border;
+  color: $color-danger-text;
+}
+
+.df-alert--info {
+  background: $color-info-bg;
+  border-color: $color-info-border;
+  color: $color-info-text;
+}

@@ -1,7 +1,6 @@
 // frontend/src/pages/reservas/reservasAdmin.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { http } from '../../helpers/http';
-import '../../styles/contratar.scss';
 
 import {
   first,

@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useAuth } from "../context/auth";
-import "../styles/register.scss";
 
 export default function Register() {
   const [nombre, setNombre] = useState("");

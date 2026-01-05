@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/auth';
 import { http } from '../helpers/http';
-import '../styles/contratar.scss';
 
 /* ===================== utilidades ===================== */
 function formatEUR(value, currency = 'EUR') {

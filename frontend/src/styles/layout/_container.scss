@@ -1,0 +1,19 @@
+@import "../base/variables";
+
+/* Contenedor centrado con márgenes laterales consistentes */
+.container {
+  width: min(1200px, 92%);
+  margin-inline: auto;
+}
+
+main.container {
+  padding-block: $sp-6;
+}
+
+.section { margin-bottom: $sp-6; }
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: $sp-4;
+}

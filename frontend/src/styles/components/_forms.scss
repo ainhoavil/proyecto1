@@ -1,0 +1,62 @@
+@import "../base/variables";
+@import "../base/mixins";
+
+/* =========================================================
+   Forms
+========================================================= */
+
+label {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: $fs-small;
+  color: $color-text;
+  font-weight: 600;
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: $fs-xs;
+  color: $color-text-light;
+}
+
+.form-error,
+.field-error {
+  margin-top: 6px;
+  font-size: $fs-xs;
+  color: $color-danger-text;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="search"],
+select,
+textarea {
+  width: 100%;
+  height: $control-height;
+  padding: 10px 12px;
+  border-radius: $control-radius;
+  border: 1px solid $color-border;
+  background: $color-surface;
+  color: $color-text;
+  transition: border-color $transition, box-shadow $transition, background-color $transition;
+
+  &::placeholder { color: rgba(62, 47, 37, 0.45); }
+
+  &:focus {
+    border-color: $color-brand;
+    @include focus-ring;
+  }
+}
+
+textarea { min-height: 120px; height: auto; resize: vertical; }
+
+input[type="checkbox"],
+input[type="radio"] { accent-color: $color-brand; }
+
+.field { margin-bottom: $sp-4; }
+.form-actions { margin-top: $sp-4; }
