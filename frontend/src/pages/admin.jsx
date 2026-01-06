@@ -159,7 +159,7 @@ function UsersTab() {
     name: '',
     email: '',
     password: '',
-    rol: 'user',
+    rol: 'client',
   });
   const [msg, setMsg] = useState('');
 
@@ -221,7 +221,7 @@ function UsersTab() {
     try {
       await http('/api/auth/users', { method: 'POST', data: newUser, auth: true });
       setMsg('✅ Usuario creado');
-      setNewUser({ name: '', email: '', password: '', rol: 'user' });
+      setNewUser({ name: '', email: '', password: '', rol: 'client' });
       loadUsers();
     } catch (e) {
       console.error(e);

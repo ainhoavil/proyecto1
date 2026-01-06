@@ -31,8 +31,15 @@ export default function ResetPassword() {
       setStatus({ type: "err", message: "Falta el token. Abre el enlace correcto." });
       return;
     }
-    if (pass1.length < 8) {
-      setStatus({ type: "err", message: "La contraseña debe tener al menos 8 caracteres." });
+    const pw = String(pass1 || "");
+    const strong =
+      pw.length >= 8 && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(pw) && /\d/.test(pw);
+    if (!strong) {
+      setStatus({
+        type: "err",
+        message:
+          "La contraseña debe tener mínimo 8 caracteres e incluir letras y números.",
+      });
       return;
     }
     if (pass1 !== pass2) {

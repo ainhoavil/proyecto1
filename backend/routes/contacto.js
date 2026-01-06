@@ -85,11 +85,11 @@ router.post("/", async (req, res) => {
     const to =
       process.env.CONTACT_TO ||
       process.env.EMAIL_FROM_EMAIL ||
-      process.env.EMAIL_USER;
+      process.env.EMAIL_USER ||
+      "dogformtraining@gmail.com";
 
-    if (!to) {
-      return res.status(500).json({ error: "Falta CONTACT_TO / EMAIL_USER en .env" });
-    }
+    // Nota: si no hay config de mailer (EMAIL_USER/EMAIL_PASS o SMTP...),
+    // el mailer entra en modo DEV LOG (no rompe).
 
     const appName = String(process.env.APP_NAME || "DogForm").trim();
     const subject = `${appName} · Nuevo mensaje de contacto`;

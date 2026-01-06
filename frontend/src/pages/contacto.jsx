@@ -32,6 +32,19 @@ function Contacto() {
     setError("");
     setEnviado(false);
 
+    const nombreClean = String(nombre || "").trim();
+    const emailClean = String(email || "").trim().toLowerCase();
+    const mensajeClean = String(mensaje || "").trim();
+    const telefonoRaw = String(telefono || "").trim();
+    const tipoServicioClean = String(tipoServicio || "").trim();
+    const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || "").trim().toLowerCase());
+
+    const digits = telefonoRaw.replace(/\D/g, "");
+    const phoneNorm =
+      digits.length > 9 && (digits.startsWith("34") || digits.startsWith("0034"))
+        ? digits.slice(-9)
+        : digits;
+
     // honeypot: si se rellena, tratamos como bot
     if (honeypot.trim() !== "") {
       setEnviado(true);
@@ -51,31 +64,39 @@ function Contacto() {
       return;
     }
 
-    if (!nombre.trim() || !email.trim() || !mensaje.trim()) {
+    if (!nombreClean || !emailClean || !mensajeClean) {
       setError("Por favor, completa nombre, email y mensaje.");
+      return;
+    }
+    if (nombreClean.length < 2) {
+      setError("El nombre debe tener al menos 2 caracteres.");
+      return;
+    }
+    if (!isValidEmail(emailClean)) {
+      setError("El email no parece válido.");
+      return;
+    }
+    if (mensajeClean.length < 10) {
+      setError("El mensaje debe tener al menos 10 caracteres.");
+      return;
+    }
+    if (telefonoRaw && (!phoneNorm || phoneNorm.length !== 9)) {
+      setError("Teléfono inválido (España: 9 dígitos).");
       return;
     }
 
     setSending(true);
     try {
-      // ✅ Backend actual espera: nombre, email, mensaje, honeypot
-      // Metemos teléfono/tipoServicio dentro de "mensaje" para no tocar backend ahora.
-      const mensajeFinal = [
-        telefono?.trim() ? `Teléfono: ${telefono.trim()}` : null,
-        tipoServicio?.trim() ? `Tipo de servicio: ${tipoServicio.trim()}` : null,
-        "",
-        mensaje.trim(),
-      ]
-        .filter(Boolean)
-        .join("\n");
-
       await http("/api/contacto", {
         method: "POST",
         data: {
-          nombre: nombre.trim(),
-          email: email.trim(),
-          mensaje: mensajeFinal,
+          nombre: nombreClean,
+          email: emailClean,
+          mensaje: mensajeClean,
+          telefono: telefonoRaw ? phoneNorm : "",
+          tipoServicio: tipoServicioClean,
           honeypot: honeypot, // el backend lo detecta aquí
+          ts: loadedAt,
         },
       });
 

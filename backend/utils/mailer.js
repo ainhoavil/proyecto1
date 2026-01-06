@@ -39,7 +39,7 @@ function getFromAddress() {
       process.env.MAIL_FROM ||
       process.env.EMAIL_USER ||
       process.env.SMTP_USER ||
-      "no-reply@dogform.local"
+      "dogformtraining@gmail.com"
   ).trim();
 
   // Si ya viene con formato "Nombre <mail>", lo respetamos.
