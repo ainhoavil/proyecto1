@@ -32,7 +32,24 @@ function normHora(h) {
 }
 
 function normFecha(f) {
-  return String(f || "").trim().slice(0, 10);
+  const raw = String(f || "").trim();
+  if (!raw) return "";
+
+  // acepta YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+
+  // acepta DD/MM/YYYY -> YYYY-MM-DD
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const [dd, mm, yyyy] = raw.split("/");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // acepta YYYY/MM/DD -> YYYY-MM-DD
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(raw)) {
+    return raw.replaceAll("/", "-");
+  }
+
+  return raw.slice(0, 10);
 }
 
 /**
@@ -45,7 +62,10 @@ router.get(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const fecha = normFecha(req.query?.fecha);
+      // Compat: algunos clientes envían date/dia/f en vez de fecha
+      const fecha = normFecha(
+        req.query?.fecha ?? req.query?.date ?? req.query?.dia ?? req.query?.f
+      );
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
 
       const cols = await getBloqueosCols();
@@ -88,8 +108,8 @@ router.post(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      const fecha = normFecha(req.body?.fecha);
-      const hora = normHora(req.body?.hora);
+      const fecha = normFecha(req.body?.fecha ?? req.body?.date ?? req.body?.dia);
+      const hora = normHora(req.body?.hora ?? req.body?.time);
       if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha/hora" });
 
       const cols = await getBloqueosCols();
@@ -165,12 +185,19 @@ router.delete(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      // ✅ fallback: algunos clientes no mandan body en DELETE
-      const src = (req.body && (req.body.fecha || req.body.hora)) ? req.body : req.query;
+      // ✅ Compat:
+      // - Algunos clientes NO envían body en DELETE (usan querystring)
+      // - Otros envían body JSON (lo normal en este proyecto)
+      // - Algunos usan claves alternativas (date/time)
+      const fecha = normFecha(
+        req.body?.fecha ?? req.body?.date ?? req.query?.fecha ?? req.query?.date
+      );
+      const hora = normHora(
+        req.body?.hora ?? req.body?.time ?? req.query?.hora ?? req.query?.time
+      );
 
-      const fecha = normFecha(src?.fecha);
-      const hora = normHora(src?.hora);
-      if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha/hora" });
+      if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+      if (!hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
 
       const cols = await getBloqueosCols();
       const hasTrainer = cols.includes("trainer_id");

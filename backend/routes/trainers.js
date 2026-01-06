@@ -8,6 +8,7 @@ const router = express.Router();
    Helpers disponibilidad (bloqueos/reservas) por adiestrador
 ============================================================ */
 let _bloqueosHasTrainerId = null;
+let _bloqueosHasAllDay = null;
 
 async function bloqueosHasTrainerIdColumn() {
   if (_bloqueosHasTrainerId !== null) return _bloqueosHasTrainerId;
@@ -20,6 +21,19 @@ async function bloqueosHasTrainerIdColumn() {
     _bloqueosHasTrainerId = false;
   }
   return _bloqueosHasTrainerId;
+}
+
+async function bloqueosHasAllDayColumn() {
+  if (_bloqueosHasAllDay !== null) return _bloqueosHasAllDay;
+  try {
+    const cols = await query(`PRAGMA table_info(bloqueos)`);
+    _bloqueosHasAllDay = (cols || []).some(
+      (c) => String(c?.name || "").toLowerCase() === "is_all_day"
+    );
+  } catch {
+    _bloqueosHasAllDay = false;
+  }
+  return _bloqueosHasAllDay;
 }
 
 function padHHMM(x) {
@@ -265,14 +279,38 @@ router.get(
 
       // 3) Bloqueos
       const hasTrainerCol = await bloqueosHasTrainerIdColumn();
+      const hasAllDayCol = await bloqueosHasAllDayColumn();
       let bloqueos = [];
       if (hasTrainerCol) {
         bloqueos = await query(
-          `SELECT hora, trainer_id AS trainerId FROM bloqueos WHERE fecha=?`,
+          hasAllDayCol
+            ? `SELECT hora, trainer_id AS trainerId, COALESCE(is_all_day,0) AS allDay FROM bloqueos WHERE fecha=?`
+            : `SELECT hora, trainer_id AS trainerId FROM bloqueos WHERE fecha=?`,
           [String(fecha)]
         );
       } else {
-        bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [String(fecha)]);
+        bloqueos = await query(
+          hasAllDayCol
+            ? `SELECT hora, COALESCE(is_all_day,0) AS allDay FROM bloqueos WHERE fecha=?`
+            : `SELECT hora FROM bloqueos WHERE fecha=?`,
+          [String(fecha)]
+        );
+      }
+
+      // Bloqueos de día completo
+      let allDayGlobal = false;
+      const allDayByTrainer = new Set();
+      if (hasAllDayCol) {
+        for (const b of bloqueos || []) {
+          if (Number(b?.allDay || 0) !== 1) continue;
+          if (hasTrainerCol) {
+            const bt = String(b?.trainerId || "").trim();
+            if (!bt) allDayGlobal = true;
+            else allDayByTrainer.add(bt);
+          } else {
+            allDayGlobal = true;
+          }
+        }
       }
 
       // 4) Filtrado final
@@ -283,7 +321,12 @@ router.get(
 
         // Bloqueos (global o por trainer)
         let blocked = false;
-        for (const b of bloqueos || []) {
+        if (hasAllDayCol && (allDayGlobal || allDayByTrainer.has(tid))) blocked = true;
+
+        // Bloqueos por hora (global o por trainer)
+        if (!blocked) {
+          for (const b of bloqueos || []) {
+          if (hasAllDayCol && Number(b?.allDay || 0) === 1) continue;
           const bh = String(b?.hora || '').trim();
           if (!bh) continue;
           if (hasTrainerCol) {
@@ -301,6 +344,7 @@ router.get(
               break;
             }
           }
+        }
         }
         if (blocked) continue;
 

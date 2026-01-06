@@ -34,6 +34,20 @@ async function bloqueosHasTrainerIdColumn() {
   }
 }
 
+let _bloqueosHasAllDay = null;
+async function bloqueosHasAllDayColumn() {
+  if (_bloqueosHasAllDay !== null) return _bloqueosHasAllDay;
+  try {
+    const cols = await query(`PRAGMA table_info(bloqueos)`);
+    _bloqueosHasAllDay = cols.some(
+      (c) => String(c.name).toLowerCase() === "is_all_day"
+    );
+  } catch {
+    _bloqueosHasAllDay = false;
+  }
+  return _bloqueosHasAllDay;
+}
+
 /* ============================================================
    POST /api/reservas/trainer-create
    Crea una reserva desde la agenda del adiestrador.
@@ -122,15 +136,24 @@ router.post(
       );
 
       const hasTrainerCol = await bloqueosHasTrainerIdColumn();
+      const hasAllDayCol = await bloqueosHasAllDayColumn();
       const bloqueos = hasTrainerCol
         ? await query(
-            `SELECT hora FROM bloqueos WHERE fecha=? AND (trainer_id=? OR trainer_id IS NULL OR trainer_id='')`,
+            hasAllDayCol
+              ? `SELECT hora, COALESCE(is_all_day,0) AS allDay FROM bloqueos WHERE fecha=? AND (trainer_id=? OR trainer_id IS NULL OR trainer_id='')`
+              : `SELECT hora FROM bloqueos WHERE fecha=? AND (trainer_id=? OR trainer_id IS NULL OR trainer_id='')`,
             [fecha, trainerId]
           )
-        : await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [fecha]);
+        : await query(
+            hasAllDayCol
+              ? `SELECT hora, COALESCE(is_all_day,0) AS allDay FROM bloqueos WHERE fecha=?`
+              : `SELECT hora FROM bloqueos WHERE fecha=?`,
+            [fecha]
+          );
 
       if (
         existentes.some((r) => String(r.hora) === String(hora)) ||
+        bloqueos.some((b) => Number(b?.allDay || 0) === 1) ||
         bloqueos.some((b) => String(b.hora) === String(hora))
       ) {
         return res.status(409).json({ error: "Hora ya reservada o bloqueada" });

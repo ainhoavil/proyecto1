@@ -1,9 +1,15 @@
 // backend/routes/reservas.js
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
-import { query } from "../db.js";
+import { query as baseQuery, db } from "../db.js";
 import { verifyToken, requireAdmin, allowRoles } from "../middleware/auth.js";
 import trainerAgendaRoutes from "./trainerAgenda.js";
+import {
+  buildAvailabilityIndex,
+  getAnyAvailability,
+  isTrainerAvailable,
+  listEligibleTrainerIds,
+} from "../utils/availability.js";
 import {
   notifyReservationCenterConfirmed,
   notifyReservationUserConfirmed,
@@ -119,34 +125,87 @@ async function autoExpireIfPast(rows) {
   }
 }
 
-async function tx(run) {
+/* ===================== Transacciones (libSQL/Turso compatible) ===================== */
+// En Turso/libSQL, ejecutar BEGIN/COMMIT como queries separadas suele romper,
+// porque cada llamada puede ir por una conexión distinta.
+// Para evitar "cannot commit - no transaction is active", usamos
+// `db.transaction()` (si existe) y enroutamos *todas* las queries del módulo
+// a la transacción activa.
+let _activeTx = null;
+
+async function execWith(executor, sql, args = []) {
+  // Compatibilidad con distintas firmas de execute()
   try {
-    await query("BEGIN IMMEDIATE");
+    return await executor.execute({ sql, args });
+  } catch {
+    // Algunas versiones aceptan execute(sql, args)
+    return await executor.execute(sql, args);
+  }
+}
+
+// Wrapper local: el resto del archivo usa `query(...)` sin saber si está en tx.
+async function query(sql, params = []) {
+  if (_activeTx && typeof _activeTx.execute === "function") {
+    const res = await execWith(_activeTx, sql, params);
+    return res.rows || [];
+  }
+  return await baseQuery(sql, params);
+}
+
+async function beginWriteTx() {
+  if (!db || typeof db.transaction !== "function") return null;
+  try {
+    return await db.transaction("write");
+  } catch {
+    try {
+      return await db.transaction();
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function commitTx(t) {
+  if (t && typeof t.commit === "function") return await t.commit();
+  // Fallback (poco probable): intentar COMMIT dentro del executor
+  if (t && typeof t.execute === "function") {
+    await execWith(t, "COMMIT", []);
+    return;
+  }
+}
+
+async function rollbackTx(t) {
+  if (t && typeof t.rollback === "function") return await t.rollback();
+  if (t && typeof t.execute === "function") {
+    await execWith(t, "ROLLBACK", []).catch(() => {});
+  }
+}
+
+async function tx(run) {
+  // Soportar transacciones anidadas (reutiliza la activa)
+  if (_activeTx) return await run();
+
+  const t = await beginWriteTx();
+  if (!t) {
+    // Fallback seguro: si el driver no soporta transacciones explícitas,
+    // ejecutamos sin BEGIN/COMMIT para evitar errores en libSQL remoto.
+    return await run();
+  }
+
+  _activeTx = t;
+  try {
     const r = await run();
-    await query("COMMIT");
+    await commitTx(t);
     return r;
   } catch (e) {
-    await query("ROLLBACK").catch(() => {});
+    await rollbackTx(t);
     throw e;
+  } finally {
+    _activeTx = null;
   }
 }
 
 /* ===================== Bloqueos / disponibilidad por adiestrador ===================== */
-let _bloqueosHasTrainerId = null;
-
-async function bloqueosHasTrainerIdColumn() {
-  if (_bloqueosHasTrainerId !== null) return _bloqueosHasTrainerId;
-  try {
-    const cols = await query(`PRAGMA table_info(bloqueos)`);
-    _bloqueosHasTrainerId = (cols || []).some(
-      (c) => String(c?.name || "").toLowerCase() === "trainer_id"
-    );
-  } catch {
-    _bloqueosHasTrainerId = false;
-  }
-  return _bloqueosHasTrainerId;
-}
-
 async function isTrainerAvailableForSlot({
   trainerId,
   fecha,
@@ -157,75 +216,16 @@ async function isTrainerAvailableForSlot({
   const tid = String(trainerId || "").trim();
   if (!tid || !fecha || !hora) return true;
 
-  // Reservas solapadas del mismo trainer
-  const params = [String(fecha), tid];
-  let whereExclude = "";
-  if (excludeReservaId) {
-    whereExclude = " AND id <> ?";
-    params.push(String(excludeReservaId));
-  }
+  const index = await buildAvailabilityIndex({
+    fecha: String(fecha),
+    excludeReservaId: excludeReservaId ? String(excludeReservaId) : null,
+  });
 
-  const reservas = await query(
-    `SELECT id, hora, COALESCE(duration_min,60) AS durationMin
-       FROM reservas
-      WHERE fecha = ?
-        AND trainer_id = ?
-        AND status IN ('pending','pending_user','confirmed')
-        ${whereExclude}`,
-    params
-  );
-
-  for (const r of reservas || []) {
-    if (
-      overlaps(
-        String(hora),
-        Number(durationMin || 60),
-        String(r.hora),
-        Number(r.durationMin || 60)
-      )
-    ) {
-      return false;
-    }
-  }
-
-  // Bloqueos (globales o por trainer)
-  const hasTrainerCol = await bloqueosHasTrainerIdColumn();
-  if (hasTrainerCol) {
-    const bloqueos = await query(
-      `SELECT hora, trainer_id AS trainerId
-         FROM bloqueos
-        WHERE fecha = ?`,
-      [String(fecha)]
-    );
-    for (const b of bloqueos || []) {
-      const bt = String(b?.trainerId || "").trim();
-      const isGlobal = !bt;
-      if (isGlobal || bt === tid) {
-        if (
-          overlaps(
-            String(hora),
-            Number(durationMin || 60),
-            String(b.hora),
-            60
-          )
-        )
-          return false;
-      }
-    }
-  } else {
-    const bloqueos = await query(
-      `SELECT hora FROM bloqueos WHERE fecha = ?`,
-      [String(fecha)]
-    );
-    for (const b of bloqueos || []) {
-      if (
-        overlaps(String(hora), Number(durationMin || 60), String(b.hora), 60)
-      )
-        return false;
-    }
-  }
-
-  return true;
+  return isTrainerAvailable(index, {
+    trainerId: tid,
+    hora: String(hora),
+    durationMin: Number(durationMin || 60),
+  });
 }
 
 /* ===================== Permisos notas hilo ===================== */
@@ -393,10 +393,20 @@ async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
 // GET /api/reservas/disponibilidad?fecha=YYYY-MM-DD&trainerId=&durationMin=
 router.get("/disponibilidad", async (req, res) => {
   try {
-    const { fecha, trainerId = "", durationMin = 60 } = req.query;
+    const {
+      fecha,
+      trainerId = "",
+      durationMin = 60,
+      servicioId,
+      modalidad,
+    } = req.query;
+
     if (!fecha) {
       return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
     }
+
+    const dur = Number(durationMin || 60);
+    const tId = String(trainerId || "").trim();
 
     const slots = [];
     for (let h = BUSINESS_HOURS.start; h < BUSINESS_HOURS.end; h++) {
@@ -404,51 +414,53 @@ router.get("/disponibilidad", async (req, res) => {
       slots.push(`${String(h).padStart(2, "0")}:00`);
     }
 
-    const params = [fecha];
-    let whereTrainer = "";
+    const index = await buildAvailabilityIndex({ fecha: String(fecha) });
 
-    if (trainerId && trainerId !== "any") {
-      whereTrainer = " AND trainer_id = ?";
-      params.push(String(trainerId));
+    // Disponibilidad por trainer
+    if (tId && tId !== "any") {
+      const libres = [];
+      const ocupadas = [];
+
+      for (const slot of slots) {
+        const ok = isTrainerAvailable(index, {
+          trainerId: tId,
+          hora: slot,
+          durationMin: dur,
+        });
+        (ok ? libres : ocupadas).push(slot);
+      }
+
+      return res.json({ fecha, trainerId: tId, libres, ocupadas });
     }
 
-    const reservas = await query(
-      `
-      SELECT hora, COALESCE(duration_min,60) AS durationMin
-        FROM reservas
-       WHERE fecha = ?
-         AND status IN ('pending','pending_user','confirmed')
-         ${whereTrainer}
-      `,
-      params
-    );
-
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
-      fecha,
-    ]);
-
-    const ocupadas = new Set();
-
-    for (const r of reservas) {
-      const start = toMin(r.hora);
-      const end = start + Number(r.durationMin || 60);
-      for (let t = start; t < end; t += 60) {
-        ocupadas.add(fromMin(t));
-      }
-    }
-
-    for (const b of bloqueos) ocupadas.add(String(b.hora));
-
-    const libres = slots.filter((slot) => {
-      const start = toMin(slot);
-      const end = start + Number(durationMin || 60);
-      for (let t = start; t < end; t += 60) {
-        if (ocupadas.has(fromMin(t))) return false;
-      }
-      return true;
+    // Disponibilidad ANY (cualquiera): slot disponible si existe >=1 trainer libre.
+    const eligibleTrainerIds = await listEligibleTrainerIds({
+      servicioId,
+      modalidad,
     });
 
-    res.json({ fecha, libres, ocupadas: Array.from(ocupadas) });
+    const detailed = slots.map((slot) => {
+      const a = getAnyAvailability(index, {
+        eligibleTrainerIds,
+        hora: slot,
+        durationMin: dur,
+      });
+      return { hora: slot, ...a };
+    });
+
+    const libres = detailed.filter((d) => d.isAvailableAny).map((d) => d.hora);
+    const ocupadas = detailed
+      .filter((d) => !d.isAvailableAny)
+      .map((d) => d.hora);
+
+    return res.json({
+      fecha,
+      trainerId: "any",
+      eligibleCount: eligibleTrainerIds.length,
+      libres,
+      ocupadas,
+      slots: detailed,
+    });
   } catch (e) {
     console.error("GET /reservas/disponibilidad", e);
     res.status(500).json({ error: "No se pudo calcular disponibilidad" });
@@ -502,55 +514,45 @@ router.post("/", verifyToken, async (req, res) => {
       }
     }
 
-    // Colisiones (sistema actual por franja global)
-    const existentes = await query(
-      `SELECT hora, COALESCE(duration_min,60) AS durationMin
-         FROM reservas
-        WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
-      [fecha]
-    );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
-      fecha,
-    ]);
-
-    if (
-      existentes.some((r) => String(r.hora) === String(hora)) ||
-      bloqueos.some((b) => String(b.hora) === String(hora))
-    ) {
-      return res.status(409).json({ error: "Hora ya reservada o bloqueada" });
-    }
-
-    if (
-      existentes.some((r) =>
-        overlaps(
-          String(hora),
-          Number(durationMin),
-          String(r.hora),
-          Number(r.durationMin || 60)
-        )
-      )
-    ) {
-      return res.status(409).json({ error: "Franja solapada" });
-    }
-
     const trainerIdFinal = await resolveTrainerIdOrFail({
       trainerId,
       servicioId,
       modalidad,
     });
 
-    // ✅ CORREGIDO: aquí NO existe "r" ni "id" todavía.
-    // Si hay trainer elegido, comprobamos disponibilidad con los datos del request.
-    if (trainerIdFinal) {
-      const ok = await isTrainerAvailableForSlot({
-        trainerId: trainerIdFinal,
-        fecha: String(fecha),
-        hora: String(hora),
-        durationMin: Number(durationMin || 60),
-        excludeReservaId: null,
+    // Validación de disponibilidad:
+    // - Si hay trainer elegido, se valida SOLO contra su agenda.
+    // - Si es ANY, el slot está disponible si existe >=1 trainer libre.
+    async function validateAvailabilityOrThrow() {
+      const index = await buildAvailabilityIndex({ fecha: String(fecha) });
+      const dur = Number(durationMin || 60);
+
+      if (trainerIdFinal) {
+        const ok = isTrainerAvailable(index, {
+          trainerId: trainerIdFinal,
+          hora: String(hora),
+          durationMin: dur,
+        });
+        if (!ok) {
+          const err = new Error("TRAINER_NOT_AVAILABLE");
+          err.statusCode = 409;
+          throw err;
+        }
+        return;
+      }
+
+      const eligibleTrainerIds = await listEligibleTrainerIds({
+        servicioId,
+        modalidad,
       });
-      if (!ok) {
-        const err = new Error("Adiestrador no disponible en esa franja");
+      const any = getAnyAvailability(index, {
+        eligibleTrainerIds,
+        hora: String(hora),
+        durationMin: dur,
+      });
+
+      if (!any.isAvailableAny) {
+        const err = new Error("NO_TRAINER_AVAILABLE");
         err.statusCode = 409;
         throw err;
       }
@@ -563,6 +565,7 @@ router.post("/", verifyToken, async (req, res) => {
 
     if (paqueteId) {
       await tx(async () => {
+        await validateAvailabilityOrThrow();
         const pRows = await query(
           `SELECT id, user_id AS userId, status, saldo
              FROM paquetes
@@ -626,39 +629,42 @@ router.post("/", verifyToken, async (req, res) => {
         ]);
       });
     } else {
-      await query(
-        `INSERT INTO reservas
-          (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
-           price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin, user_note,
-           trainer_id,
-           created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          id,
-          uid,
-          emailNorm,
-          fecha,
-          hora,
-          Number(durationMin),
-          servicioId || null,
-          servicioTituloSafe,
-          modalidad || null,
-          duration || null,
-          price ?? null,
-          currency || "EUR",
-          perro || null,
-          telefono || null,
-          direccion || null,
-          pricingJson,
-          null,
-          status,
-          "directo",
-          userNote,
-          trainerIdFinal,
-          ts,
-          ts,
-        ]
-      );
+      await tx(async () => {
+        await validateAvailabilityOrThrow();
+        await query(
+          `INSERT INTO reservas
+            (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
+             price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin, user_note,
+             trainer_id,
+             created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            id,
+            uid,
+            emailNorm,
+            fecha,
+            hora,
+            Number(durationMin),
+            servicioId || null,
+            servicioTituloSafe,
+            modalidad || null,
+            duration || null,
+            price ?? null,
+            currency || "EUR",
+            perro || null,
+            telefono || null,
+            direccion || null,
+            pricingJson,
+            null,
+            status,
+            "directo",
+            userNote,
+            trainerIdFinal,
+            ts,
+            ts,
+          ]
+        );
+      });
     }
 
     const rows = await query(
@@ -729,82 +735,90 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
       }
     }
 
-    const existentes = await query(
-      `SELECT hora, COALESCE(duration_min,60) AS durationMin
-         FROM reservas
-        WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
-      [fecha]
-    );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [
-      fecha,
-    ]);
-
-    if (
-      existentes.some((r) => String(r.hora) === String(hora)) ||
-      bloqueos.some((b) => String(b.hora) === String(hora))
-    ) {
-      return res.status(409).json({ error: "Hora ya reservada o bloqueada" });
-    }
-
-    if (
-      existentes.some((r) =>
-        overlaps(
-          String(hora),
-          Number(durationMin),
-          String(r.hora),
-          Number(r.durationMin || 60)
-        )
-      )
-    ) {
-      return res.status(409).json({ error: "Franja solapada" });
-    }
-
     const trainerIdFinal = await resolveTrainerIdOrFail({
       trainerId,
       servicioId,
       modalidad,
     });
 
+    async function validateAvailabilityOrThrow() {
+      const index = await buildAvailabilityIndex({ fecha: String(fecha) });
+      const dur = Number(durationMin || 60);
+
+      if (trainerIdFinal) {
+        const ok = isTrainerAvailable(index, {
+          trainerId: trainerIdFinal,
+          hora: String(hora),
+          durationMin: dur,
+        });
+        if (!ok) {
+          const err = new Error("TRAINER_NOT_AVAILABLE");
+          err.statusCode = 409;
+          throw err;
+        }
+        return;
+      }
+
+      const eligibleTrainerIds = await listEligibleTrainerIds({
+        servicioId,
+        modalidad,
+      });
+      const any = getAnyAvailability(index, {
+        eligibleTrainerIds,
+        hora: String(hora),
+        durationMin: dur,
+      });
+
+      if (!any.isAvailableAny) {
+        const err = new Error("NO_TRAINER_AVAILABLE");
+        err.statusCode = 409;
+        throw err;
+      }
+    }
+
     const id = uuidv4();
     const ts = nowISO();
     const pricingJson = pricing ? JSON.stringify(pricing) : null;
     const status = statusBody || "pending";
 
-    await query(
-      `INSERT INTO reservas
-        (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
-         price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin,
-         user_note, admin_note,
-         trainer_id,
-         created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        id,
-        null,
-        emailNorm,
-        fecha,
-        hora,
-        Number(durationMin),
-        servicioId || null,
-        servicioTituloSafe,
-        modalidad || null,
-        duration || null,
-        price ?? null,
-        currency || "EUR",
-        perro || null,
-        telefono || null,
-        direccion || null,
-        pricingJson,
-        paqueteId || null,
-        status,
-        "admin",
-        userNote,
-        adminNote,
-        trainerIdFinal,
-        ts,
-        ts,
-      ]
-    );
+    await tx(async () => {
+      await validateAvailabilityOrThrow();
+      await query(
+        `INSERT INTO reservas
+          (id, uid, email, fecha, hora, duration_min, servicio_id, servicio_titulo, modalidad, duration,
+           price, currency, perro, telefono, direccion, pricing, paquete_id, status, origin,
+           user_note, admin_note,
+           trainer_id,
+           created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          id,
+          null,
+          emailNorm,
+          fecha,
+          hora,
+          Number(durationMin),
+          servicioId || null,
+          servicioTituloSafe,
+          modalidad || null,
+          duration || null,
+          price ?? null,
+          currency || "EUR",
+          perro || null,
+          telefono || null,
+          direccion || null,
+          pricingJson,
+          paqueteId || null,
+          status,
+          "admin",
+          userNote,
+          adminNote,
+          trainerIdFinal,
+          ts,
+          ts,
+        ]
+      );
+    });
 
     res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
