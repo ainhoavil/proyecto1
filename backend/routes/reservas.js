@@ -4,6 +4,10 @@ import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, requireAdmin, allowRoles } from "../middleware/auth.js";
 import trainerAgendaRoutes from "./trainerAgenda.js";
+import {
+  notifyReservationCenterConfirmed,
+  notifyReservationUserConfirmed,
+} from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -1155,6 +1159,9 @@ router.patch(
         WHERE id=?`,
         [note, nowISO(), id]
       );
+
+      // Email al cliente: el centro ha confirmado (pendiente de aceptación del usuario)
+      void notifyReservationCenterConfirmed(id, { note });
       res.json({ ok: true });
     } catch (e) {
       console.error("PATCH /reservas/:id/confirm", e);
@@ -1269,6 +1276,9 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
       nowISO(),
       id,
     ]);
+
+    // Email: reserva confirmada
+    void notifyReservationUserConfirmed(id);
 
     res.json({ ok: true });
   } catch (e) {

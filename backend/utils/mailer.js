@@ -302,3 +302,36 @@ export async function sendChatEmail({
 
   return await sendMail({ to, subject, text, html });
 }
+
+export async function sendAccountCreatedEmail({ to, email, tempPassword, role }) {
+  const appName = getAppName();
+  const subject = `${appName} · Cuenta creada`;
+
+  const base = normalizeUrlBase(process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:5173");
+  const loginUrl = `${base}/login`;
+
+  const intro = "Hemos creado una cuenta para ti. Por seguridad, cambia la contraseña al iniciar sesión.";
+  const lines = [
+    `Email: ${String(email || to || "").trim()}`,
+    `Contraseña temporal: ${String(tempPassword || "")}`,
+    role ? `Rol: ${String(role)}` : null,
+  ].filter(Boolean);
+
+  const text =
+    `${intro}\n\n` +
+    lines.map((l) => `- ${l}`).join("\n") +
+    `\n\nIniciar sesión: ${loginUrl}\n\n` +
+    "Si no reconoces esta cuenta, ignora este correo o contacta con soporte.";
+
+  const html = buildEmailHtml({
+    title: "Tu cuenta está lista",
+    intro,
+    lines,
+    actionText: "Iniciar sesión",
+    actionUrl: loginUrl,
+    footer: "Si no reconoces esta cuenta, ignora este correo o contacta con soporte.",
+  });
+
+  return await sendMail({ to, subject, text, html });
+}
+

@@ -6,10 +6,13 @@ import TrainerAgenda from "./trainer-Agenda.jsx";
 export default function Reservas() {
   const { loading, role, user } = useAuth();
 
-  const rolBase =
-    (role || user?.rol || user?.role || (user?.isAdmin ? "admin" : "user") || "")
+  let rolBase =
+    (role || user?.rol || user?.role || (user?.isAdmin ? "admin" : "client") || "")
       .toString()
       .toLowerCase();
+
+  if (rolBase === "user") rolBase = "client";
+
 
   const esAdmin = rolBase === "admin";
   const esAdiestrador = rolBase === "adiestrador";

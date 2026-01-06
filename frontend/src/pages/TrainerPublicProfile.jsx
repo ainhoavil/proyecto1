@@ -3,6 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
 
+const absUrl = (u = "") => {
+  if (!u) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  return u.replace(/^\/+/, "");
+};
+
 export default function TrainerPublicProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -44,6 +50,7 @@ export default function TrainerPublicProfile() {
     Array.isArray(trainer?.specialties) ? trainer.specialties : [];
 
   const bio = String(trainer?.bio || "").trim();
+  const dogs = Array.isArray(trainer?.workDogs) ? trainer.workDogs : [];
 
   const handleContratar = () => {
     navigate(`/contratar?trainerId=${id}`);
@@ -120,6 +127,45 @@ export default function TrainerPublicProfile() {
             )}
           </div>
 
+          <div className="trainer-public__section">
+            <h2 className="trainer-public__sectionTitle">Perros de trabajo</h2>
+
+            {dogs.length > 0 ? (
+              <div className="trainer-public__dogs">
+                {dogs.map((d) => (
+                  <div key={d.id} className="trainer-public__dogCard">
+                    <div className="trainer-public__dogAvatar">
+                      {d.avatarUrl ? (
+                        <img src={absUrl(d.avatarUrl)} alt={d.nombre || "Perro"} />
+                      ) : (
+                        <span>
+                          {String(d.nombre || "?")
+                            .trim()
+                            .slice(0, 1)
+                            .toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="trainer-public__dogInfo">
+                      <div className="trainer-public__dogName">{d.nombre}</div>
+                      {d.raza ? (
+                        <div className="trainer-public__dogBreed">{d.raza}</div>
+                      ) : (
+                        <div className="trainer-public__dogBreed trainer-public__muted">
+                          Sin raza indicada
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="trainer-public__muted">
+                No hay perros de trabajo registrados.
+              </p>
+            )}
+          </div>
           <div className="trainer-public__section">
             <h2 className="trainer-public__sectionTitle">Especialidades</h2>
 

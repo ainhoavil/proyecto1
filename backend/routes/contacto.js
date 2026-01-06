@@ -1,7 +1,13 @@
 // backend/routes/contacto.js
 import express from "express";
 import { query } from "../db.js";
-import { sendMail } from "../utils/mailer.js";
+import { sendMail, buildEmailHtml } from "../utils/mailer.js";
+import {
+  hasMinLetters,
+  isValidEmail,
+  isValidSpanishPhone,
+  normalizeSpanishPhone,
+} from "../utils/validators.js";
 
 const router = express.Router();
 
@@ -15,6 +21,7 @@ function pickBody(body = {}) {
   const telefono = body.telefono ?? body.phone ?? "";
   const tipoServicio = body.tipoServicio ?? body.serviceType ?? "";
   const honeypot = body.honeypot ?? body.website ?? "";
+  const ts = body.ts ?? body.loadedAt ?? "";
 
   return {
     nombre: String(nombre || "").trim(),
@@ -23,6 +30,7 @@ function pickBody(body = {}) {
     telefono: String(telefono || "").trim(),
     tipoServicio: String(tipoServicio || "").trim(),
     honeypot: String(honeypot || "").trim(),
+    ts: ts === "" || ts == null ? "" : Number(ts),
   };
 }
 
@@ -42,13 +50,47 @@ function isNoSuchTableMensajes(err) {
 // POST /api/contacto
 router.post("/", async (req, res) => {
   try {
-    const { nombre, email, mensaje, telefono, tipoServicio, honeypot } = pickBody(req.body);
+    const { nombre, email, mensaje, telefono, tipoServicio, honeypot, ts } = pickBody(
+      req.body
+    );
 
     // Honeypot
     if (honeypot) return res.status(204).end();
 
+    // Tiempo mínimo (anti-bot): si llega "ts" desde frontend
+    if (ts && Number.isFinite(Number(ts))) {
+      const elapsed = Date.now() - Number(ts);
+      if (elapsed >= 0 && elapsed < 3000) {
+        return res.status(429).json({
+          error: "Has enviado el formulario demasiado rápido, inténtalo de nuevo.",
+        });
+      }
+    }
+
     if (!nombre || !email || !mensaje) {
       return res.status(400).json({ error: "Faltan campos (nombre/email/mensaje)" });
+    }
+
+    if (!hasMinLetters(nombre, 2)) {
+      return res.status(400).json({ error: "El nombre debe tener al menos 2 letras" });
+    }
+
+    const emailNorm = String(email).trim().toLowerCase();
+    if (!isValidEmail(emailNorm)) {
+      return res.status(400).json({ error: "El email no parece válido" });
+    }
+
+    if (String(mensaje).trim().length < 10) {
+      return res
+        .status(400)
+        .json({ error: "El mensaje debe tener al menos 10 caracteres" });
+    }
+
+    const phoneNorm = telefono ? normalizeSpanishPhone(telefono) : "";
+    if (telefono && (!phoneNorm || !isValidSpanishPhone(phoneNorm))) {
+      return res
+        .status(400)
+        .json({ error: "Teléfono inválido (España: 9 dígitos)" });
     }
 
     const nowIso = new Date().toISOString();
@@ -56,11 +98,12 @@ router.post("/", async (req, res) => {
     // (Opcional) Rate limit + guardado en BD si existe tabla "mensajes"
     try {
       const rows = await query(
-        "SELECT fecha FROM mensajes WHERE email = ? ORDER BY fecha DESC LIMIT 1",
-        [email]
+        "SELECT fecha FROM mensajes WHERE email = ? ORDER BY fecha DESC LIMIT 10",
+        [emailNorm]
       );
       const last = rows?.[0];
 
+      // 1) 1 mensaje por minuto por email
       if (last?.fecha) {
         const diffMs = Date.now() - new Date(last.fecha).getTime();
         if (diffMs < 60_000) {
@@ -71,10 +114,23 @@ router.post("/", async (req, res) => {
         }
       }
 
+      // 2) Máximo 5 por hora (best-effort)
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      const lastHourCount = (rows || []).filter((r) => {
+        const t = new Date(r?.fecha || "").getTime();
+        return Number.isFinite(t) && t >= oneHourAgo;
+      }).length;
+      if (lastHourCount >= 5) {
+        return res.status(429).json({
+          error:
+            "Has enviado demasiados mensajes en poco tiempo. Espera un rato y vuelve a intentarlo.",
+        });
+      }
+
       await query(
         `INSERT INTO mensajes (id, nombre, email, mensaje, fecha)
          VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)`,
-        [nombre, email, mensaje, nowIso]
+        [nombre, emailNorm, mensaje, nowIso]
       );
     } catch (e) {
       // Si no existe la tabla, no rompemos el envío.
@@ -97,8 +153,8 @@ router.post("/", async (req, res) => {
     // Texto plano (por si el cliente de correo no renderiza HTML)
     const linesTxt = [
       `Nombre: ${nombre}`,
-      `Email: ${email}`,
-      telefono ? `Teléfono: ${telefono}` : null,
+      `Email: ${emailNorm}`,
+      phoneNorm ? `Teléfono: ${phoneNorm}` : null,
       tipoServicio ? `Tipo de servicio: ${tipoServicio}` : null,
       `Fecha: ${nowIso}`,
     ].filter(Boolean);
@@ -106,38 +162,36 @@ router.post("/", async (req, res) => {
     const text = `${linesTxt.join("\n")}\n\nMensaje:\n${mensaje}\n`;
 
     // ✅ HTML que SÍ incluye el mensaje (con saltos)
-    const html = `
-      <div style="font-family: Arial, sans-serif; background:#f6f6f6; padding:24px;">
-        <div style="max-width:720px; margin:0 auto; background:#ffffff; border:1px solid #eeeeee; border-radius:12px; padding:24px;">
-          <h2 style="margin:0 0 12px; font-size:22px;">Nuevo mensaje de contacto</h2>
-          <p style="margin:0 0 16px; color:#333;">Has recibido una nueva consulta desde el formulario de contacto.</p>
-
-          <ul style="margin:0 0 16px; padding-left:18px; color:#111;">
-            <li><strong>Nombre:</strong> ${escapeHtml(nombre)}</li>
-            <li><strong>Email:</strong> <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></li>
-            ${telefono ? `<li><strong>Teléfono:</strong> ${escapeHtml(telefono)}</li>` : ""}
-            ${tipoServicio ? `<li><strong>Tipo de servicio:</strong> ${escapeHtml(tipoServicio)}</li>` : ""}
-            <li><strong>Fecha:</strong> ${escapeHtml(nowIso)}</li>
-          </ul>
-
-          <h3 style="margin:16px 0 8px; font-size:16px;">Mensaje</h3>
-          <div style="white-space: pre-wrap; border:1px solid #eeeeee; background:#fafafa; padding:12px; border-radius:10px; color:#111;">
-            ${escapeHtml(mensaje)}
-          </div>
-
-          <p style="margin:16px 0 0; color:#666; font-size:12px;">
-            Responde a este email y se enviará al cliente (Reply-To).
-          </p>
-        </div>
+    const contentHtml = `
+      <h3 style="margin:16px 0 8px; font-size:16px;">Mensaje</h3>
+      <div style="white-space: pre-wrap; border:1px solid #eeeeee; background:#fafafa; padding:12px; border-radius:10px; color:#111;">
+        ${escapeHtml(mensaje)}
       </div>
+      <p style="margin:16px 0 0; color:#666; font-size:12px;">
+        Responde a este email y se enviará al cliente (Reply-To).
+      </p>
     `;
+
+    const html = buildEmailHtml({
+      title: "Nuevo mensaje de contacto",
+      intro: "Has recibido una nueva consulta desde el formulario de contacto.",
+      lines: [
+        `Nombre: ${nombre}`,
+        `Email: ${emailNorm}`,
+        phoneNorm ? `Teléfono: ${phoneNorm}` : "",
+        tipoServicio ? `Tipo de servicio: ${tipoServicio}` : "",
+        `Fecha: ${nowIso}`,
+      ].filter(Boolean),
+      contentHtml,
+      footer: "DogForm · Formulario de contacto",
+    });
 
     const mail = await sendMail({
       to,
       subject,
       text,
       html,
-      replyTo: email, // ✅ Responder al cliente
+      replyTo: emailNorm, // ✅ Responder al cliente
     });
 
     return res.status(201).json({

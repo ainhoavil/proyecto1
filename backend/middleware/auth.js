@@ -10,12 +10,17 @@ const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 ============================================================ */
 function normalizeRole(raw) {
   const r = String(raw || "").trim().toLowerCase();
-  if (!r) return "user";
-  if (r === "trainer") return "adiestrador"; // alias
+
+  // Roles válidos del sistema: client | adiestrador | admin
+  // Compatibilidad: user/usuario/cliente -> client, trainer -> adiestrador
+  if (!r) return "client";
+  if (r === "trainer") return "adiestrador";
   if (r === "adiestrador") return "adiestrador";
   if (r === "admin") return "admin";
   if (r === "client") return "client";
-  if (r === "user") return "user";
+  if (r === "cliente") return "client";
+  if (r === "user" || r === "usuario") return "client";
+
   return r;
 }
 
@@ -78,7 +83,7 @@ async function hydrateUserFromDB(partialUser) {
 
   if (!dbUser) {
     // No hay nada en BD, normalizamos lo que venga del token
-    const rolNorm = normalizeRole(u.rol || u.role || (u.isAdmin ? "admin" : "user"));
+    const rolNorm = normalizeRole(u.rol || u.role || (u.isAdmin ? "admin" : "client"));
     u.rol = rolNorm;
     u.role = rolNorm;
     u.isAdmin = rolNorm === "admin" || !!u.isAdmin;
@@ -92,7 +97,7 @@ async function hydrateUserFromDB(partialUser) {
   }
 
   // Rol final: el de BD manda
-  const rolDb = normalizeRole(dbUser.rol || u.rol || u.role || "user");
+  const rolDb = normalizeRole(dbUser.rol || u.rol || u.role || "client");
 
   u.rol = rolDb;
   u.role = rolDb;
@@ -133,8 +138,8 @@ export async function verifyToken(req, res, next) {
     const rolFromTokenRaw =
       decoded.rol ||
       decoded.role ||
-      (decoded.isAdmin ? "admin" : "user") ||
-      "user";
+      (decoded.isAdmin ? "admin" : "client") ||
+      "client";
 
     const rolFromToken = normalizeRole(rolFromTokenRaw);
 
@@ -259,7 +264,7 @@ export function allowRoles(roles = []) {
         return res.status(401).json({ error: "No autenticado" });
       }
 
-      const rolToken = normalizeRole(req.user.rol || "user");
+      const rolToken = normalizeRole(req.user.rol || req.user.role || "client");
 
       // Si el rol del token ya está permitido → OK
       if (set.has(rolToken)) return next();

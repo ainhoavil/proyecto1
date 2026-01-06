@@ -8,6 +8,7 @@ import { query } from "../db.js";
 import { nanoid } from "nanoid";
 import { verifyToken, requireAdmin } from "../middleware/auth.js";
 import { sendPasswordResetEmail } from "../utils/mailer.js";
+import { isValidEmail, hasMinLetters, isValidSpanishPhone, normalizeSpanishPhone, isStrongPassword } from "../utils/validators.js";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
@@ -265,17 +266,37 @@ async function ensureUsuariosRow({ uid, email, rol = "client", passwordHash }) {
 ============================================================ */
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, name } = req.body || {};
-    if (!email || !password) {
+    const { email, password, name, telefono } = req.body || {};
+
+    const emailNorm = String(email || "").trim().toLowerCase();
+    const phoneNorm = normalizeSpanishPhone(telefono);
+
+    if (!emailNorm || !password) {
       return res.status(400).json({ error: "Faltan email y/o password" });
     }
-
-    // (Opcional) nombre obligatorio (según tu lista de tareas)
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ error: "El nombre es obligatorio" });
+    if (!isValidEmail(emailNorm)) {
+      return res.status(400).json({ error: "Email inválido" });
+    }
+    if (!name || !String(name).trim() || !hasMinLetters(String(name), 2)) {
+      return res
+        .status(400)
+        .json({ error: "El nombre debe tener al menos 2 letras" });
+    }
+    if (!telefono || !String(telefono).trim()) {
+      return res.status(400).json({ error: "El teléfono es obligatorio" });
+    }
+    if (!isValidSpanishPhone(telefono)) {
+      return res.status(400).json({
+        error:
+          "Teléfono inválido. Debe ser un número español de 9 dígitos (puedes incluir +34).",
+      });
+    }
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        error: "La contraseña debe tener mínimo 8 caracteres e incluir letras y números.",
+      });
     }
 
-    const emailNorm = email.trim().toLowerCase();
 
     const rolBootstrap = isBootstrapAdmin(emailNorm) ? "admin" : "client";
 
@@ -294,10 +315,10 @@ router.post("/register", async (req, res) => {
     // 1. Insertar en users
     await query(
       `INSERT INTO users (
-         id, uid, email, password_hash, nombre, created_at, updated_at, role
+         id, uid, email, password_hash, nombre, telefono, created_at, updated_at, role
        )
-       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)`,
-      [nanoid(), uid, emailNorm, hash, String(name).trim(), rolBootstrap]
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)`,
+      [nanoid(), uid, emailNorm, hash, String(name).trim(), phoneNorm, rolBootstrap]
     );
 
     // 2. Insertar en usuarios

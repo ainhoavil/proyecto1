@@ -20,6 +20,7 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
+import { notifyChatMessage } from "../services/notifications.js";
 
 const router = express.Router();
 const nowISO = () => new Date().toISOString();
@@ -1214,6 +1215,13 @@ router.post(
         `,
         [ts, ts, preview, conversationId]
       );
+
+      // Email al cliente (throttle 1/día) cuando escribe el adiestrador
+      void notifyChatMessage({
+        conversationId,
+        senderId: userId,
+        preview,
+      });
 
       return res.json({ ok: true, messageId: msgId, createdAt: ts });
     } catch (e) {

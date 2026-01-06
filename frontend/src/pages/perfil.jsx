@@ -117,8 +117,11 @@ export default function PerfilPage() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setPassError("La contraseña debe tener al menos 6 caracteres.");
+    const hasLetter = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(String(newPassword));
+    const hasNumber = /\d/.test(String(newPassword));
+
+    if (String(newPassword).length < 8 || !hasLetter || !hasNumber) {
+      setPassError("La contraseña debe tener al menos 8 caracteres e incluir letras y números.");
       return;
     }
 

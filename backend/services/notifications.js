@@ -29,6 +29,42 @@ function money(price, currency) {
   return `${p} ${c}`;
 }
 
+// ============================================================
+// CHAT EMAIL THROTTLE (1 email / día / cliente)
+// - Requisito: cuando el adiestrador envía mensajes, no saturar
+// ============================================================
+
+let chatThrottleEnsured = false;
+
+function getMadridDayStr(now = new Date()) {
+  try {
+    // YYYY-MM-DD
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Madrid",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  } catch {
+    // Fallback UTC
+    return now.toISOString().slice(0, 10);
+  }
+}
+
+async function ensureChatThrottleTable() {
+  if (chatThrottleEnsured) return;
+  await query(
+    `
+      CREATE TABLE IF NOT EXISTS chat_email_throttle (
+        recipient_id TEXT PRIMARY KEY,
+        last_sent_day TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `
+  );
+  chatThrottleEnsured = true;
+}
+
 async function getUserById(uid) {
   const id = safeStr(uid).trim();
   if (!id) return null;
@@ -361,17 +397,25 @@ export async function notifyChatMessage({ conversationId, senderId, preview } = 
     const trainerId = safeStr(conv.trainerId);
     const clientId = safeStr(conv.clientId);
 
-    // Receptor = el otro
-    let recipientId = "";
-    if (sid === trainerId) recipientId = clientId;
-    else if (sid === clientId) recipientId = trainerId;
-    else return;
+    // Requisito: solo notificamos por email al CLIENTE cuando escribe el ADIESTRADOR
+    // y, además, máximo 1 email por día por cliente.
+    if (sid !== trainerId) return;
+    const recipientId = clientId;
 
     const sender = await getUserById(sid);
     const recipient = await getUserById(recipientId);
 
     const to = normEmail(recipient?.email);
     if (!to) return;
+
+    // Throttle 1/día
+    await ensureChatThrottleTable();
+    const today = getMadridDayStr(new Date());
+    const thr = await query(
+      `SELECT last_sent_day AS lastSentDay FROM chat_email_throttle WHERE recipient_id = ? LIMIT 1`,
+      [recipientId]
+    );
+    if (thr?.[0]?.lastSentDay === today) return;
 
     const appName = process.env.APP_NAME || "DogForm";
     const senderName = sender?.nombre || sender?.email || "DogForm";
@@ -384,5 +428,18 @@ export async function notifyChatMessage({ conversationId, senderId, preview } = 
       preview: short(preview, 220),
       conversationId: cid,
     });
+
+    const nowIso = new Date().toISOString();
+    if (thr.length) {
+      await query(
+        `UPDATE chat_email_throttle SET last_sent_day = ?, updated_at = ? WHERE recipient_id = ?`,
+        [today, nowIso, recipientId]
+      );
+    } else {
+      await query(
+        `INSERT INTO chat_email_throttle (recipient_id, last_sent_day, updated_at) VALUES (?, ?, ?)`,
+        [recipientId, today, nowIso]
+      );
+    }
   });
 }

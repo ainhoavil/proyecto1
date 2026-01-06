@@ -1,5 +1,14 @@
 import { normalizeEmail } from "./admin";
 
+
+function normalizeRole(raw) {
+  const r = String(raw || "").trim().toLowerCase();
+  if (!r) return "client";
+  if (r === "user" || r === "usuario" || r === "cliente") return "client";
+  if (r === "trainer") return "adiestrador";
+  return r;
+}
+
 /* ======================================================
    TOKEN
 ====================================================== */
@@ -39,13 +48,13 @@ function decodeToken(token) {
 ====================================================== */
 export function getRole() {
   const token = getToken();
-  if (!token) return "user";
+  if (!token) return "client";
 
   const p = decodeToken(token);
-  if (!p) return "user";
+  if (!p) return "client";
 
   // rol viene en p.rol según backend
-  return p.rol || p.role || "user";
+  return normalizeRole(p.rol || p.role || "client");
 }
 
 /* ======================================================

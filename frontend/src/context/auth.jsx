@@ -1,11 +1,20 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { http } from "../helpers/http";
 
+
+
+function normalizeRole(raw) {
+  const r = String(raw || "").trim().toLowerCase();
+  if (!r) return "client";
+  if (r === "user" || r === "usuario" || r === "cliente") return "client";
+  if (r === "trainer") return "adiestrador";
+  return r;
+}
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [role, setRole] = useState(() => localStorage.getItem("rol") || "user");
+  const [role, setRole] = useState(() => normalizeRole(localStorage.getItem("rol")) || "client");
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("user") || "null");
@@ -46,10 +55,10 @@ export function AuthProvider({ children }) {
           isAdmin: nextRole === "admin",
         };
 
-        setRole(nextRole);
+        setRole(normalizeRole(nextRole));
         setUser(nextUser);
 
-        localStorage.setItem("rol", nextRole);
+        localStorage.setItem("rol", normalizeRole(nextRole));
         localStorage.setItem("user", JSON.stringify(nextUser));
       } catch (e) {
         // No quitamos token automáticamente
@@ -85,11 +94,11 @@ export function AuthProvider({ children }) {
     };
 
     setToken(t);
-    setRole(nextRole);
+    setRole(normalizeRole(nextRole));
     setUser(nextUser);
 
     localStorage.setItem("token", t);
-    localStorage.setItem("rol", nextRole);
+    localStorage.setItem("rol", normalizeRole(nextRole));
     localStorage.setItem("user", JSON.stringify(nextUser));
     localStorage.setItem("usuarioLogueado", "1"); // legacy
   }
@@ -99,7 +108,7 @@ export function AuthProvider({ children }) {
   // ============================================================
   function logout() {
     setToken(null);
-    setRole("user");
+    setRole(normalizeRole("user"));
     setUser(null);
 
     localStorage.removeItem("token");

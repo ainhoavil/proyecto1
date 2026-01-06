@@ -14,6 +14,25 @@ const parseSpecialties = (raw) => {
     return [String(raw)];
   }
 };
+/* ====== perros (mis perros -> perros de trabajo en perfil público) ====== */
+let _perrosCols = null;
+async function getPerrosCols() {
+  if (_perrosCols) return _perrosCols;
+  try {
+    const cols = await query("PRAGMA table_info(perros)");
+    _perrosCols = cols.map((c) => c.name);
+  } catch {
+    _perrosCols = [];
+  }
+  return _perrosCols;
+}
+
+async function getPerrosAvatarCol() {
+  const cols = await getPerrosCols();
+  if (cols.includes("avatar_url")) return "avatar_url";
+  if (cols.includes("avatarURL")) return "avatarURL";
+  return null;
+}
 
 /* ============================================================
    GET /api/trainers/:id/profile
@@ -75,6 +94,32 @@ router.get("/:id/profile", async (req, res) => {
     }
 
     const r = rows[0];
+    // En el perfil público, "perros de trabajo" son los mismos perros que el adiestrador gestiona en "Mis perros".
+    const avatarCol = await getPerrosAvatarCol();
+    const perrosCols = await getPerrosCols();
+    const hasArchived = perrosCols.includes("archived");
+
+    const avatarSelect = avatarCol ? `${avatarCol} AS avatarUrl` : "'' AS avatarUrl";
+    const dogsSql = `
+      SELECT
+        id,
+        nombre,
+        raza,
+        ${avatarSelect}
+      FROM perros
+      WHERE user_id = ?
+      ${hasArchived ? "AND (archived IS NULL OR archived = 0)" : ""}
+      ORDER BY created_at DESC
+    `;
+
+    const dogsRows = await query(dogsSql, [String(id)]);
+    const workDogs = dogsRows.map((d) => ({
+      id: d.id,
+      nombre: d.nombre,
+      raza: d.raza,
+      avatarUrl: d.avatarUrl || "",
+    }));
+
 
     res.json({
       trainerId: r.trainerId,
@@ -87,6 +132,7 @@ router.get("/:id/profile", async (req, res) => {
           ? null
           : Number(r.experienceYears),
       specialties: parseSpecialties(r.specialties),
+      workDogs,
     });
   } catch (e) {
     console.error("GET /api/trainers/:id/profile", e);

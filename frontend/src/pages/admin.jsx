@@ -11,6 +11,24 @@ import ReservasAdmin from './reservas/reservasAdmin.jsx';
 // ✅ Servicios web embebidos dentro del panel /admin
 import Servicios from './servicios.jsx';
 
+function isValidEmail(email) {
+  const s = String(email || '').trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(s);
+}
+
+function countLetters(text) {
+  const s = String(text || '').trim();
+  const m = s.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g);
+  return m ? m.length : 0;
+}
+
+function isStrongPassword(pw) {
+  const s = String(pw || '');
+  if (s.length < 8) return false;
+  return /\d/.test(s) && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(s);
+}
+
+
 /* ==================== UTILS ==================== */
 function formatEUR(value, currency = 'EUR') {
   if (value == null) return 'A consultar';
@@ -216,11 +234,31 @@ function UsersTab() {
 
   const createUser = async (e) => {
     e.preventDefault();
-    if (!newUser.email || !newUser.password) return;
+
+    const email = String(newUser.email || "").trim();
+    const name = String(newUser.name || "").trim();
+    const password = String(newUser.password || "");
+
+    if (!email || !password || !name) {
+      setMsg("❌ Rellena nombre, email y contraseña.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setMsg("❌ Email inválido.");
+      return;
+    }
+    if (countLetters(name) < 2) {
+      setMsg("❌ El nombre debe tener al menos 2 letras.");
+      return;
+    }
+    if (!isStrongPassword(password)) {
+      setMsg("❌ Contraseña insegura: mínimo 8 caracteres e incluir letras y números.");
+      return;
+    }
 
     try {
       await http('/api/auth/users', { method: 'POST', data: newUser, auth: true });
-      setMsg('✅ Usuario creado');
+      setMsg('✅ Usuario creado. Se ha enviado un email con las credenciales (si el correo está configurado).');
       setNewUser({ name: '', email: '', password: '', rol: 'client' });
       loadUsers();
     } catch (e) {
@@ -308,7 +346,6 @@ function UsersTab() {
               style={{ width: '100%' }}
             >
               <option value="client">Cliente</option>
-              <option value="user">Usuario</option>
               <option value="adiestrador">Adiestrador</option>
               <option value="admin">Admin</option>
             </select>
@@ -387,8 +424,7 @@ function UsersTab() {
                           title={!uidSafe ? 'UID inválido (revisar /api/auth/users)' : 'Cambiar rol'}
                         >
                           <option value="client">Cliente</option>
-                          <option value="user">Usuario</option>
-                          <option value="adiestrador">Adiestrador</option>
+                                      <option value="adiestrador">Adiestrador</option>
                           <option value="admin">Admin</option>
                         </select>
 

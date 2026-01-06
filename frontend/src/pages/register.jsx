@@ -31,7 +31,36 @@ export default function Register() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const location = useLocation();
+  
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+  const countLetters = (v) => {
+    const m = String(v || "").match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g);
+    return m ? m.length : 0;
+  };
+
+  const normalizeEsPhone = (raw) => {
+    let s = String(raw || "").trim();
+    if (!s) return "";
+    s = s.replace(/[^\d+]/g, "");
+    if (s.startsWith("00")) s = "+" + s.slice(2);
+    if (s.startsWith("+34")) s = s.slice(3);
+    if (/^34\d{9}$/.test(s)) s = s.slice(2);
+    s = s.replace(/\D/g, "");
+    return s;
+  };
+
+  const isValidEsPhone = (raw) => /^\d{9}$/.test(normalizeEsPhone(raw));
+
+  const isStrongPassword = (pw) => {
+    const s = String(pw || "");
+    if (s.length < 8) return false;
+    const hasLetter = /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(s);
+    const hasNumber = /\d/.test(s);
+    return hasLetter && hasNumber;
+  };
+
+const location = useLocation();
   const navigate = useNavigate();
   const { loginSuccess } = useAuth();
 
@@ -146,13 +175,24 @@ export default function Register() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const canSubmit =
-    !loading &&
-    nombre.trim().length > 1 &&
-    email.trim().length > 5 &&
-    pass.length >= 6 &&
-    pass2.length >= 6 &&
-    aceptaTerminos;
+    const nombreOk = countLetters(nombre) >= 2;
+  const apellidosOk = countLetters(apellidos) >= 2;
+  const emailOk = EMAIL_RE.test(String(email || "").trim());
+  const phoneOk = isValidEsPhone(telefono);
+  const passOk = isStrongPassword(pass);
+  const passMatch = pass === pass2 && pass2.length > 0;
+
+  const missing = [];
+  if (!nombreOk) missing.push("Nombre: mínimo 2 letras.");
+  if (!apellidosOk) missing.push("Apellidos: mínimo 2 letras.");
+  if (!emailOk) missing.push("Email: formato inválido.");
+  if (!phoneOk) missing.push("Teléfono: obligatorio y debe tener 9 dígitos (puedes incluir +34).");
+  if (!passOk) missing.push("Contraseña: mínimo 8 caracteres e incluir letras y números.");
+  if (!passMatch) missing.push("Las contraseñas deben coincidir.");
+  if (!aceptaTerminos) missing.push("Debes aceptar los términos y condiciones.");
+
+  const canSubmit = !loading && missing.length === 0;
+
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -160,16 +200,8 @@ export default function Register() {
 
     setError("");
 
-    if (pass !== pass2) {
-      setError("Las contraseñas no coinciden.");
-      return;
-    }
-    if (pass.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres.");
-      return;
-    }
-    if (!aceptaTerminos) {
-      setError("Debes aceptar los términos y condiciones.");
+    if (missing.length) {
+      setError("Revisa el formulario: " + missing[0]);
       return;
     }
 
@@ -181,7 +213,7 @@ export default function Register() {
           name: `${nombre} ${apellidos}`.trim(),
           email: email.trim().toLowerCase(),
           password: pass,
-          telefono: telefono.trim(),
+          telefono: normalizeEsPhone(telefono),
           zona: zona.trim(),
           perroNombre: perroNombre.trim(),
           perroTamano: perroTamano.trim(),
@@ -291,11 +323,13 @@ export default function Register() {
                   </label>
 
                   <label>
-                    Teléfono (opcional)
+                    Teléfono (obligatorio)
                     <input
+                      type="tel"
                       value={telefono}
                       onChange={(e) => setTelefono(e.target.value)}
                       placeholder="+34 600 123 456"
+                      required
                     />
                   </label>
 
@@ -389,7 +423,7 @@ export default function Register() {
                         type={showPass1 ? "text" : "password"}
                         value={pass}
                         onChange={(e) => setPass(e.target.value)}
-                        placeholder="Mínimo 6 caracteres"
+                        placeholder="Mínimo 8 caracteres (letras y números)"
                         required
                       />
                       <button
@@ -401,6 +435,10 @@ export default function Register() {
                       </button>
                     </div>
                   </label>
+
+                  <p className="muted" style={{ marginTop: "-6px", marginBottom: "10px" }}>
+                    La contraseña debe tener mínimo 8 caracteres e incluir letras y números.
+                  </p>
 
                   <label>
                     Repetir contraseña
@@ -461,6 +499,21 @@ export default function Register() {
                 <button type="submit" className="btn-primary" disabled={!canSubmit}>
                   {loading ? "Creando…" : "Crear cuenta y continuar"}
                 </button>
+
+                {!canSubmit && !loading && (
+                  <div className="register-requirements" role="alert">
+                    <p className="muted" style={{ marginTop: "10px" }}>
+                      No puedes registrarte todavía. Revisa:
+                    </p>
+                    <ul style={{ marginTop: "6px" }}>
+                      {missing.map((m, idx) => (
+                        <li key={idx} className="muted">
+                          {m}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <p className="muted">
                   ¿Ya tienes cuenta?{" "}

@@ -90,7 +90,7 @@ await ensureSchema();
 /* =================== RUTAS USUARIO =================== */
 
 // GET → lista de perros del usuario
-router.get("/", verifyToken, async (req, res) => {
+router.get("/", verifyToken, allowRoles(["client", "adiestrador"]), async (req, res) => {
   try {
     const userId = getUserId(req.user);
     if (!userId) return res.status(401).json({ error: "Token inválido" });
@@ -178,7 +178,7 @@ router.get("/by-email", verifyToken, requireAdmin, async (req, res) => {
 });
 
 // POST → crear nuevo perro
-router.post("/", verifyToken, async (req, res) => {
+router.post("/", verifyToken, allowRoles(["client", "adiestrador"]), async (req, res) => {
   try {
     const userId = getUserId(req.user);
     if (!userId) return res.status(401).json({ error: "Token inválido" });
@@ -226,7 +226,7 @@ router.post("/", verifyToken, async (req, res) => {
 });
 
 // PATCH → actualizar perro (solo dueño)
-router.patch("/:id", verifyToken, async (req, res) => {
+router.patch("/:id", verifyToken, allowRoles(["client", "adiestrador"]), async (req, res) => {
   try {
     const userId = getUserId(req.user);
     const { id } = req.params;
@@ -275,7 +275,7 @@ router.patch("/:id", verifyToken, async (req, res) => {
 });
 
 // DELETE → borrado duro (real)
-router.delete("/:id", verifyToken, async (req, res) => {
+router.delete("/:id", verifyToken, allowRoles(["client", "adiestrador"]), async (req, res) => {
   try {
     const userId = getUserId(req.user);
     const { id } = req.params;
