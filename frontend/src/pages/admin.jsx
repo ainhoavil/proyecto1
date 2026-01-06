@@ -11,8 +11,6 @@ import ReservasAdmin from './reservas/reservasAdmin.jsx';
 // ✅ Servicios web embebidos dentro del panel /admin
 import Servicios from './servicios.jsx';
 
-// Styles
-
 /* ==================== UTILS ==================== */
 function formatEUR(value, currency = 'EUR') {
   if (value == null) return 'A consultar';
@@ -22,6 +20,7 @@ function formatEUR(value, currency = 'EUR') {
     return `${value} ${currency}`;
   }
 }
+
 // Base del backend para construir URLs absolutas (imágenes / archivos)
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
 const absUrl = (u = '') =>
@@ -35,7 +34,6 @@ const getTrainerPhotoSrc = (u = '') => {
   return s;
 };
 
-
 // helper para evitar keys null/undefined
 const getServicioKey = (s) => String(s.id ?? s.uuid ?? s._id ?? s.title ?? `srv-${Math.random()}`);
 
@@ -45,10 +43,25 @@ const normalizeTab = (t) => {
   return ALLOWED_TABS.includes(x) ? x : 'usuarios';
 };
 
+function roleBadgeStyle(roleRaw) {
+  const role = String(roleRaw || '').toLowerCase();
+  const isAdmin = role === 'admin';
+  const isTrainer = role === 'adiestrador';
+  const isClientOrUser = role === 'client' || role === 'user' || role === '';
+
+  return {
+    padding: '4px 8px',
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: 'bold',
+    background: isAdmin ? '#333' : isTrainer ? '#e68a4e' : '#eee',
+    color: isClientOrUser ? '#333' : '#fff',
+  };
+}
+
 /* ==================== COMPONENTE PRINCIPAL ==================== */
 export default function Admin() {
   const navigate = useNavigate();
-  const ui = useUi();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, role, loading } = useAuth();
 
@@ -138,6 +151,8 @@ export default function Admin() {
 
 /* ==================== PESTAÑA USUARIOS ==================== */
 function UsersTab() {
+  const ui = useUi(); // ✅ FIX: ui existe dentro del tab
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -152,9 +167,10 @@ function UsersTab() {
     setLoading(true);
     try {
       const data = await http('/api/auth/users', { auth: true });
-      setUsers(data || []);
+      setUsers(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
+      ui?.notify?.({ type: 'error', message: 'Error cargando usuarios.' });
     } finally {
       setLoading(false);
     }
@@ -162,9 +178,20 @@ function UsersTab() {
 
   useEffect(() => {
     loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const changeRole = async (uid, newRole) => {
+    const uidSafe = String(uid || '').trim();
+    if (!uidSafe) {
+      ui.notify({
+        type: 'error',
+        message:
+          'Este usuario no tiene UID válido (probablemente falta fila en la tabla "usuarios"). Revisa el endpoint /api/auth/users.',
+      });
+      return;
+    }
+
     const ok = await ui.confirm({
       title: 'Cambiar rol',
       message: `¿Cambiar rol a ${newRole}?`,
@@ -172,14 +199,17 @@ function UsersTab() {
       cancelText: 'Cancelar',
     });
     if (!ok) return;
+
     try {
       await http('/api/auth/role', {
         method: 'POST',
-        data: { uid, rol: newRole },
+        data: { uid: uidSafe, rol: newRole },
         auth: true,
       });
+      ui.notify({ type: 'success', message: 'Rol actualizado.' });
       loadUsers();
     } catch (e) {
+      console.error(e);
       ui.notify({ type: 'error', message: 'Error cambiando rol.' });
     }
   };
@@ -187,17 +217,25 @@ function UsersTab() {
   const createUser = async (e) => {
     e.preventDefault();
     if (!newUser.email || !newUser.password) return;
+
     try {
       await http('/api/auth/users', { method: 'POST', data: newUser, auth: true });
       setMsg('✅ Usuario creado');
       setNewUser({ name: '', email: '', password: '', rol: 'user' });
       loadUsers();
     } catch (e) {
+      console.error(e);
       setMsg('❌ Error creando usuario. Email duplicado?');
     }
   };
 
   const deleteUser = async (uid) => {
+    const uidSafe = String(uid || '').trim();
+    if (!uidSafe) {
+      ui.notify({ type: 'error', message: 'No se puede borrar: UID inválido.' });
+      return;
+    }
+
     const ok = await ui.confirm({
       title: 'Eliminar usuario',
       message: '⚠️ ¿ELIMINAR usuario y todos sus datos?',
@@ -206,10 +244,13 @@ function UsersTab() {
       danger: true,
     });
     if (!ok) return;
+
     try {
-      await http(`/api/auth/users/${uid}`, { method: 'DELETE', auth: true });
+      await http(`/api/auth/users/${uidSafe}`, { method: 'DELETE', auth: true });
+      ui.notify({ type: 'success', message: 'Usuario eliminado.' });
       loadUsers();
     } catch (e) {
+      console.error(e);
       ui.notify({ type: 'error', message: 'Error eliminando usuario.' });
     }
   };
@@ -236,6 +277,7 @@ function UsersTab() {
               style={{ width: '100%' }}
             />
           </label>
+
           <label>
             Email
             <input
@@ -246,6 +288,7 @@ function UsersTab() {
               style={{ width: '100%' }}
             />
           </label>
+
           <label>
             Contraseña
             <input
@@ -256,6 +299,7 @@ function UsersTab() {
               style={{ width: '100%' }}
             />
           </label>
+
           <label>
             Rol
             <select
@@ -263,11 +307,13 @@ function UsersTab() {
               onChange={(e) => setNewUser({ ...newUser, rol: e.target.value })}
               style={{ width: '100%' }}
             >
+              <option value="client">Cliente</option>
               <option value="user">Usuario</option>
               <option value="adiestrador">Adiestrador</option>
               <option value="admin">Admin</option>
             </select>
           </label>
+
           <button type="submit" className="btn-primary">
             Crear Usuario
           </button>
@@ -278,6 +324,7 @@ function UsersTab() {
       {/* Tabla de Usuarios */}
       <div className="card" style={{ padding: '1.5rem' }}>
         <h3 style={{ marginTop: 0 }}>Lista de Usuarios ({users.length})</h3>
+
         {loading ? (
           <p>Cargando...</p>
         ) : (
@@ -304,62 +351,60 @@ function UsersTab() {
                   <th style={{ padding: 10 }}>Acciones</th>
                 </tr>
               </thead>
+
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.uid} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: 10 }}>{u.nombre || '-'}</td>
-                    <td style={{ padding: 10 }}>{u.email}</td>
-                    <td style={{ padding: 10 }}>
-                      <span
+                {users.map((u, idx) => {
+                  const key = String(u.uid || u.email || `row-${idx}`);
+                  const uidSafe = String(u.uid || '').trim();
+                  const rol = String(u.rol || 'client');
+
+                  return (
+                    <tr key={key} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: 10 }}>{u.nombre || '-'}</td>
+                      <td style={{ padding: 10 }}>{u.email}</td>
+
+                      <td style={{ padding: 10 }}>
+                        <span style={roleBadgeStyle(rol)}>{rol}</span>
+                      </td>
+
+                      <td
                         style={{
-                          padding: '4px 8px',
-                          borderRadius: 12,
-                          fontSize: 12,
-                          fontWeight: 'bold',
-                          background:
-                            u.rol === 'admin'
-                              ? '#333'
-                              : u.rol === 'adiestrador'
-                              ? '#e68a4e'
-                              : '#eee',
-                          color: u.rol === 'user' ? '#333' : '#fff',
+                          padding: 10,
+                          display: 'flex',
+                          gap: 8,
+                          alignItems: 'center',
                         }}
                       >
-                        {u.rol}
-                      </span>
-                    </td>
-                    <td
-                      style={{
-                        padding: 10,
-                        display: 'flex',
-                        gap: 8,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <select
-                        value={u.rol}
-                        onChange={(e) => changeRole(u.uid, e.target.value)}
-                        style={{
-                          padding: 4,
-                          borderRadius: 4,
-                          border: '1px solid #ccc',
-                        }}
-                      >
-                        <option value="user">Usuario</option>
-                        <option value="adiestrador">Adiestrador</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                      <button
-                        className="btn-ghost"
-                        onClick={() => deleteUser(u.uid)}
-                        title="Eliminar"
-                        style={{ color: 'crimson' }}
-                      >
-                        🗑️
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        <select
+                          value={rol}
+                          onChange={(e) => changeRole(u.uid, e.target.value)}
+                          disabled={!uidSafe}
+                          style={{
+                            padding: 4,
+                            borderRadius: 4,
+                            border: '1px solid #ccc',
+                          }}
+                          title={!uidSafe ? 'UID inválido (revisar /api/auth/users)' : 'Cambiar rol'}
+                        >
+                          <option value="client">Cliente</option>
+                          <option value="user">Usuario</option>
+                          <option value="adiestrador">Adiestrador</option>
+                          <option value="admin">Admin</option>
+                        </select>
+
+                        <button
+                          className="btn-ghost"
+                          onClick={() => deleteUser(u.uid)}
+                          disabled={!uidSafe}
+                          title={!uidSafe ? 'UID inválido (no se puede borrar)' : 'Eliminar'}
+                          style={{ color: 'crimson' }}
+                        >
+                          🗑️
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -369,8 +414,9 @@ function UsersTab() {
   );
 }
 
-/* ==================== PESTAÑA SERVICIOS ==================== */
+/* ==================== PESTAÑA SERVICIOS (NO SE USA AHORA) ==================== */
 function ServiciosTab() {
+  const ui = useUi(); // ✅ por si algún día activas este tab
   const [servicios, setServicios] = useState([]);
   const [nuevo, setNuevo] = useState({
     title: '',
@@ -438,43 +484,23 @@ function ServiciosTab() {
       >
         <label>
           Título
-          <input
-            value={nuevo.title}
-            onChange={(e) => setNuevo({ ...nuevo, title: e.target.value })}
-            required
-          />
+          <input value={nuevo.title} onChange={(e) => setNuevo({ ...nuevo, title: e.target.value })} required />
         </label>
         <label>
           Resumen
-          <input
-            value={nuevo.short}
-            onChange={(e) => setNuevo({ ...nuevo, short: e.target.value })}
-            required
-          />
+          <input value={nuevo.short} onChange={(e) => setNuevo({ ...nuevo, short: e.target.value })} required />
         </label>
         <label>
           Precio
-          <input
-            type="number"
-            value={nuevo.price}
-            onChange={(e) => setNuevo({ ...nuevo, price: e.target.value })}
-          />
+          <input type="number" value={nuevo.price} onChange={(e) => setNuevo({ ...nuevo, price: e.target.value })} />
         </label>
         <label>
           Duración
-          <input
-            value={nuevo.duration}
-            onChange={(e) => setNuevo({ ...nuevo, duration: e.target.value })}
-            placeholder="60 min"
-          />
+          <input value={nuevo.duration} onChange={(e) => setNuevo({ ...nuevo, duration: e.target.value })} placeholder="60 min" />
         </label>
         <label>
           Modalidad
-          <input
-            value={nuevo.mode}
-            onChange={(e) => setNuevo({ ...nuevo, mode: e.target.value })}
-            placeholder="presencial"
-          />
+          <input value={nuevo.mode} onChange={(e) => setNuevo({ ...nuevo, mode: e.target.value })} placeholder="presencial" />
         </label>
         <button type="submit" className="btn-primary">
           Añadir
@@ -496,16 +522,11 @@ function ServiciosTab() {
               }}
             >
               <div>
-                <strong>{s.title}</strong>{' '}
-                <small>({formatEUR(s.price)})</small>
+                <strong>{s.title}</strong> <small>({formatEUR(s.price)})</small>
                 <br />
                 <span style={{ fontSize: 12, color: '#666' }}>{s.short}</span>
               </div>
-              <button
-                onClick={() => borrar(s.id)}
-                className="btn-ghost"
-                style={{ color: 'crimson' }}
-              >
+              <button onClick={() => borrar(s.id)} className="btn-ghost" style={{ color: 'crimson' }}>
                 🗑️
               </button>
             </div>
@@ -518,6 +539,8 @@ function ServiciosTab() {
 
 /* ==================== PESTAÑA ADIESTRADORES ==================== */
 function AdiestradoresTab() {
+  const ui = useUi(); // ✅ FIX: ui existe dentro del tab
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -615,12 +638,15 @@ function AdiestradoresTab() {
       });
 
       setMsg('✅ Cambios guardados');
-      // limpia el archivo local para evitar re-subidas por error
       setField(t.trainerId, { photoUrl, photoFile: null, photoPreview: '' });
       refresh();
     } catch (e) {
       console.error(e);
-      const msg = e?.data?.error || e?.data?.message || e?.message || 'Error guardando el perfil del adiestrador';
+      const msg =
+        e?.data?.error ||
+        e?.data?.message ||
+        e?.message ||
+        'Error guardando el perfil del adiestrador';
       ui.notify({ type: 'error', message: msg });
     }
   };
@@ -634,19 +660,14 @@ function AdiestradoresTab() {
         </button>
       </div>
 
-      {msg && (
-        <p style={{ marginTop: 8, color: msg.includes('✅') ? '#2f6f62' : 'crimson' }}>{msg}</p>
-      )}
+      {msg && <p style={{ marginTop: 8, color: msg.includes('✅') ? '#2f6f62' : 'crimson' }}>{msg}</p>}
 
       {loading ? (
         <p>Cargando...</p>
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           {items.map((t) => (
-            <div
-              key={String(t.trainerId)}
-              style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}
-            >
+            <div key={String(t.trainerId)} style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}>
               <div
                 style={{
                   display: 'flex',
@@ -658,9 +679,7 @@ function AdiestradoresTab() {
               >
                 <div>
                   <strong>{t.displayName || t.email || `#${t.trainerId}`}</strong>
-                  {t.email ? (
-                    <div style={{ fontSize: 12, color: '#666' }}>{t.email}</div>
-                  ) : null}
+                  {t.email ? <div style={{ fontSize: 12, color: '#666' }}>{t.email}</div> : null}
                 </div>
 
                 <button className="btn-primary" onClick={() => guardar(t)}>
@@ -678,10 +697,7 @@ function AdiestradoresTab() {
               >
                 <label>
                   Nombre público
-                  <input
-                    value={t.displayName || ''}
-                    onChange={(e) => setField(t.trainerId, { displayName: e.target.value })}
-                  />
+                  <input value={t.displayName || ''} onChange={(e) => setField(t.trainerId, { displayName: e.target.value })} />
                 </label>
 
                 <div className="admin__photoField" style={{ gridColumn: '1 / -1' }}>
@@ -699,30 +715,21 @@ function AdiestradoresTab() {
 
                   <label className="admin__photoLabel">
                     Foto (archivo)
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => pickPhoto(t.trainerId, e.target.files?.[0] || null)}
-                    />
+                    <input type="file" accept="image/*" onChange={(e) => pickPhoto(t.trainerId, e.target.files?.[0] || null)} />
                     {t.photoFile ? (
-                      <small>
-                        Archivo seleccionado: {t.photoFile.name}. Se subirá al guardar.
-                      </small>
+                      <small>Archivo seleccionado: {t.photoFile.name}. Se subirá al guardar.</small>
                     ) : (
                       <small>Selecciona un archivo. Se subirá al guardar.</small>
                     )}
                   </label>
 
                   {(t.photoUrl || t.photoPreview) && (
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      onClick={() => clearPhoto(t.trainerId)}
-                    >
+                    <button type="button" className="btn-ghost" onClick={() => clearPhoto(t.trainerId)}>
                       Quitar foto
                     </button>
                   )}
                 </div>
+
                 <label>
                   Años de experiencia
                   <input

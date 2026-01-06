@@ -37,7 +37,6 @@ function qIdent(name) {
   return `"${String(name).replace(/"/g, '""')}"`;
 }
 
-
 /* ===================== Config ===================== */
 const BUSINESS_HOURS = { start: 9, end: 21, skipHours: new Set([14, 15]) };
 
@@ -49,8 +48,13 @@ const toMin = (hhmm) => {
   const [h, m = 0] = String(hhmm).split(":").map(Number);
   return h * 60 + m;
 };
+
 const fromMin = (t) =>
-  `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+  `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(
+    2,
+    "0"
+  )}`;
+
 const overlaps = (aStart, aDur, bStart, bDur) => {
   const a1 = toMin(aStart),
     a2 = a1 + Number(aDur || 60);
@@ -58,6 +62,7 @@ const overlaps = (aStart, aDur, bStart, bDur) => {
     b2 = b1 + Number(bDur || 60);
   return a1 < b2 && b1 < a2;
 };
+
 const parseJSONSafe = (v, fb = {}) => {
   try {
     return typeof v === "string" ? JSON.parse(v) : v ?? fb;
@@ -138,7 +143,13 @@ async function bloqueosHasTrainerIdColumn() {
   return _bloqueosHasTrainerId;
 }
 
-async function isTrainerAvailableForSlot({ trainerId, fecha, hora, durationMin = 60, excludeReservaId = null }) {
+async function isTrainerAvailableForSlot({
+  trainerId,
+  fecha,
+  hora,
+  durationMin = 60,
+  excludeReservaId = null,
+}) {
   const tid = String(trainerId || "").trim();
   if (!tid || !fecha || !hora) return true;
 
@@ -161,7 +172,14 @@ async function isTrainerAvailableForSlot({ trainerId, fecha, hora, durationMin =
   );
 
   for (const r of reservas || []) {
-    if (overlaps(String(hora), Number(durationMin || 60), String(r.hora), Number(r.durationMin || 60))) {
+    if (
+      overlaps(
+        String(hora),
+        Number(durationMin || 60),
+        String(r.hora),
+        Number(r.durationMin || 60)
+      )
+    ) {
       return false;
     }
   }
@@ -179,13 +197,27 @@ async function isTrainerAvailableForSlot({ trainerId, fecha, hora, durationMin =
       const bt = String(b?.trainerId || "").trim();
       const isGlobal = !bt;
       if (isGlobal || bt === tid) {
-        if (overlaps(String(hora), Number(durationMin || 60), String(b.hora), 60)) return false;
+        if (
+          overlaps(
+            String(hora),
+            Number(durationMin || 60),
+            String(b.hora),
+            60
+          )
+        )
+          return false;
       }
     }
   } else {
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [String(fecha)]);
+    const bloqueos = await query(
+      `SELECT hora FROM bloqueos WHERE fecha = ?`,
+      [String(fecha)]
+    );
     for (const b of bloqueos || []) {
-      if (overlaps(String(hora), Number(durationMin || 60), String(b.hora), 60)) return false;
+      if (
+        overlaps(String(hora), Number(durationMin || 60), String(b.hora), 60)
+      )
+        return false;
     }
   }
 
@@ -225,14 +257,23 @@ async function canSeeReservation(req, reservaId) {
  * - modalidad NULL o '' => vale para cualquier modalidad
  */
 
-// ✅ NUEVO: fallback a "todos los adiestradores" (coherente con /api/trainers/eligible actual)
+// ✅ CORREGIDO: nombre viene de users.nombre (usuarios NO tiene columna nombre)
 async function getAllTrainers() {
   try {
     return await query(
-      `SELECT id, email, nombre
-         FROM usuarios
-        WHERE rol = 'adiestrador'
-        ORDER BY nombre IS NULL, nombre ASC, email ASC`
+      `
+      SELECT
+        u.id,
+        u.email,
+        us.nombre AS nombre
+      FROM usuarios u
+      LEFT JOIN users us ON us.uid = u.id
+      WHERE u.rol = 'adiestrador'
+      ORDER BY
+        us.nombre IS NULL,
+        us.nombre ASC,
+        u.email ASC
+      `
     );
   } catch {
     return await query(
@@ -255,20 +296,28 @@ async function getEligibleTrainers({ servicioId, modalidad }) {
   try {
     rows = await query(
       `
-      SELECT u.id, u.email, u.nombre
-        FROM usuarios u
-        JOIN trainer_servicios ts
-          ON ts.trainer_id = u.id
-       WHERE u.rol = 'adiestrador'
-         AND ts.enabled = 1
-         AND ts.servicio_id = ?
-         AND (
-              ts.modalidad IS NULL
-              OR ts.modalidad = ''
-              OR ? IS NULL
-              OR ts.modalidad = ?
-         )
-       ORDER BY u.nombre IS NULL, u.nombre ASC, u.email ASC
+      SELECT
+        u.id,
+        u.email,
+        us.nombre AS nombre
+      FROM usuarios u
+      JOIN trainer_servicios ts
+        ON ts.trainer_id = u.id
+      LEFT JOIN users us
+        ON us.uid = u.id
+      WHERE u.rol = 'adiestrador'
+        AND ts.enabled = 1
+        AND ts.servicio_id = ?
+        AND (
+          ts.modalidad IS NULL
+          OR ts.modalidad = ''
+          OR ? IS NULL
+          OR ts.modalidad = ?
+        )
+      ORDER BY
+        us.nombre IS NULL,
+        us.nombre ASC,
+        u.email ASC
       `,
       [String(servicioId), mod, mod]
     );
@@ -291,7 +340,9 @@ function pickRandomTrainer(eligibleRows) {
 
 async function validateTrainerExistsAndIsTrainer(trainerId) {
   const row = (
-    await query(`SELECT id, rol FROM usuarios WHERE id=? LIMIT 1`, [String(trainerId)])
+    await query(`SELECT id, rol FROM usuarios WHERE id=? LIMIT 1`, [
+      String(trainerId),
+    ])
   )[0];
   return !!row && row.rol === "adiestrador";
 }
@@ -315,7 +366,9 @@ async function resolveTrainerIdOrFail({ trainerId, servicioId, modalidad }) {
     try {
       const eligible = await getEligibleTrainers({ servicioId, modalidad });
       if (Array.isArray(eligible) && eligible.length) {
-        const okEligible = eligible.some((t) => String(t?.id || "") === String(reqT));
+        const okEligible = eligible.some(
+          (t) => String(t?.id || "") === String(reqT)
+        );
         if (!okEligible) {
           const err = new Error("Trainer no compatible con el servicio/modalidad");
           err.statusCode = 400;
@@ -366,7 +419,9 @@ router.get("/disponibilidad", async (req, res) => {
       params
     );
 
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [fecha]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
+      fecha,
+    ]);
 
     const ocupadas = new Set();
 
@@ -423,7 +478,9 @@ router.post("/", verifyToken, async (req, res) => {
     const uid = req.user?.uid || null;
     const emailNorm = String(email || req.user?.email || "").trim();
     if (!uid || !emailNorm || !fecha || !hora) {
-      return res.status(400).json({ error: "Faltan campos (login/email/fecha/hora)" });
+      return res
+        .status(400)
+        .json({ error: "Faltan campos (login/email/fecha/hora)" });
     }
 
     // Fallback del servicio
@@ -448,7 +505,9 @@ router.post("/", verifyToken, async (req, res) => {
         WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [fecha]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha = ?`, [
+      fecha,
+    ]);
 
     if (
       existentes.some((r) => String(r.hora) === String(hora)) ||
@@ -459,22 +518,32 @@ router.post("/", verifyToken, async (req, res) => {
 
     if (
       existentes.some((r) =>
-        overlaps(String(hora), Number(durationMin), String(r.hora), Number(r.durationMin || 60))
+        overlaps(
+          String(hora),
+          Number(durationMin),
+          String(r.hora),
+          Number(r.durationMin || 60)
+        )
       )
     ) {
       return res.status(409).json({ error: "Franja solapada" });
     }
 
-    const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
+    const trainerIdFinal = await resolveTrainerIdOrFail({
+      trainerId,
+      servicioId,
+      modalidad,
+    });
 
-    // Si se asigna un adiestrador, validamos que esté disponible en esa franja.
+    // ✅ CORREGIDO: aquí NO existe "r" ni "id" todavía.
+    // Si hay trainer elegido, comprobamos disponibilidad con los datos del request.
     if (trainerIdFinal) {
       const ok = await isTrainerAvailableForSlot({
         trainerId: trainerIdFinal,
-        fecha: r.fecha,
-        hora: r.hora,
-        durationMin: r.durationMin || 60,
-        excludeReservaId: id,
+        fecha: String(fecha),
+        hora: String(hora),
+        durationMin: Number(durationMin || 60),
+        excludeReservaId: null,
       });
       if (!ok) {
         const err = new Error("Adiestrador no disponible en esa franja");
@@ -499,11 +568,13 @@ router.post("/", verifyToken, async (req, res) => {
         if (!pRows.length) throw new Error("Paquete no existe");
         const p = pRows[0];
         if (p.status !== "active") throw new Error("Paquete no activo");
-        if (p.userId && p.userId !== uid) throw new Error("El paquete no pertenece al usuario");
+        if (p.userId && p.userId !== uid)
+          throw new Error("El paquete no pertenece al usuario");
 
         const saldo = parseJSONSafe(p.saldo, { total: 1, usadas: 0, pendientes: 0 });
         if (
-          Number(saldo.usadas || 0) + Number(saldo.pendientes || 0) >= Number(saldo.total || 1)
+          Number(saldo.usadas || 0) + Number(saldo.pendientes || 0) >=
+          Number(saldo.total || 1)
         ) {
           throw new Error("Saldo agotado");
         }
@@ -660,7 +731,9 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
         WHERE fecha = ? AND status IN ('pending','pending_user','confirmed')`,
       [fecha]
     );
-    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [fecha]);
+    const bloqueos = await query(`SELECT hora FROM bloqueos WHERE fecha=?`, [
+      fecha,
+    ]);
 
     if (
       existentes.some((r) => String(r.hora) === String(hora)) ||
@@ -671,13 +744,22 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
 
     if (
       existentes.some((r) =>
-        overlaps(String(hora), Number(durationMin), String(r.hora), Number(r.durationMin || 60))
+        overlaps(
+          String(hora),
+          Number(durationMin),
+          String(r.hora),
+          Number(r.durationMin || 60)
+        )
       )
     ) {
       return res.status(409).json({ error: "Franja solapada" });
     }
 
-    const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
+    const trainerIdFinal = await resolveTrainerIdOrFail({
+      trainerId,
+      servicioId,
+      modalidad,
+    });
 
     const id = uuidv4();
     const ts = nowISO();
@@ -739,16 +821,30 @@ router.get(
       const { fecha } = req.query;
       const trainerId = String(req.user?.id || req.user?.uid || "");
 
-      if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+      if (!fecha)
+        return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
       if (!trainerId) return res.status(401).json({ error: "No autorizado" });
 
       // Detecta columnas reales (evita 500 si el esquema varía)
       const cols = await query("PRAGMA table_info(reservas)");
-      const has = (name) => Array.isArray(cols) && cols.some((c) => String(c?.name) === name);
+      const has = (name) =>
+        Array.isArray(cols) && cols.some((c) => String(c?.name) === name);
 
-      const trainerCol = has("trainer_id") ? "trainer_id" : has("trainerId") ? "trainerId" : "trainer_id";
-      const durationCol = has("duration_min") ? "duration_min" : has("durationMin") ? "durationMin" : null;
-      const servicioCol = has("servicio_titulo") ? "servicio_titulo" : has("servicioTitulo") ? "servicioTitulo" : null;
+      const trainerCol = has("trainer_id")
+        ? "trainer_id"
+        : has("trainerId")
+        ? "trainerId"
+        : "trainer_id";
+      const durationCol = has("duration_min")
+        ? "duration_min"
+        : has("durationMin")
+        ? "durationMin"
+        : null;
+      const servicioCol = has("servicio_titulo")
+        ? "servicio_titulo"
+        : has("servicioTitulo")
+        ? "servicioTitulo"
+        : null;
       const perroCol = has("perro") ? "perro" : null;
       const uidCol = has("uid") ? "uid" : null;
       const emailCol = has("email") ? "email" : null;
@@ -781,12 +877,14 @@ router.get(
       console.error("GET /reservas/trainer/day", e);
       res.status(500).json({
         error: "No se pudo cargar la agenda del adiestrador",
-        detail: process.env.NODE_ENV !== "production" ? String(e?.message || e) : undefined,
+        detail:
+          process.env.NODE_ENV !== "production"
+            ? String(e?.message || e)
+            : undefined,
       });
     }
   }
 );
-
 
 /* ===================== Mis reservas (adiestrador) ✅ NUEVO ===================== */
 // GET /api/reservas/mias-trainer
@@ -990,7 +1088,9 @@ router.post("/:id/notes", verifyToken, async (req, res) => {
       [nid, id, author, String(text).trim(), ts]
     );
 
-    res.status(201).json({ id: nid, author, text: String(text).trim(), createdAt: ts });
+    res
+      .status(201)
+      .json({ id: nid, author, text: String(text).trim(), createdAt: ts });
   } catch (e) {
     console.error("POST /reservas/:id/notes", e);
     res.status(500).json({ error: "No se pudo crear nota" });
@@ -1024,7 +1124,10 @@ router.delete("/:id/notes/:noteId", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "No puedes borrar esta nota" });
     }
 
-    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [nowISO(), noteId]);
+    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [
+      nowISO(),
+      noteId,
+    ]);
 
     res.json({ ok: true });
   } catch (e) {
@@ -1075,7 +1178,8 @@ router.patch(
          FROM reservas WHERE id=? LIMIT 1`,
         [id]
       );
-      if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
+      if (!rRows.length)
+        return res.status(404).json({ error: "Reserva no encontrada" });
       const r = rRows[0];
 
       if (r.paqueteId) {
@@ -1088,13 +1192,21 @@ router.patch(
             WHERE id=?`,
             [note, nowISO(), id]
           );
-          const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
-            r.paqueteId,
-          ]);
+          const pRows = await query(
+            `SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`,
+            [r.paqueteId]
+          );
           if (pRows.length) {
-            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+            const saldo = parseJSONSafe(pRows[0].saldo, {
+              total: 1,
+              usadas: 0,
+              pendientes: 0,
+            });
             if (["pending", "pending_user", "confirmed"].includes(r.status)) {
-              saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+              saldo.pendientes = Math.max(
+                0,
+                Number(saldo.pendientes || 0) - 1
+              );
             }
             await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
               JSON.stringify(saldo),
@@ -1134,7 +1246,8 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
+    if (!rRows.length)
+      return res.status(404).json({ error: "Reserva no encontrada" });
 
     const r = rRows[0];
     const isOwner =
@@ -1152,7 +1265,10 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
       return res.status(400).json({ error: "La reserva no tiene trainer asignado" });
     }
 
-    await query(`UPDATE reservas SET status='confirmed', updated_at=? WHERE id=?`, [nowISO(), id]);
+    await query(`UPDATE reservas SET status='confirmed', updated_at=? WHERE id=?`, [
+      nowISO(),
+      id,
+    ]);
 
     res.json({ ok: true });
   } catch (e) {
@@ -1172,7 +1288,8 @@ router.patch("/:id/user-reject", verifyToken, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
+    if (!rRows.length)
+      return res.status(404).json({ error: "Reserva no encontrada" });
     const r = rRows[0];
 
     const isOwner =
@@ -1246,7 +1363,8 @@ router.patch("/:id/cancel", verifyToken, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
+    if (!rRows.length)
+      return res.status(404).json({ error: "Reserva no encontrada" });
     const r = rRows[0];
 
     const rol = req.user?.rol || req.user?.role || "user";
@@ -1314,7 +1432,8 @@ router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
-    if (!rRows.length) return res.status(404).json({ error: "Reserva no encontrada" });
+    if (!rRows.length)
+      return res.status(404).json({ error: "Reserva no encontrada" });
     const r = rRows[0];
 
     const st = String(r.status || "").toLowerCase();
@@ -1367,7 +1486,11 @@ router.patch("/:id/trainer", verifyToken, requireAdmin, async (req, res) => {
     const servicioId = r.servicioId;
     const modalidad = mode ?? r.modalidad;
 
-    const trainerIdFinal = await resolveTrainerIdOrFail({ trainerId, servicioId, modalidad });
+    const trainerIdFinal = await resolveTrainerIdOrFail({
+      trainerId,
+      servicioId,
+      modalidad,
+    });
 
     // Si se asigna un trainer, aseguramos que está disponible para esa franja.
     if (trainerIdFinal) {
@@ -1403,8 +1526,10 @@ router.patch("/:id/trainer", verifyToken, requireAdmin, async (req, res) => {
 router.patch("/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, adminNote = null, adminNoteAppend = false, cancelReason = null } = req.body || {};
-    if (!status && adminNote === null) return res.status(400).json({ error: "Nada que actualizar" });
+    const { status, adminNote = null, adminNoteAppend = false, cancelReason = null } =
+      req.body || {};
+    if (!status && adminNote === null)
+      return res.status(400).json({ error: "Nada que actualizar" });
 
     const rol = req.user?.rol || req.user?.role || "user";
     const isAdmin = !!req.user?.isAdmin || rol === "admin";
@@ -1482,7 +1607,8 @@ router.patch("/:id", verifyToken, async (req, res) => {
       const isOwner =
         (r.uid && req.user?.uid && r.uid === req.user.uid) ||
         (r.email && req.user?.email && r.email === req.user.email);
-      if (!isAdmin && !isOwner) return res.status(403).json({ error: "Sin permisos para cancelar" });
+      if (!isAdmin && !isOwner)
+        return res.status(403).json({ error: "Sin permisos para cancelar" });
 
       if (!isAdmin && !puedeCancelar24h(r.fecha, r.hora)) {
         return res.status(400).json({ error: "No se puede cancelar con menos de 24h" });
@@ -1600,7 +1726,6 @@ router.delete("/bloqueos", verifyToken, requireAdmin, async (req, res) => {
     res.status(500).json({ error: "No se pudo eliminar el bloqueo." });
   }
 });
-
 
 /* ===================== Extensiones agenda (adiestrador) ===================== */
 // Monta POST /api/reservas/trainer-create (y otros endpoints del adiestrador)

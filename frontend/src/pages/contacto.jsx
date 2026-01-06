@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { http } from "../helpers/http";
 
 function Contacto() {
   const [nombre, setNombre] = useState("");
@@ -10,10 +11,21 @@ function Contacto() {
 
   const [enviado, setEnviado] = useState(false);
   const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
 
   // Anti-bots
   const [honeypot, setHoneypot] = useState("");
   const [loadedAt] = useState(() => Date.now());
+
+  const resetForm = () => {
+    setNombre("");
+    setEmail("");
+    setTelefono("");
+    setTipoServicio("");
+    setMensaje("");
+    setAceptaPrivacidad(false);
+    setHoneypot("");
+  };
 
   const manejarEnvio = async (e) => {
     e.preventDefault();
@@ -23,66 +35,61 @@ function Contacto() {
     // honeypot: si se rellena, tratamos como bot
     if (honeypot.trim() !== "") {
       setEnviado(true);
-      setNombre("");
-      setEmail("");
-      setTelefono("");
-      setTipoServicio("");
-      setMensaje("");
-      setAceptaPrivacidad(false);
+      resetForm();
       return;
     }
 
     // tiempo mínimo (3s) para evitar bots instantáneos
     const elapsed = Date.now() - loadedAt;
     if (elapsed < 3000) {
-      setError(
-        "Has enviado el formulario demasiado rápido, inténtalo de nuevo."
-      );
+      setError("Has enviado el formulario demasiado rápido, inténtalo de nuevo.");
       return;
     }
 
     if (!aceptaPrivacidad) {
-      setError(
-        "Debes aceptar la política de privacidad para enviar el mensaje."
-      );
+      setError("Debes aceptar la política de privacidad para enviar el mensaje.");
       return;
     }
 
+    if (!nombre.trim() || !email.trim() || !mensaje.trim()) {
+      setError("Por favor, completa nombre, email y mensaje.");
+      return;
+    }
+
+    setSending(true);
     try {
+      // ✅ Backend actual espera: nombre, email, mensaje, honeypot
+      // Metemos teléfono/tipoServicio dentro de "mensaje" para no tocar backend ahora.
       const mensajeFinal = [
-        telefono && `Teléfono: ${telefono}`,
-        tipoServicio && `Tipo de servicio: ${tipoServicio}`,
+        telefono?.trim() ? `Teléfono: ${telefono.trim()}` : null,
+        tipoServicio?.trim() ? `Tipo de servicio: ${tipoServicio.trim()}` : null,
         "",
-        mensaje,
+        mensaje.trim(),
       ]
         .filter(Boolean)
         .join("\n");
 
-      const res = await fetch("/api/contacto", {
+      await http("/api/contacto", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nombre,
-          email,
+        data: {
+          nombre: nombre.trim(),
+          email: email.trim(),
           mensaje: mensajeFinal,
-          honeypot,
-        }),
+          honeypot: honeypot, // el backend lo detecta aquí
+        },
       });
 
-      if (res.ok) {
-        setEnviado(true);
-        setNombre("");
-        setEmail("");
-        setTelefono("");
-        setTipoServicio("");
-        setMensaje("");
-        setAceptaPrivacidad(false);
-      } else {
-        setError("Error al enviar el mensaje. Inténtalo de nuevo más tarde.");
-      }
+      setEnviado(true);
+      resetForm();
     } catch (err) {
-      console.error("Error de red:", err);
-      setError("Error de red. Inténtalo de nuevo en unos minutos.");
+      console.error("Error enviando contacto:", err);
+      const apiMsg =
+        err?.data?.error ||
+        err?.message ||
+        "Error al enviar el mensaje. Inténtalo de nuevo más tarde.";
+      setError(apiMsg);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -91,13 +98,10 @@ function Contacto() {
       <div className="contact-page__container">
         {/* ENCABEZADO */}
         <header className="contact-header">
-          <h1 className="contact-header__title">
-            Hablemos sobre el bienestar de tu perro
-          </h1>
+          <h1 className="contact-header__title">Hablemos sobre el bienestar de tu perro</h1>
           <p className="contact-header__lead">
-            Cuéntanos qué necesitas: adiestramiento, paseos o educación en
-            Madrid. Rellena el formulario o utiliza los datos de contacto para
-            hablar directamente con nuestro equipo.
+            Cuéntanos qué necesitas: adiestramiento, paseos o educación en Madrid. Rellena el formulario
+            o utiliza los datos de contacto para hablar directamente con nuestro equipo.
           </p>
           <div className="contact-header__divider" />
         </header>
@@ -111,9 +115,7 @@ function Contacto() {
               Respondemos habitualmente en menos de 24 horas laborables.
             </p>
 
-            {error && (
-              <div className="contact-alert contact-alert--error">{error}</div>
-            )}
+            {error && <div className="contact-alert contact-alert--error">{error}</div>}
             {enviado && (
               <div className="contact-alert contact-alert--success">
                 Gracias por tu mensaje. Te responderemos lo antes posible.
@@ -131,6 +133,7 @@ function Contacto() {
                     autoComplete="off"
                     value={honeypot}
                     onChange={(e) => setHoneypot(e.target.value)}
+                    tabIndex={-1}
                   />
                 </label>
               </div>
@@ -144,6 +147,7 @@ function Contacto() {
                     value={nombre}
                     onChange={(e) => setNombre(e.target.value)}
                     required
+                    disabled={sending}
                   />
                 </label>
 
@@ -155,6 +159,7 @@ function Contacto() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={sending}
                   />
                 </label>
               </div>
@@ -167,6 +172,7 @@ function Contacto() {
                     placeholder="+34 600 000 000"
                     value={telefono}
                     onChange={(e) => setTelefono(e.target.value)}
+                    disabled={sending}
                   />
                 </label>
 
@@ -177,6 +183,7 @@ function Contacto() {
                     placeholder="Adiestramiento, paseos, educación..."
                     value={tipoServicio}
                     onChange={(e) => setTipoServicio(e.target.value)}
+                    disabled={sending}
                   />
                 </label>
               </div>
@@ -189,6 +196,7 @@ function Contacto() {
                   value={mensaje}
                   onChange={(e) => setMensaje(e.target.value)}
                   required
+                  disabled={sending}
                 />
               </label>
 
@@ -197,19 +205,17 @@ function Contacto() {
                   type="checkbox"
                   checked={aceptaPrivacidad}
                   onChange={(e) => setAceptaPrivacidad(e.target.checked)}
+                  disabled={sending}
                 />
                 <span>
-                  He leído y acepto la política de privacidad para el tratamiento
-                  de mis datos con el fin de recibir respuesta a mi consulta.
+                  He leído y acepto la política de privacidad para el tratamiento de mis datos con el fin
+                  de recibir respuesta a mi consulta.
                 </span>
               </label>
 
               <div className="contact-form__actions">
-                <button
-                  type="submit"
-                  className="contact-btn contact-btn--primary"
-                >
-                  Enviar mensaje
+                <button type="submit" className="contact-btn contact-btn--primary" disabled={sending}>
+                  {sending ? "Enviando..." : "Enviar mensaje"}
                 </button>
                 <span className="contact-form__helper">
                   O si lo prefieres, llámanos o escríbenos por WhatsApp.
@@ -222,8 +228,7 @@ function Contacto() {
           <aside className="contact-card contact-card--info">
             <h2 className="contact-card__title">Datos de contacto DogForm</h2>
             <p className="contact-card__subtitle">
-              Estamos en Madrid y trabajamos en los principales barrios de la
-              ciudad y alrededores.
+              Estamos en Madrid y trabajamos en los principales barrios de la ciudad y alrededores.
             </p>
 
             <div className="contact-info-block">
@@ -240,13 +245,12 @@ function Contacto() {
               <h3>DIRECCIÓN</h3>
               <p>C/ Gran Vía 25, 4ºB · 28013 Madrid</p>
               <p>
-                Horario de atención: Lunes a viernes de 9:00 a 19:00. Para
-                urgencias puedes escribirnos por WhatsApp fuera de este horario.
+                Horario de atención: Lunes a viernes de 9:00 a 19:00. Para urgencias puedes escribirnos
+                por WhatsApp fuera de este horario.
               </p>
             </div>
 
             <div className="contact-map">
-              {/* Pon aquí tu imagen real de mapa si la tienes */}
               <div className="contact-map__img" />
             </div>
           </aside>
