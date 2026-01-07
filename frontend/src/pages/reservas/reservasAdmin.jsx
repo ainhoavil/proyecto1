@@ -333,6 +333,13 @@ export default function ReservasAdmin() {
   const [quickMod, setQuickMod] = useState('presencial');
   const [quickTrainerId, setQuickTrainerId] = useState('');
 
+  // Bloqueos avanzados (admin)
+  const [blockScope, setBlockScope] = useState('global'); // 'global' | 'trainer'
+  const [blockType, setBlockType] = useState('hour'); // 'hour' | 'allDay'
+  const [blockTrainerId, setBlockTrainerId] = useState('');
+  const [blocksDay, setBlocksDay] = useState([]);
+  const [loadingBlocksDay, setLoadingBlocksDay] = useState(false);
+
   useEffect(() => {
   let alive = true;
   const email = String(quickEmail || "").trim();
@@ -375,25 +382,198 @@ export default function ReservasAdmin() {
 }, [quickEmail]);
 
 
-  const bloquear = async () => {
+// ---------- Helpers API (fallback de endpoints) ----------
+const tryHttpCandidates = async (candidates) => {
+  let lastErr = null;
+  for (const c of candidates) {
     try {
-      await http('/api/reservas/bloqueos', {
-        method: 'POST',
-        data: {
-          fecha: quickFecha,
-          hora: quickHora,
-          motivo: 'Bloqueo manual',
-          servicioId,
-        },
-        auth: true,
-      });
-      showSuccess('Hora bloqueada');
-      await cargarAdminList();
+      return await http(c.path, { auth: true, ...(c.opts || {}) });
     } catch (e) {
-      showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
-      setTraceErr({ action: 'POST bloquear', error: serializeErr(e) });
+      lastErr = e;
+      const st = Number(e?.status || e?.httpStatus || 0);
+      if (st === 404 || st === 405) continue;
+      throw e;
     }
+  }
+  throw lastErr || new Error('No se pudo completar la operación.');
+};
+
+const normalizeBlock = (b) => {
+  const id = first(b?.id, b?._id, b?.uuid, '');
+  const fecha = first(b?.fecha, b?.date, b?.dia, b?.day, '');
+  const horaRaw = first(b?.hora, b?.time, b?.hour, null);
+  const hora = horaRaw == null ? '' : String(horaRaw).trim().slice(0, 5);
+  const trainerId = first(
+    b?.trainer_id,
+    b?.trainerId,
+    b?.trainer,
+    b?.trainer_uid,
+    b?.trainerUid,
+    ''
+  );
+
+  const allDay =
+    Boolean(
+      b?.allDay ??
+        b?.isAllDay ??
+        b?.diaCompleto ??
+        b?.fullDay ??
+        b?.full_day ??
+        b?.is_all_day
+    ) || !hora;
+
+  const tid = String(trainerId || '').trim();
+  const isGlobal =
+    !tid || String(b?.scope || '').toLowerCase() === 'global' || b?.isGlobal === true;
+
+  return {
+    id: id ? String(id) : '',
+    fecha: String(fecha || '').slice(0, 10),
+    hora,
+    trainerId: tid,
+    allDay,
+    isGlobal,
+    raw: b,
   };
+};
+
+const loadBloqueosDiaAdmin = async (fecha) => {
+  const f = String(fecha || quickFecha || '').trim();
+  if (!f) return;
+
+  setLoadingBlocksDay(true);
+  try {
+    const qs = new URLSearchParams({ fecha: f });
+    const data = await tryHttpCandidates([
+      { path: `/api/bloqueos/admin/day?${qs.toString()}`, opts: { method: 'GET' } },
+      { path: `/api/reservas/bloqueos/day?${qs.toString()}`, opts: { method: 'GET' } },
+      { path: `/api/bloqueos/day?${qs.toString()}`, opts: { method: 'GET' } },
+      { path: `/api/reservas/bloqueos?${qs.toString()}`, opts: { method: 'GET' } },
+    ]);
+
+    const arr = normList(data?.items || data?.bloqueos || data?.blocks || data || []);
+    setBlocksDay(arr.map(normalizeBlock).filter((x) => x.fecha));
+  } catch (e) {
+    setBlocksDay([]);
+    showError(serverErrMsg(e, 'No se pudieron cargar los bloqueos del día'));
+    setTraceErr({ action: 'GET bloqueos admin day', fecha: f, error: serializeErr(e) });
+  } finally {
+    setLoadingBlocksDay(false);
+  }
+};
+
+const crearBloqueoAvanzado = async () => {
+  const fecha = String(quickFecha || '').trim();
+  if (!fecha) {
+    showError('Falta fecha (YYYY-MM-DD)');
+    return;
+  }
+
+  const scope = String(blockScope || 'global');
+  const type = String(blockType || 'hour');
+
+  const trainerId = scope === 'trainer' ? String(blockTrainerId || '').trim() : '';
+  if (scope === 'trainer' && !trainerId) {
+    showError('Selecciona un adiestrador para el bloqueo.');
+    return;
+  }
+
+  const hora = type === 'hour' ? String(quickHora || '').trim() : '';
+  if (type === 'hour' && !hora) {
+    showError('Falta hora (HH:MM)');
+    return;
+  }
+
+  const payload = {
+    fecha,
+    ...(type === 'hour' ? { hora } : { allDay: true, hora: null }),
+    ...(scope === 'trainer' ? { trainerId } : { trainerId: null, scope: 'global' }),
+    motivo: 'Bloqueo admin',
+  };
+
+  try {
+    // Preferimos endpoints "nuevos" (A2) y hacemos fallback.
+    await tryHttpCandidates([
+      { path: '/api/bloqueos/admin', opts: { method: 'POST', data: payload } },
+      { path: '/api/bloqueos', opts: { method: 'POST', data: payload } },
+      ...(type === 'hour' && scope === 'global'
+        ? [{ path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha, hora } } }]
+        : []),
+    ]);
+
+    showSuccess(type === 'allDay' ? 'Día bloqueado' : 'Hora bloqueada');
+    await loadBloqueosDiaAdmin(fecha);
+    await cargarAdminList();
+  } catch (e) {
+    showError(serverErrMsg(e, 'No se pudo crear el bloqueo'));
+    setTraceErr({ action: 'POST bloqueo admin', payload, error: serializeErr(e) });
+  }
+};
+
+const eliminarBloqueoAdmin = async (b) => {
+  const blk = normalizeBlock(b || {});
+  const fecha = blk.fecha || String(quickFecha || '').trim();
+  const hora = blk.allDay ? '' : blk.hora;
+  const trainerId = blk.isGlobal ? '' : blk.trainerId;
+
+  try {
+    if (blk.id) {
+      await tryHttpCandidates([
+        { path: `/api/bloqueos/admin/${encodeURIComponent(blk.id)}`, opts: { method: 'DELETE' } },
+        { path: `/api/bloqueos/${encodeURIComponent(blk.id)}`, opts: { method: 'DELETE' } },
+      ]);
+    } else {
+      const payload = {
+        fecha,
+        ...(blk.allDay ? { allDay: true, hora: null } : { hora }),
+        ...(trainerId ? { trainerId } : { trainerId: null, scope: 'global' }),
+      };
+
+      await tryHttpCandidates([
+        { path: '/api/bloqueos/admin', opts: { method: 'DELETE', data: payload } },
+        { path: '/api/bloqueos', opts: { method: 'DELETE', data: payload } },
+        ...(hora && !trainerId
+          ? [
+              {
+                path: `/api/reservas/bloqueos?${new URLSearchParams({ fecha, hora }).toString()}`,
+                opts: { method: 'DELETE' },
+              },
+            ]
+          : []),
+      ]);
+    }
+
+    showSuccess('Bloqueo eliminado');
+    await loadBloqueosDiaAdmin(fecha);
+    await cargarAdminList();
+  } catch (e) {
+    showError(serverErrMsg(e, 'No se pudo eliminar el bloqueo'));
+    setTraceErr({ action: 'DELETE bloqueo admin', bloque: blk, error: serializeErr(e) });
+  }
+};
+
+// Bloqueo rápido (compat): bloquea una hora global usando los datos actuales
+const bloquear = async () => {
+  try {
+    await tryHttpCandidates([
+      { path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora } } },
+      {
+        path: '/api/bloqueos/admin',
+        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, scope: 'global' } },
+      },
+      {
+        path: '/api/bloqueos',
+        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, scope: 'global' } },
+      },
+    ]);
+    showSuccess('Hora bloqueada');
+    await loadBloqueosDiaAdmin(quickFecha);
+    await cargarAdminList();
+  } catch (e) {
+    showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
+    setTraceErr({ action: 'POST bloquear (rápido)', error: serializeErr(e) });
+  }
+};
 
   const reservarParaEmail = async () => {
     if (!/\S+@\S+\.\S+/.test(quickEmail)) {
@@ -477,10 +657,24 @@ export default function ReservasAdmin() {
     };
   }, [adminList]);
 
+
+const blocksDayView = useMemo(() => {
+  const arr = Array.isArray(blocksDay) ? blocksDay : [];
+  const key = (b) => {
+    const isGlobal = b?.isGlobal ? '0' : '1';
+    const trainer = String(b?.trainerId || '');
+    const allDay = b?.allDay ? '0' : '1';
+    const h = b?.allDay ? '' : String(b?.hora || '');
+    return `${isGlobal}-${trainer}-${allDay}-${h}`;
+  };
+  return [...arr].sort((a, b) => key(a).localeCompare(key(b)));
+}, [blocksDay]);
+
   useEffect(() => {
     loadServicios();
     loadTrainers();
     cargarAdminList();
+    loadBloqueosDiaAdmin(quickFecha);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -652,6 +846,156 @@ export default function ReservasAdmin() {
         </div>
       </section>
 
+
+{/* Bloqueos avanzados (admin) */}
+<section className="admin-blocks" style={{ marginTop: 16 }}>
+  <h2>Bloqueos avanzados (admin)</h2>
+
+  <div
+    className="admin-grid"
+    style={{
+      display: 'grid',
+      gap: 10,
+      gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
+    }}
+  >
+    <label>
+      Fecha
+      <input
+        type="date"
+        value={quickFecha}
+        onChange={(e) => setQuickFecha(e.target.value)}
+      />
+    </label>
+
+    <label>
+      Aplica a
+      <select
+        value={blockScope}
+        onChange={(e) => {
+          const v = e.target.value;
+          setBlockScope(v);
+          if (v !== 'trainer') setBlockTrainerId('');
+        }}
+      >
+        <option value="global">Global (todos)</option>
+        <option value="trainer">Adiestrador concreto</option>
+      </select>
+    </label>
+
+    <label>
+      Tipo
+      <select
+        value={blockType}
+        onChange={(e) => setBlockType(e.target.value)}
+      >
+        <option value="hour">Hora</option>
+        <option value="allDay">Día completo</option>
+      </select>
+    </label>
+
+    {blockType === 'hour' && (
+      <label>
+        Hora
+        <select
+          value={quickHora}
+          onChange={(e) => setQuickHora(e.target.value)}
+        >
+          {HOURS.map((h) => {
+            const t =
+              typeof h === 'number'
+                ? `${String(h).padStart(2, '0')}:00`
+                : String(h);
+            return (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            );
+          })}
+        </select>
+      </label>
+    )}
+
+    {blockScope === 'trainer' && (
+      <label>
+        Adiestrador
+        <select
+          value={blockTrainerId}
+          onChange={(e) => setBlockTrainerId(e.target.value)}
+          disabled={loadingTrainers}
+        >
+          <option value="">Selecciona…</option>
+          {trainers.map((t) => {
+            const tid = first(t?.uid, t?.id, t?._id);
+            const name = t?.displayName || t?.nombre || t?.email || String(tid);
+            return (
+              <option key={tid} value={tid}>
+                {name}
+              </option>
+            );
+          })}
+        </select>
+      </label>
+    )}
+
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+      <button className="btn-danger" onClick={crearBloqueoAvanzado}>
+        Crear bloqueo
+      </button>
+      <button className="btn-ghost" onClick={() => loadBloqueosDiaAdmin(quickFecha)}>
+        Ver bloqueos
+      </button>
+    </div>
+  </div>
+
+  <div style={{ marginTop: 10 }}>
+    <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
+      Bloqueos del día
+    </div>
+
+    {loadingBlocksDay ? (
+      <div className="empty">Cargando…</div>
+    ) : !blocksDayView.length ? (
+      <div className="empty">No hay bloqueos para esta fecha.</div>
+    ) : (
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {blocksDayView.map((b, idx) => {
+          const labelHora = b.allDay ? 'Día completo' : b.hora || '—';
+          const scopeLabel = b.isGlobal
+            ? 'Global'
+            : trainerNameById.get(b.trainerId) || b.trainerId || 'Adiestrador';
+          const key = b.id || `${b.fecha}-${b.hora}-${b.trainerId}-${idx}`;
+          return (
+            <span
+              key={key}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                border: '1px solid #e6e6e6',
+                borderRadius: 16,
+                padding: '6px 10px',
+                background: '#fff',
+              }}
+              title={b.id ? `id: ${b.id}` : ''}
+            >
+              <b>{labelHora}</b>
+              <span style={{ opacity: 0.8 }}>{scopeLabel}</span>
+              <button
+                className="btn-ghost"
+                onClick={() => eliminarBloqueoAdmin(b)}
+                title="Eliminar bloqueo"
+                style={{ padding: '2px 8px' }}
+              >
+                ✕
+              </button>
+            </span>
+          );
+        })}
+      </div>
+    )}
+  </div>
+</section>
       {/* Listas por estado */}
       <section style={{ marginTop: 24 }}>
         <div

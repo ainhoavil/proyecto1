@@ -53,7 +53,12 @@ export default function TrainerPublicProfile() {
   const dogs = Array.isArray(trainer?.workDogs) ? trainer.workDogs : [];
 
   const handleContratar = () => {
-    navigate(`/contratar?trainerId=${id}`);
+    const trainerId = trainer?.trainerId ?? id;
+    if (!trainerId) return;
+
+    navigate(`/contratar?trainerId=${encodeURIComponent(trainerId)}`, {
+      state: { trainerId: String(trainerId) },
+    });
   };
 
   if (loading) {
@@ -111,6 +116,10 @@ export default function TrainerPublicProfile() {
               >
                 Reservar con este adiestrador
               </button>
+
+              <p className="trainer-public__muted" style={{ marginTop: 8 }}>
+                Verás solo horas disponibles para este adiestrador.
+              </p>
             </div>
           </div>
         </header>

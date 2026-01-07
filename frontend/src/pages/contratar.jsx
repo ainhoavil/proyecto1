@@ -32,6 +32,30 @@ function addMinutes(hhmm, mins) {
 const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 
 const getDogId = (p) => String(p?.id ?? p?.uid ?? p?._id ?? '').trim();
+const DISPLAY_HOURS = { start: 9, end: 20, skip: new Set([14, 15]) };
+
+function getDisplayedHourSlots() {
+  const out = [];
+  for (let h = DISPLAY_HOURS.start; h <= DISPLAY_HOURS.end; h++) {
+    if (DISPLAY_HOURS.skip.has(h)) continue;
+    out.push(`${String(h).padStart(2, '0')}:00`);
+  }
+  return out;
+}
+
+function normalizeTimeArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map((x) => String(x || '').trim()).filter(Boolean);
+  if (typeof v === 'object') {
+    // soporta formatos tipo { "09:00": true, "10:00": false }
+    return Object.entries(v)
+      .filter(([, val]) => !!val)
+      .map(([k]) => String(k || '').trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 /* ====================================================== */
 
 // Nota: en esta pantalla permitimos reservar para 1 o varios perros.
@@ -232,40 +256,119 @@ export default function Contratar() {
   const [hora, setHora] = useState('');
   const [horasLibres, setHorasLibres] = useState([]);
   const [unavailable, setUnavailable] = useState([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [availabilityHint, setAvailabilityHint] = useState('');
 
   const cargarDisponibilidad = async (f) => {
-    try {
-      const qs = new URLSearchParams({
-        fecha: f,
-        durationMin: String(durationMin)
-      });
+    const day = String(f || '').trim();
+    if (!day) return;
 
+    const displayedSlots = getDisplayedHourSlots();
+
+    setLoadingAvailability(true);
+    setAvailabilityHint('');
+
+    try {
+      const fetchDisponibilidad = async (trainerIdOrNull) => {
+        const qs = new URLSearchParams({
+          fecha: day,
+          durationMin: String(durationMin)
+        });
+
+        if (trainerIdOrNull) qs.set('trainerId', String(trainerIdOrNull));
+
+        return await http(`/api/reservas/disponibilidad?${qs.toString()}`);
+      };
+
+      // === ADIESTRADOR CONCRETO ===
       if (trainerChoice && trainerChoice !== 'any') {
-        qs.set('trainerId', String(trainerChoice));
+        const data = await fetchDisponibilidad(trainerChoice);
+
+        const libresRaw = data?.libres ?? data?.slots ?? data?.available ?? [];
+        const ocupadasRaw = data?.unavailable ?? data?.ocupadas ?? data?.busy ?? [];
+
+        const libres = normalizeTimeArray(libresRaw);
+        const ocupadas = normalizeTimeArray(ocupadasRaw);
+
+        const libresOrdered = displayedSlots.filter((t) => libres.includes(t));
+
+        setHorasLibres(libresOrdered);
+        setUnavailable(Array.isArray(ocupadas) ? ocupadas : []);
+
+        if (hora && !libresOrdered.includes(hora)) {
+          setHora('');
+          setAvailabilityHint(
+            '⚠️ El adiestrador seleccionado no está disponible en la hora elegida. Elige otra hora u otro adiestrador.'
+          );
+        } else if (day && libresOrdered.length === 0) {
+          setAvailabilityHint('⚠️ No hay horas disponibles para este adiestrador en la fecha seleccionada.');
+        }
+
+        return;
       }
 
-      const data = await http(`/api/reservas/disponibilidad?${qs.toString()}`);
+      // === CUALQUIERA (ANY) ===
+      // Regla: un slot es "libre" si al menos 1 adiestrador lo tiene libre.
+      const eligible = Array.isArray(trainers) ? trainers : [];
+      const ids = eligible.map(getTrainerId).filter(Boolean);
 
-      const libres = data?.libres || data?.slots || data?.available || [];
-      const ocupadas = data?.unavailable || data?.ocupadas || data?.busy || [];
+      if (!ids.length) {
+        setHorasLibres([]);
+        setUnavailable(displayedSlots);
+        setAvailabilityHint('⚠️ No hay adiestradores disponibles para este servicio y modalidad.');
+        if (hora) setHora('');
+        return;
+      }
 
-      setHorasLibres(Array.isArray(libres) ? libres : []);
-      setUnavailable(Array.isArray(ocupadas) ? ocupadas : []);
+      const settled = await Promise.allSettled(ids.map((id) => fetchDisponibilidad(id)));
 
-      if (hora && Array.isArray(libres) && !libres.includes(hora)) setHora('');
+      const union = new Set();
+      let okCount = 0;
+
+      for (const r of settled) {
+        if (r.status !== 'fulfilled') continue;
+        okCount += 1;
+
+        const data = r.value;
+        const libresRaw = data?.libres ?? data?.slots ?? data?.available ?? [];
+        const libres = normalizeTimeArray(libresRaw);
+
+        for (const t of libres) union.add(t);
+      }
+
+      const libresUnion = displayedSlots.filter((t) => union.has(t));
+
+      setHorasLibres(libresUnion);
+      setUnavailable(libresUnion.length ? [] : displayedSlots);
+
+      if (hora && !union.has(hora)) {
+        setHora('');
+        setAvailabilityHint(
+          '⚠️ La hora seleccionada ya no está disponible para ningún adiestrador. Elige otra hora u otro adiestrador.'
+        );
+      } else if (libresUnion.length === 0) {
+        setAvailabilityHint('⚠️ No hay horas disponibles en esa fecha para ningún adiestrador.');
+      } else if (okCount < ids.length) {
+        setAvailabilityHint('ℹ️ Se han calculado las horas con la disponibilidad disponible en este momento.');
+      }
     } catch (e) {
       console.error('Error disponibilidad', e);
       setHorasLibres([]);
-      setUnavailable([]);
+      setUnavailable(getDisplayedHourSlots());
+      setAvailabilityHint('❌ No se pudo cargar la disponibilidad. Inténtalo de nuevo.');
+      if (hora) setHora('');
+    } finally {
+      setLoadingAvailability(false);
     }
   };
 
   useEffect(() => {
     if (fecha) cargarDisponibilidad(fecha);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fecha, durationMin, trainerChoice]);
+  }, [fecha, durationMin, trainerChoice, trainers]);
 
   const isSlotBusy = (t) => {
+    if (loadingAvailability) return true;
     if (horasLibres.length) return !horasLibres.includes(t);
     return new Set(unavailable).has(t);
   };
@@ -579,8 +682,15 @@ export default function Contratar() {
     } catch (e) {
       console.error('Error creando reserva', e);
 
-      const serverMsg = e?.response?.data?.error || e?.error || e?.message || '';
-      setMsg(serverMsg ? `❌ ${serverMsg}` : '❌ No se pudo crear la reserva.');
+      const status = e?.status || e?.httpStatus || 0;
+      const serverMsg = e?.data?.error || e?.data?.message || e?.message || '';
+
+      if (status === 409) {
+        setMsg('❌ Ese adiestrador ya no está disponible en esa hora. Elige otra hora u otro adiestrador.');
+        setStep(1);
+      } else {
+        setMsg(serverMsg ? `❌ ${serverMsg}` : '❌ No se pudo crear la reserva.');
+      }
     } finally {
       setGuardando(false);
     }
@@ -753,6 +863,25 @@ export default function Contratar() {
                 : 'Selecciona un día para ver las horas disponibles'}
             </div>
 
+            {trainerChoice === 'any' && (
+              <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                “Cualquiera disponible”: se muestran las horas en las que <b>al menos un adiestrador</b> está libre.
+              </div>
+            )}
+
+            {loadingAvailability && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>Calculando disponibilidad…</div>}
+            {!loadingAvailability && availabilityHint && (
+              <div
+                style={{
+                  fontSize: 12,
+                  marginTop: 6,
+                  color: availabilityHint.startsWith('❌') || availabilityHint.startsWith('⚠️') ? 'crimson' : 'inherit'
+                }}
+              >
+                {availabilityHint}
+              </div>
+            )}
+
             {fecha ? (
               <div className="slots-grid">
                 {(() => {
@@ -790,7 +919,7 @@ export default function Contratar() {
 
           <div className="actions" style={{ marginTop: 14 }}>
             <button onClick={atras}>Atrás</button>
-            <button className="btn-primary" disabled={!hora} onClick={() => setStep(2)}>
+            <button className="btn-primary" disabled={!hora || loadingAvailability} onClick={() => setStep(2)}>
               Continuar
             </button>
           </div>
@@ -1033,9 +1162,20 @@ export default function Contratar() {
 
           {domicilio && !direccionValida && <p style={{ color: 'crimson' }}>⚠ Debes indicar una dirección para modalidad a domicilio.</p>}
 
+          {!hora && fecha && (
+            <div style={{ marginTop: 10, fontSize: 12, color: 'crimson' }}>
+              ⚠ No hay una hora válida seleccionada para la fecha elegida. Si has cambiado de adiestrador, es posible que esa hora ya no esté disponible.
+              <div style={{ marginTop: 6 }}>
+                <button type="button" className="btn-ghost" onClick={() => setStep(1)}>
+                  Cambiar hora
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="actions">
             <button onClick={atras}>Atrás</button>
-            <button className="btn-primary" disabled={!telefonoValido || !direccionValida || !hasAnyEligibleTrainer} onClick={() => setStep(4)}>
+            <button className="btn-primary" disabled={!fecha || !hora || !telefonoValido || !direccionValida || !hasAnyEligibleTrainer || loadingAvailability} onClick={() => setStep(4)}>
               Continuar
             </button>
           </div>
@@ -1117,6 +1257,7 @@ export default function Contratar() {
                 !direccionValida ||
                 !perroValido ||
                 guardando ||
+                loadingAvailability ||
                 !hasAnyEligibleTrainer
               }
               onClick={confirmar}
