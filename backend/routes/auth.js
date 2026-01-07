@@ -94,6 +94,10 @@ async function ensureAuthTables() {
     "auth_provider TEXT DEFAULT 'local'"
   );
 
+  // Campos usados en notificaciones / panel admin
+  await ensureColumn("users", "nombre", "nombre TEXT");
+  await ensureColumn("users", "role", "role TEXT DEFAULT 'client'");
+
   // Índices (idempotentes)
   await query(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub)`
@@ -132,6 +136,37 @@ async function ensureAuthTables() {
 
 // Ejecutamos al cargar el archivo
 await ensureAuthTables();
+
+async function getUserContactByUid(uid) {
+  const uidSafe = String(uid || "").trim();
+  if (!uidSafe) return { email: null, nombre: null };
+
+  try {
+    const r1 = await query(
+      "SELECT email, nombre FROM users WHERE uid = ? LIMIT 1",
+      [uidSafe]
+    );
+    if (Array.isArray(r1) && r1.length) {
+      return { email: r1[0]?.email || null, nombre: r1[0]?.nombre || null };
+    }
+  } catch (_) {
+    // ignore and fallback
+  }
+
+  try {
+    const r2 = await query(
+      "SELECT email FROM usuarios WHERE id = ? LIMIT 1",
+      [uidSafe]
+    );
+    if (Array.isArray(r2) && r2.length) {
+      return { email: r2[0]?.email || null, nombre: null };
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  return { email: null, nombre: null };
+}
 
 /* ============================================================
    Firma un token JWT
@@ -771,11 +806,7 @@ router.post("/role", verifyToken, requireAdmin, async (req, res) => {
     if (!ROLES.includes(rol))
       return res.status(400).json({ error: "Rol inválido" });
 
-    const uRows = await query(
-      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
-      [uid]
-    );
-    const u = uRows[0] || {};
+    const u = await getUserContactByUid(uid);
 
     await query(`UPDATE usuarios SET rol = ? WHERE id = ?`, [rol, uid]);
     await query(`UPDATE users SET role = ? WHERE uid = ?`, [rol, uid]);
@@ -798,11 +829,7 @@ router.delete("/users/:id", verifyToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     // Recuperar email/nombre antes de borrar (para notificación)
-    const uRows = await query(
-      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
-      [id]
-    );
-    const u = uRows[0] || {};
+    const u = await getUserContactByUid(id);
 
     await query("DELETE FROM users WHERE uid = ?", [id]);
     await query("DELETE FROM usuarios WHERE id = ?", [id]);
@@ -824,11 +851,7 @@ router.delete("/me", verifyToken, async (req, res) => {
     const uid = req.user?.uid;
     if (!uid) return res.status(401).json({ error: "No autenticado" });
 
-    const uRows = await query(
-      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
-      [uid]
-    );
-    const u = uRows[0] || {};
+    const u = await getUserContactByUid(uid);
     const email = (u.email || req.user?.email || "").trim().toLowerCase();
 
     await query("DELETE FROM users WHERE uid = ?", [uid]);

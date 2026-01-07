@@ -1,10 +1,3 @@
-// backend/utils/mailer.js
-// ============================================================
-// Mailer (Nodemailer) para DogForm
-// - Soporta Gmail (service) o SMTP genérico
-// - En local, si NO hay credenciales, hace "DEV LOG" (no rompe)
-// ============================================================
-
 import nodemailer from "nodemailer";
 
 // ---------- Helpers ----------
@@ -162,7 +155,7 @@ export async function sendMail({
 
   const transporter = getTransporter();
 
-  // ✅ Modo DEV: si no hay config, no rompemos; imprimimos en consola.
+  //  Modo DEV: si no hay config, no rompemos; imprimimos en consola.
   if (!transporter) {
     console.warn("\n========== [EMAIL DEV LOG] ==========");
     console.warn("To:", toNorm);
