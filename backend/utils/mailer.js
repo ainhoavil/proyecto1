@@ -27,6 +27,16 @@ function escapeHtml(input) {
     .replaceAll("'", "&#039;");
 }
 
+
+function roleLabel(role) {
+  const r = String(role || "").trim().toLowerCase();
+  if (!r) return "";
+  if (["trainer", "adiestrador"].includes(r)) return "Adiestrador";
+  if (["admin", "administrador"].includes(r)) return "Administrador";
+  if (["client", "user", "usuario", "cliente"].includes(r)) return "Cliente";
+  return String(role);
+}
+
 function getAppName() {
   return String(process.env.APP_NAME || process.env.EMAIL_FROM_NAME || "DogForm").trim();
 }
@@ -186,6 +196,7 @@ export function buildEmailHtml({
   title,
   intro,
   lines = [],
+  contentHtml,
   actionText,
   actionUrl,
   footer,
@@ -202,6 +213,8 @@ export function buildEmailHtml({
           .join("\n")}
       </ul>`
     : "";
+
+  const contentHtmlBlock = contentHtml ? `<div style="margin:0 0 14px 0">${contentHtml}</div>` : "";
 
   const actionHtml = actionUrl
     ? `
@@ -226,6 +239,7 @@ export function buildEmailHtml({
         <h2 style="margin:0 0 12px 0">${titleSafe}</h2>
         ${introSafe}
         ${listHtml}
+        ${contentHtmlBlock}
         ${actionHtml}
         ${footerHtml}
       </div>
@@ -314,7 +328,7 @@ export async function sendAccountCreatedEmail({ to, email, tempPassword, role })
   const lines = [
     `Email: ${String(email || to || "").trim()}`,
     `Contraseña temporal: ${String(tempPassword || "")}`,
-    role ? `Rol: ${String(role)}` : null,
+    role ? `Rol: ${roleLabel(role)}` : null,
   ].filter(Boolean);
 
   const text =
@@ -335,3 +349,101 @@ export async function sendAccountCreatedEmail({ to, email, tempPassword, role })
   return await sendMail({ to, subject, text, html });
 }
 
+
+
+export async function sendWelcomeEmail({ to, name, role } = {}) {
+  const appName = getAppName();
+  const subject = `${appName} · Bienvenido/a`;
+
+  const base = normalizeUrlBase(process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:5173");
+  const loginUrl = `${base}/login`;
+
+  const intro = name
+    ? `Hola ${String(name).trim()}, ¡bienvenido/a a ${appName}!`
+    : `¡Bienvenido/a a ${appName}!`;
+
+  const lines = [
+    role ? `Rol: ${roleLabel(role)}` : null,
+    "Ya puedes iniciar sesión y gestionar tus reservas desde tu perfil.",
+  ].filter(Boolean);
+
+  const text =
+    `${intro}\n\n` +
+    lines.map((l) => `- ${l}`).join("\n") +
+    `\n\nIniciar sesión: ${loginUrl}`;
+
+  const html = buildEmailHtml({
+    title: "Bienvenido/a",
+    intro,
+    lines,
+    actionText: "Iniciar sesión",
+    actionUrl: loginUrl,
+    footer: `${appName} · Soporte`,
+  });
+
+  return await sendMail({ to, subject, text, html });
+}
+
+
+export async function sendRoleChangedEmail({ to, name, role } = {}) {
+  const appName = getAppName();
+  const subject = `${appName} · Cambio de rol`;
+
+  const intro = name
+    ? `Hola ${String(name).trim()}, hemos actualizado tu rol en ${appName}.`
+    : `Hemos actualizado tu rol en ${appName}.`;
+
+  const lines = [role ? `Nuevo rol: ${roleLabel(role)}` : null].filter(Boolean);
+
+  const base = normalizeUrlBase(process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:5173");
+  const loginUrl = `${base}/login`;
+
+  const text =
+    `${intro}\n\n` +
+    lines.map((l) => `- ${l}`).join("\n") +
+    `\n\nIniciar sesión: ${loginUrl}`;
+
+  const html = buildEmailHtml({
+    title: "Rol actualizado",
+    intro,
+    lines,
+    actionText: "Iniciar sesión",
+    actionUrl: loginUrl,
+    footer: `${appName} · Soporte`,
+  });
+
+  return await sendMail({ to, subject, text, html });
+}
+
+
+export async function sendAccountDeletedEmail({ to, name } = {}) {
+  const appName = getAppName();
+  const subject = `${appName} · Cuenta eliminada`;
+
+  const intro = name
+    ? `Hola ${String(name).trim()}, te confirmamos que tu cuenta en ${appName} ha sido eliminada.`
+    : `Te confirmamos que tu cuenta en ${appName} ha sido eliminada.`;
+
+  const lines = [
+    "Si no has solicitado esta acción, contacta con soporte lo antes posible.",
+  ];
+
+  const base = normalizeUrlBase(process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:5173");
+  const contactUrl = `${base}/contacto`;
+
+  const text =
+    `${intro}\n\n` +
+    lines.map((l) => `- ${l}`).join("\n") +
+    `\n\nContacto: ${contactUrl}`;
+
+  const html = buildEmailHtml({
+    title: "Cuenta eliminada",
+    intro,
+    lines,
+    actionText: "Contactar con soporte",
+    actionUrl: contactUrl,
+    footer: `${appName} · Soporte`,
+  });
+
+  return await sendMail({ to, subject, text, html });
+}

@@ -13,6 +13,7 @@ import {
 import {
   notifyReservationCenterConfirmed,
   notifyReservationUserConfirmed,
+  notifyReservationRejected,
 } from "../services/notifications.js";
 
 const router = express.Router();
@@ -1246,6 +1247,9 @@ router.patch(
           [note, nowISO(), id]
         );
       }
+
+            // Email: reserva rechazada
+      void notifyReservationRejected(id, { note });
 
       res.json({ ok: true });
     } catch (e) {

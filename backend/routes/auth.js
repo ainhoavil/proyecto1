@@ -7,7 +7,13 @@ import axios from "axios";
 import { query } from "../db.js";
 import { nanoid } from "nanoid";
 import { verifyToken, requireAdmin } from "../middleware/auth.js";
-import { sendPasswordResetEmail } from "../utils/mailer.js";
+import {
+  sendPasswordResetEmail,
+  sendAccountCreatedEmail,
+  sendWelcomeEmail,
+  sendRoleChangedEmail,
+  sendAccountDeletedEmail,
+} from "../utils/mailer.js";
 import { isValidEmail, hasMinLetters, isValidSpanishPhone, normalizeSpanishPhone, isStrongPassword } from "../utils/validators.js";
 
 const router = express.Router();
@@ -329,6 +335,9 @@ router.post("/register", async (req, res) => {
     );
 
     const token = signToken({ uid, email: emailNorm, rol: rolBootstrap });
+
+    // Email de bienvenida (best-effort)
+    void sendWelcomeEmail({ to: emailNorm, name: String(name).trim(), role: rolBootstrap });
 
     res.status(201).json({
       ok: true,
@@ -738,6 +747,14 @@ router.post("/users", verifyToken, requireAdmin, async (req, res) => {
       [uid, emailNorm, hash, rol]
     );
 
+    // Email de bienvenida + credenciales (best-effort)
+    void sendAccountCreatedEmail({
+      to: emailNorm,
+      email: emailNorm,
+      tempPassword: password,
+      role: rol,
+    });
+
     res.status(201).json({ ok: true, message: "Usuario creado" });
   } catch (e) {
     console.error("[CREATE USER] ERROR", e);
@@ -754,8 +771,19 @@ router.post("/role", verifyToken, requireAdmin, async (req, res) => {
     if (!ROLES.includes(rol))
       return res.status(400).json({ error: "Rol inválido" });
 
+    const uRows = await query(
+      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
+      [uid]
+    );
+    const u = uRows[0] || {};
+
     await query(`UPDATE usuarios SET rol = ? WHERE id = ?`, [rol, uid]);
     await query(`UPDATE users SET role = ? WHERE uid = ?`, [rol, uid]);
+
+    // Email informando del cambio de rol (best-effort)
+    if (u.email) {
+      void sendRoleChangedEmail({ to: u.email, name: u.nombre, role: rol });
+    }
 
     res.json({ ok: true, uid, rol });
   } catch (e) {
@@ -768,12 +796,52 @@ router.post("/role", verifyToken, requireAdmin, async (req, res) => {
 router.delete("/users/:id", verifyToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Recuperar email/nombre antes de borrar (para notificación)
+    const uRows = await query(
+      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
+      [id]
+    );
+    const u = uRows[0] || {};
+
     await query("DELETE FROM users WHERE uid = ?", [id]);
     await query("DELETE FROM usuarios WHERE id = ?", [id]);
+
+    // Email confirmación borrado (best-effort)
+    if (u.email) {
+      void sendAccountDeletedEmail({ to: u.email, name: u.nombre });
+    }
+
     res.json({ ok: true });
   } catch (e) {
     console.error("[DELETE USER] ERROR", e);
     res.status(500).json({ error: "Error al borrar usuario" });
+  }
+});
+// DELETE /api/auth/me -> Borrar mi propia cuenta (cliente/adiestrador/admin)
+router.delete("/me", verifyToken, async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return res.status(401).json({ error: "No autenticado" });
+
+    const uRows = await query(
+      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
+      [uid]
+    );
+    const u = uRows[0] || {};
+    const email = (u.email || req.user?.email || "").trim().toLowerCase();
+
+    await query("DELETE FROM users WHERE uid = ?", [uid]);
+    await query("DELETE FROM usuarios WHERE id = ?", [uid]);
+
+    if (email) {
+      void sendAccountDeletedEmail({ to: email, name: u.nombre });
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE ME] ERROR", e);
+    res.status(500).json({ error: "Error al borrar la cuenta" });
   }
 });
 

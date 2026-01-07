@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
-import { isLogged } from "../helpers/auth";
+import { isLogged, clearToken } from "../helpers/auth";
 
 function nowIso() {
   return new Date().toISOString();
@@ -41,6 +41,8 @@ export default function PerfilPage() {
   });
   const [savingProfile, setSavingProfile] = useState(false);
   const [pMsg, setPMsg] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [accountMsg, setAccountMsg] = useState("");
 
   // ===== perfil adiestrador (trainer_profiles) =====
   const [trainerProfile, setTrainerProfile] = useState({
@@ -434,6 +436,28 @@ if (roleFromProfile) {
       setPMsg("❌ No se pudo eliminar la foto");
     }
   };
+// ===== ELIMINAR CUENTA (cliente desde perfil) =====
+const onDeleteAccount = async () => {
+  const ok = window.confirm(
+    "¿Seguro que quieres eliminar tu cuenta? Esta acción no se puede deshacer."
+  );
+  if (!ok) return;
+
+  setDeletingAccount(true);
+  setAccountMsg("");
+
+  try {
+    await http("/auth/me", { method: "DELETE", auth: true });
+    setAccountMsg("✅ Cuenta eliminada. Te hemos enviado un correo de confirmación.");
+    clearToken();
+    navigate("/");
+  } catch (err) {
+    console.error(err);
+    setAccountMsg("❌ No se pudo eliminar la cuenta");
+  } finally {
+    setDeletingAccount(false);
+  }
+};
 
   // ===== ESPECIALIDADES (adiestrador) =====
   const addSpecialty = () => {
@@ -1008,7 +1032,20 @@ if (roleFromProfile) {
           )}
         </section>
 
-        {/* Modal eliminar */}
+
+{/* ELIMINAR CUENTA */}
+<section className="perfil-card perfil-card--danger">
+  <h2 className="perfil-card__title">Eliminar cuenta</h2>
+  <p className="perfil-muted">
+    Esto eliminará tu cuenta y tus credenciales de acceso. Esta acción no se puede deshacer.
+  </p>
+  <div className="perfil-actions">
+    <button className="btn-danger" onClick={onDeleteAccount} disabled={deletingAccount}>
+      {deletingAccount ? "Eliminando…" : "Eliminar mi cuenta"}
+    </button>
+    {accountMsg && <span className="perfil-msg">{accountMsg}</span>}
+  </div>
+</section>        {/* Modal eliminar */}
         {modal.open && (
           <div className="perfil-modal" onClick={() => !modal.loading && closeModal()}>
             <div className="perfil-modal__content" onClick={(e) => e.stopPropagation()}>
