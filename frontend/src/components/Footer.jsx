@@ -1,6 +1,11 @@
 import { Link } from "react-router-dom";
+import { useAuth } from "../context/auth";
 
 export default function Footer() {
+  const { isAuthenticated, role, user } = useAuth();
+  const esAdmin = isAuthenticated && (role === "admin" || user?.isAdmin);
+  const serviciosHref = esAdmin ? "/admin?tab=servicios" : "/servicios";
+
   const openCookiePreferences = () => {
     // ✅ Sube arriba para que el modal no aparezca “abajo raro”
     window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
@@ -38,7 +43,7 @@ export default function Footer() {
           <Link to="/" className="df-footer__link">
             Inicio
           </Link>
-          <Link to="/servicios" className="df-footer__link">
+          <Link to={serviciosHref} className="df-footer__link">
             Servicios
           </Link>
           <Link to="/reservas" className="df-footer__link">

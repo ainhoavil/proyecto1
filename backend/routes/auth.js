@@ -1,4 +1,3 @@
-// backend/routes/auth.js
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -20,11 +19,6 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 const ROLES = ["client", "user", "admin", "adiestrador"];
 
-/* ============================================================
-   Bootstrap de Admin por .env (para no quedarte sin admin)
-   - backend/.env: ADMIN_EMAILS=tuemail@gmail.com,otro@...
-   - En el primer login/registro con ese email, se actualiza BD a rol=admin
-============================================================ */
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())

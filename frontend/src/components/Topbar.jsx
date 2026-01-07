@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
+import { http } from "../helpers/http";
 
 export default function TopBar() {
   const [data, setData] = useState({
@@ -11,8 +12,7 @@ export default function TopBar() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('http://localhost:5000/api/settings/topbar');
-        const j = await r.json();
+        const j = await http("/settings/topbar");
         setData(prev => ({ 
           ...prev, 
           ...j, 

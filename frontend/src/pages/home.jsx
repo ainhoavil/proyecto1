@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { http } from "../helpers/http";
+import { useAuth } from "../context/auth";
 
 // Base del backend para construir URLs absolutas (imágenes / archivos)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
@@ -20,6 +21,10 @@ const getServiceImg = (imageUrl) => {
 
 function Home() {
   const [servicios, setServicios] = useState([]);
+  const { isAuthenticated, role, user } = useAuth();
+
+  const esAdmin = isAuthenticated && (role === "admin" || user?.isAdmin);
+  const serviciosTo = esAdmin ? "/admin?tab=servicios" : "/servicios";
 
   // Cargar servicios reales de la BBDD
   useEffect(() => {
@@ -39,9 +44,7 @@ function Home() {
   const serviciosHome = servicios.slice(0, 4);
 
   // Si no está logueado -> /login, si lo está -> /contratar
-  // Ajusta la clave si en tu proyecto no se llama "token"
-  const isLoggedIn = Boolean(localStorage.getItem("token"));
-  const reservarTo = isLoggedIn ? "/contratar" : "/login";
+  const reservarTo = isAuthenticated ? "/contratar" : "/login";
 
   return (
     <div className="home">
@@ -72,7 +75,7 @@ function Home() {
                 <Link to={reservarTo} className="btn btn--primary">
                   Reservar ahora
                 </Link>
-                <Link to="/servicios" className="btn btn--ghost">
+                <Link to={serviciosTo} className="btn btn--ghost">
                   Ver servicios
                 </Link>
               </div>
@@ -169,7 +172,7 @@ function Home() {
                       {item.priceFrom && (
                         <p className="service-card__price">Desde {item.priceFrom}</p>
                       )}
-                      <Link to="/servicios" className="btn btn--small btn--light">
+                      <Link to={serviciosTo} className="btn btn--small btn--light">
                         Ver más
                       </Link>
                     </div>
@@ -294,7 +297,7 @@ function Home() {
               <Link to="/login" className="btn btn--primary btn--light-on">
                 Acceder / Registro
               </Link>
-              <Link to="/servicios" className="btn btn--ghost btn--light-on">
+              <Link to={serviciosTo} className="btn btn--ghost btn--light-on">
                 Ver todos los servicios
               </Link>
             </div>

@@ -577,6 +577,17 @@
     align-items: stretch;
   }
 
+  /*
+    En mobile la fila de acciones pasa a columna.
+    OJO: el flex-basis definido en desktop (180px) se convierte en altura
+    y deja botones gigantes. Reseteamos el flex para que mantengan altura estándar.
+  */
+  .servicios .actions > .btn-outline,
+  .servicios .actions > .btn-primary {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
   .servicios .actions__buttons {
     justify-content: flex-start;
     width: 100%;
@@ -596,6 +607,13 @@
     flex-direction: column;
     align-items: stretch;
     width: 100%;
+  }
+
+  /* Misma corrección para el grupo de botones cuando pasa a columna */
+  .servicios .actions__buttons > .btn-outline,
+  .servicios .actions__buttons > .btn-primary {
+    flex: 0 0 auto;
+    min-width: 0;
   }
 
   .servicios .btn-primary,

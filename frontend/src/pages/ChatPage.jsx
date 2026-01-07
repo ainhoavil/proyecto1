@@ -670,6 +670,13 @@ export default function ChatPage() {
               className="df-chat__input"
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                if (e.nativeEvent?.isComposing) return;
+                e.preventDefault();
+                if (sending || uploading) return;
+                send();
+              }}
               placeholder="Escribe un mensaje…"
             />
 

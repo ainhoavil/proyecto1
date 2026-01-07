@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
-import { isLogged, clearToken } from "../helpers/auth";
+import { useAuth } from "../context/auth";
+import { useUi } from "../context/ui";
 
 function nowIso() {
   return new Date().toISOString();
@@ -14,6 +15,9 @@ const absUrl = (u = "") =>
 
 export default function PerfilPage() {
   const navigate = useNavigate();
+  const ui = useUi();
+
+  const { isAuthenticated, loading: authLoading, logout } = useAuth();
 
   // ===== sesión =====
   const [authReady, setAuthReady] = useState(false);
@@ -23,12 +27,16 @@ export default function PerfilPage() {
   const [me, setMe] = useState(null);
 
   useEffect(() => {
-    if (!isLogged()) {
+    if (authLoading) return;
+
+    if (!isAuthenticated) {
+      setAuthReady(false);
       navigate("/login?next=/perfil", { replace: true });
       return;
     }
+
     setAuthReady(true);
-  }, [navigate]);
+  }, [authLoading, isAuthenticated, navigate]);
 
   // ===== perfil =====
   const [perfil, setPerfil] = useState({
@@ -436,28 +444,47 @@ if (roleFromProfile) {
       setPMsg("❌ No se pudo eliminar la foto");
     }
   };
-// ===== ELIMINAR CUENTA (cliente desde perfil) =====
-const onDeleteAccount = async () => {
-  const ok = window.confirm(
-    "¿Seguro que quieres eliminar tu cuenta? Esta acción no se puede deshacer."
-  );
-  if (!ok) return;
+  // ===== ELIMINAR CUENTA (cliente desde perfil) =====
+  const onDeleteAccount = async () => {
+    const ok = await ui.confirm({
+      title: "Eliminar cuenta",
+      message: "¿Seguro que quieres eliminar tu cuenta? Esta acción no se puede deshacer.",
+      confirmText: "Eliminar",
+      cancelText: "Cancelar",
+      danger: true,
+    });
+    if (!ok) return;
 
-  setDeletingAccount(true);
-  setAccountMsg("");
+    setDeletingAccount(true);
+    setAccountMsg("");
 
-  try {
-    await http("/auth/me", { method: "DELETE", auth: true });
-    setAccountMsg("✅ Cuenta eliminada. Te hemos enviado un correo de confirmación.");
-    clearToken();
-    navigate("/");
-  } catch (err) {
-    console.error(err);
-    setAccountMsg("❌ No se pudo eliminar la cuenta");
-  } finally {
-    setDeletingAccount(false);
-  }
-};
+    try {
+      await http("/auth/me", { method: "DELETE", auth: true });
+
+      ui.notify({
+        type: "success",
+        title: "Cuenta eliminada",
+        message: "Cuenta eliminada. Te hemos enviado un correo de confirmación.",
+      });
+
+      setAccountMsg("✅ Cuenta eliminada. Te hemos enviado un correo de confirmación.");
+      logout();
+      setAuthReady(false);
+      navigate("/", { replace: true });
+    } catch (err) {
+      console.error(err);
+
+      ui.notify({
+        type: "error",
+        title: "No se pudo eliminar",
+        message: err?.message || "No se pudo eliminar la cuenta.",
+      });
+
+      setAccountMsg("❌ No se pudo eliminar la cuenta");
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
 
   // ===== ESPECIALIDADES (adiestrador) =====
   const addSpecialty = () => {

@@ -1178,7 +1178,7 @@ router.post(
             )
             VALUES (?, ?, ?, ?, ?, NULL)
           `,
-          [conversationId, userId, bodyTrim || null, attachmentsJson, ts]
+          [conversationId, userId, bodyTrim, attachmentsJson, ts]
         );
 
         const rr = await query(`SELECT last_insert_rowid() AS id`);
@@ -1193,7 +1193,7 @@ router.post(
             )
             VALUES (?, ?, ?, ?, ?, ?, NULL)
           `,
-          [msgId, conversationId, userId, bodyTrim || null, attachmentsJson, ts]
+          [msgId, conversationId, userId, bodyTrim, attachmentsJson, ts]
         );
       }
 

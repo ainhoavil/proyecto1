@@ -7,7 +7,7 @@ import Topbar from "./components/Topbar.jsx";
 import Footer from "./components/Footer";
 
 // Contextos
-import { AuthProvider } from "./context/auth";
+import { AuthProvider, useAuth } from "./context/auth";
 import { UiProvider } from "./context/ui";
 
 // Rutas protegidas
@@ -51,6 +51,13 @@ import ChatsPage from "./pages/ChatsPage.jsx";
 export default function App() {
   const location = useLocation();
 
+  function ServiciosGate() {
+    const { isAuthenticated, role, user } = useAuth();
+    const esAdmin = isAuthenticated && (role === "admin" || user?.isAdmin);
+    if (esAdmin) return <Navigate to="/admin?tab=servicios" replace />;
+    return <Servicios />;
+  }
+
   // ✅ Siempre arriba al cambiar de ruta (arregla "abre abajo raro")
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
@@ -79,7 +86,7 @@ export default function App() {
         <Routes>
           {/* ===== PÚBLICAS ===== */}
           <Route path="/" element={<Home />} />
-          <Route path="/servicios" element={<Servicios />} />
+          <Route path="/servicios" element={<ServiciosGate />} />
           <Route path="/adiestradores" element={<TrainersList />} />
           <Route path="/adiestradores/:id" element={<TrainerPublicProfile />} />
           <Route path="/contratar" element={<Contratar />} />
