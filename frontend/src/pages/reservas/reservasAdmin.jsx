@@ -79,6 +79,14 @@ export default function ReservasAdmin() {
   const [notice, setNotice] = useState({ type: '', text: '' });
   const [trace, setTrace] = useState(null);
 
+useEffect(() => {
+  if (!notice?.text) return;
+  const t = setTimeout(() => {
+    clearNotice();
+  }, 8000);
+  return () => clearTimeout(t);
+}, [notice?.text]);
+
   const showSuccess = (t) => setNotice({ type: 'success', text: t });
   const showError = (t) => setNotice({ type: 'error', text: t });
   const clearNotice = () => setNotice({ type: '', text: '' });
@@ -250,7 +258,7 @@ export default function ReservasAdmin() {
   /* ===== Listado admin ===== */
   const cargarAdminList = async () => {
     try {
-      clearNotice();
+      // No limpiamos el aviso automáticamente: dura lo suficiente para poder leerlo.
       const qs = new URLSearchParams({
         limit: String(adminLimit || 300),
         ...(adminFilterEmail ? { email: adminFilterEmail.trim() } : {}),
@@ -334,15 +342,12 @@ export default function ReservasAdmin() {
   const [quickTrainerId, setQuickTrainerId] = useState('');
 
   // Bloqueos avanzados (admin)
-  const [blockScope, setBlockScope] = useState('global'); // 'global' | 'trainer'
-  const [blockType, setBlockType] = useState('hour'); // 'hour' | 'allDay'
-  const [blockTrainerId, setBlockTrainerId] = useState('');
-
-  // Listado completo (admin) — no depende de fecha seleccionada
-  const [blocksAll, setBlocksAll] = useState([]);
-  const [loadingBlocksAll, setLoadingBlocksAll] = useState(false);
-  const [editingBlockId, setEditingBlockId] = useState('');
-  const [editingBlockDraft, setEditingBlockDraft] = useState(null);
+const [blockScope, setBlockScope] = useState('global'); // 'global' | 'trainer'
+const [blockType, setBlockType] = useState('hour'); // 'hour' | 'allDay'
+const [blockTrainerId, setBlockTrainerId] = useState('');
+const [blocksOpen, setBlocksOpen] = useState(false);
+const [blocksAll, setBlocksAll] = useState([]);
+const [loadingBlocksAll, setLoadingBlocksAll] = useState(false);
 
   useEffect(() => {
   let alive = true;
@@ -441,94 +446,24 @@ const normalizeBlock = (b) => {
   };
 };
 
-// Lista completa (admin): todos los bloqueos, ordenados por fecha cercana -> lejana
-const loadBloqueosAllAdmin = async () => {
+const loadBloqueosAdminList = async () => {
   setLoadingBlocksAll(true);
   try {
     const data = await tryHttpCandidates([
-      { path: '/api/bloqueos/admin', opts: { method: 'GET' } },
+      { path: `/api/bloqueos/admin/list`, opts: { method: 'GET' } },
+      // Fallbacks por compatibilidad (si existiesen en algún entorno)
+      { path: `/api/bloqueos/admin/day?fecha=${encodeURIComponent(String(quickFecha || '').trim())}`, opts: { method: 'GET' } },
+      { path: `/api/bloqueos/day?fecha=${encodeURIComponent(String(quickFecha || '').trim())}`, opts: { method: 'GET' } },
     ]);
 
     const arr = normList(data?.items || data?.bloqueos || data?.blocks || data || []);
-    const norm = arr.map(normalizeBlock).filter((x) => x.fecha);
-    // Orden defensivo por si el backend no ordena
-    norm.sort((a, b) => {
-      if (a.fecha !== b.fecha) return a.fecha.localeCompare(b.fecha);
-      if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
-      return String(a.hora || '99:99').localeCompare(String(b.hora || '99:99'));
-    });
-    setBlocksAll(norm);
+    setBlocksAll(arr.map(normalizeBlock).filter((x) => x.fecha));
   } catch (e) {
     setBlocksAll([]);
     showError(serverErrMsg(e, 'No se pudieron cargar los bloqueos'));
-    setTraceErr({ action: 'GET bloqueos admin (all)', error: serializeErr(e) });
+    setTraceErr({ action: 'GET bloqueos admin list', error: serializeErr(e) });
   } finally {
     setLoadingBlocksAll(false);
-  }
-};
-
-const startEditBlock = (b) => {
-  const blk = normalizeBlock(b || {});
-  if (!blk.id) {
-    showError('No se puede editar este bloqueo (falta id).');
-    return;
-  }
-  setEditingBlockId(blk.id);
-  setEditingBlockDraft({
-    fecha: blk.fecha,
-    type: blk.allDay ? 'allDay' : 'hour',
-    hora: blk.hora || '09:00',
-    scope: blk.isGlobal ? 'global' : 'trainer',
-    trainerId: blk.isGlobal ? '' : blk.trainerId,
-  });
-};
-
-const cancelEditBlock = () => {
-  setEditingBlockId('');
-  setEditingBlockDraft(null);
-};
-
-const saveEditBlock = async () => {
-  if (!editingBlockId || !editingBlockDraft) return;
-  const d = editingBlockDraft;
-  const fecha = String(d?.fecha || '').trim();
-  if (!fecha) {
-    showError('Falta fecha (YYYY-MM-DD)');
-    return;
-  }
-  const scope = String(d?.scope || 'global');
-  const trainerId = scope === 'trainer' ? String(d?.trainerId || '').trim() : '';
-  if (scope === 'trainer' && !trainerId) {
-    showError('Selecciona un adiestrador para el bloqueo.');
-    return;
-  }
-
-  const type = String(d?.type || 'hour');
-  const hora = type === 'hour' ? String(d?.hora || '').trim() : '';
-  if (type === 'hour' && !hora) {
-    showError('Falta hora (HH:MM)');
-    return;
-  }
-
-  const payload = {
-    fecha,
-    ...(type === 'hour' ? { hora } : { allDay: true, hora: null }),
-    ...(scope === 'trainer' ? { trainerId } : { trainerId: null, scope: 'global' }),
-  };
-
-  try {
-    await http(`/api/bloqueos/admin/${encodeURIComponent(editingBlockId)}`, {
-      method: 'PATCH',
-      data: payload,
-      auth: true,
-    });
-    showSuccess('Bloqueo actualizado');
-    cancelEditBlock();
-    await loadBloqueosAllAdmin();
-    await cargarAdminList();
-  } catch (e) {
-    showError(serverErrMsg(e, 'No se pudo editar el bloqueo'));
-    setTraceErr({ action: 'PATCH /api/bloqueos/admin/:id', id: editingBlockId, payload, error: serializeErr(e) });
   }
 };
 
@@ -556,7 +491,7 @@ const crearBloqueoAvanzado = async () => {
 
   const payload = {
     fecha,
-    ...(type === 'hour' ? { hora } : { allDay: true, hora: null }),
+    ...(type === 'hour' ? { hora } : { allDay: true, hora: '' }),
     ...(scope === 'trainer' ? { trainerId } : { trainerId: null, scope: 'global' }),
     motivo: 'Bloqueo admin',
   };
@@ -565,13 +500,14 @@ const crearBloqueoAvanzado = async () => {
     // Preferimos endpoints "nuevos" (A2) y hacemos fallback.
     await tryHttpCandidates([
       { path: '/api/bloqueos/admin', opts: { method: 'POST', data: payload } },
+      { path: '/api/bloqueos', opts: { method: 'POST', data: payload } },
       ...(type === 'hour' && scope === 'global'
         ? [{ path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha, hora } } }]
         : []),
     ]);
 
     showSuccess(type === 'allDay' ? 'Día bloqueado' : 'Hora bloqueada');
-    await loadBloqueosAllAdmin();
+    if (blocksOpen) await loadBloqueosAdminList();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo crear el bloqueo'));
@@ -581,20 +517,39 @@ const crearBloqueoAvanzado = async () => {
 
 const eliminarBloqueoAdmin = async (b) => {
   const blk = normalizeBlock(b || {});
-
-  if (!blk.id) {
-    showError('No se pudo eliminar: falta id del bloqueo.');
-    return;
-  }
+  const fecha = blk.fecha || String(quickFecha || '').trim();
+  const hora = blk.allDay ? '' : blk.hora;
+  const trainerId = blk.isGlobal ? '' : blk.trainerId;
 
   try {
-    await http(`/api/bloqueos/admin/${encodeURIComponent(blk.id)}`, {
-      method: 'DELETE',
-      auth: true,
-    });
+    if (blk.id) {
+      await tryHttpCandidates([
+        { path: `/api/bloqueos/admin/${encodeURIComponent(blk.id)}`, opts: { method: 'DELETE' } },
+        { path: `/api/bloqueos/${encodeURIComponent(blk.id)}`, opts: { method: 'DELETE' } },
+      ]);
+    } else {
+      const payload = {
+        fecha,
+        ...(blk.allDay ? { allDay: true, hora: '' } : { hora }),
+        ...(trainerId ? { trainerId } : { trainerId: null, scope: 'global' }),
+      };
+
+      await tryHttpCandidates([
+        { path: '/api/bloqueos/admin', opts: { method: 'DELETE', data: payload } },
+        { path: '/api/bloqueos', opts: { method: 'DELETE', data: payload } },
+        ...(hora && !trainerId
+          ? [
+              {
+                path: `/api/reservas/bloqueos?${new URLSearchParams({ fecha, hora }).toString()}`,
+                opts: { method: 'DELETE' },
+              },
+            ]
+          : []),
+      ]);
+    }
 
     showSuccess('Bloqueo eliminado');
-    await loadBloqueosAllAdmin();
+    if (blocksOpen) await loadBloqueosAdminList();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo eliminar el bloqueo'));
@@ -606,14 +561,18 @@ const eliminarBloqueoAdmin = async (b) => {
 const bloquear = async () => {
   try {
     await tryHttpCandidates([
+      { path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora } } },
       {
         path: '/api/bloqueos/admin',
         opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, scope: 'global' } },
       },
-      { path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora } } },
+      {
+        path: '/api/bloqueos',
+        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, scope: 'global' } },
+      },
     ]);
     showSuccess('Hora bloqueada');
-    await loadBloqueosAllAdmin();
+    if (blocksOpen) await loadBloqueosAdminList();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
@@ -704,11 +663,34 @@ const bloquear = async () => {
   }, [adminList]);
 
 
+const blocksAllView = useMemo(() => {
+  const arr = Array.isArray(blocksAll) ? blocksAll : [];
+  // Orden por fecha (cercano -> lejano), luego día completo, luego hora, luego global/trainer
+  const cmp = (a, b) => {
+    const fa = String(a?.fecha || '');
+    const fb = String(b?.fecha || '');
+    if (fa !== fb) return fa.localeCompare(fb);
+    const aa = a?.allDay ? 0 : 1;
+    const ab = b?.allDay ? 0 : 1;
+    if (aa !== ab) return aa - ab;
+    const ha = String(a?.hora || '');
+    const hb = String(b?.hora || '');
+    if (ha !== hb) return ha.localeCompare(hb);
+    const ga = a?.isGlobal ? 0 : 1;
+    const gb = b?.isGlobal ? 0 : 1;
+    if (ga !== gb) return ga - gb;
+    const ta = String(a?.trainerId || '');
+    const tb = String(b?.trainerId || '');
+    return ta.localeCompare(tb);
+  };
+  return [...arr].sort(cmp);
+}, [blocksAll]);
+
   useEffect(() => {
     loadServicios();
     loadTrainers();
     cargarAdminList();
-    loadBloqueosAllAdmin();
+    // Bloqueos NO se cargan al entrar; se cargan solo al pulsar "Ver bloqueos"
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -976,177 +958,76 @@ const bloquear = async () => {
       <button className="btn-danger" onClick={crearBloqueoAvanzado}>
         Crear bloqueo
       </button>
-      <button className="btn-ghost" onClick={loadBloqueosAllAdmin}>
-        Ver bloqueos
+      <button
+        className="btn-ghost"
+        onClick={async () => {
+          if (blocksOpen) {
+            setBlocksOpen(false);
+            return;
+          }
+          setBlocksOpen(true);
+          await loadBloqueosAdminList();
+        }}
+      >
+        {blocksOpen ? 'Ocultar bloqueos' : 'Ver bloqueos'}
       </button>
     </div>
   </div>
 
-  <div style={{ marginTop: 10 }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+    {blocksOpen && (
+    <div style={{ marginTop: 10 }}>
       <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
-        Bloqueos (todos) — ordenados por fecha
+        Bloqueos (todos)
       </div>
-      <button className="btn-ghost" onClick={loadBloqueosAllAdmin} style={{ whiteSpace: 'nowrap' }}>
-        Actualizar
-      </button>
+
+      {loadingBlocksAll ? (
+        <div className="empty">Cargando…</div>
+      ) : !blocksAllView.length ? (
+        <div className="empty">No hay bloqueos.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {blocksAllView.map((b, idx) => {
+            const labelHora = b.allDay ? 'Día completo' : b.hora || '—';
+            const scopeLabel = b.isGlobal
+              ? 'Global'
+              : trainerNameById.get(b.trainerId) || b.trainerId || 'Adiestrador';
+
+            return (
+              <div
+                key={`${b.fecha}-${b.hora}-${b.trainerId}-${idx}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  padding: '10px 12px',
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 12,
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontWeight: 600 }}>
+                    {b.fecha} · {labelHora}
+                  </div>
+                  <div style={{ fontSize: 13, opacity: 0.8 }}>{scopeLabel}</div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => eliminarBloqueoAdmin(b)}
+                    title="Eliminar bloqueo"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
-
-    {loadingBlocksAll ? (
-      <div className="empty">Cargando…</div>
-    ) : !blocksAll.length ? (
-      <div className="empty">No hay bloqueos.</div>
-    ) : (
-      <div style={{ overflowX: 'auto' }}>
-        <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: '8px 6px' }}>Fecha</th>
-              <th style={{ textAlign: 'left', padding: '8px 6px' }}>Hora</th>
-              <th style={{ textAlign: 'left', padding: '8px 6px' }}>Aplica a</th>
-              <th style={{ textAlign: 'left', padding: '8px 6px' }}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {blocksAll.map((b) => {
-              const labelHora = b.allDay ? 'Día completo' : b.hora || '—';
-              const scopeLabel = b.isGlobal
-                ? 'Global'
-                : trainerNameById.get(b.trainerId) || b.trainerId || 'Adiestrador';
-              const isEditing = !!b.id && editingBlockId === b.id;
-
-              return (
-                <tr key={b.id || `${b.fecha}-${b.hora}-${b.trainerId}`}
-                    style={{ borderTop: '1px solid #eee' }}>
-                  <td style={{ padding: '8px 6px', verticalAlign: 'top' }}>
-                    {isEditing ? (
-                      <input
-                        type="date"
-                        value={editingBlockDraft?.fecha || ''}
-                        onChange={(e) =>
-                          setEditingBlockDraft((p) => ({ ...(p || {}), fecha: e.target.value }))
-                        }
-                      />
-                    ) : (
-                      b.fecha
-                    )}
-                  </td>
-
-                  <td style={{ padding: '8px 6px', verticalAlign: 'top' }}>
-                    {isEditing ? (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <select
-                          value={editingBlockDraft?.type || 'hour'}
-                          onChange={(e) =>
-                            setEditingBlockDraft((p) => ({ ...(p || {}), type: e.target.value }))
-                          }
-                        >
-                          <option value="hour">Hora</option>
-                          <option value="allDay">Día completo</option>
-                        </select>
-
-                        {(editingBlockDraft?.type || 'hour') === 'hour' ? (
-                          <select
-                            value={editingBlockDraft?.hora || '09:00'}
-                            onChange={(e) =>
-                              setEditingBlockDraft((p) => ({ ...(p || {}), hora: e.target.value }))
-                            }
-                          >
-                            {HOURS.map((h) => {
-                              const t =
-                                typeof h === 'number'
-                                  ? `${String(h).padStart(2, '0')}:00`
-                                  : String(h);
-                              return (
-                                <option key={t} value={t}>
-                                  {t}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        ) : null}
-                      </div>
-                    ) : (
-                      labelHora
-                    )}
-                  </td>
-
-                  <td style={{ padding: '8px 6px', verticalAlign: 'top' }}>
-                    {isEditing ? (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <select
-                          value={editingBlockDraft?.scope || 'global'}
-                          onChange={(e) =>
-                            setEditingBlockDraft((p) => ({ ...(p || {}), scope: e.target.value }))
-                          }
-                        >
-                          <option value="global">Global</option>
-                          <option value="trainer">Adiestrador</option>
-                        </select>
-
-                        {(editingBlockDraft?.scope || 'global') === 'trainer' ? (
-                          <select
-                            value={editingBlockDraft?.trainerId || ''}
-                            onChange={(e) =>
-                              setEditingBlockDraft((p) => ({ ...(p || {}), trainerId: e.target.value }))
-                            }
-                            disabled={loadingTrainers}
-                          >
-                            <option value="">Selecciona…</option>
-                            {trainers.map((t) => {
-                              const tid = first(t?.uid, t?.id, t?._id);
-                              const name = t?.displayName || t?.nombre || t?.email || String(tid);
-                              return (
-                                <option key={tid} value={tid}>
-                                  {name}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        ) : null}
-                      </div>
-                    ) : (
-                      scopeLabel
-                    )}
-                  </td>
-
-                  <td style={{ padding: '8px 6px', verticalAlign: 'top' }}>
-                    {isEditing ? (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button className="btn-primary" onClick={saveEditBlock}>
-                          Guardar
-                        </button>
-                        <button className="btn-ghost" onClick={cancelEditBlock}>
-                          Cancelar
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button
-                          className="btn-ghost"
-                          onClick={() => startEditBlock(b)}
-                          disabled={!b.id}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          className="btn-ghost"
-                          onClick={() => eliminarBloqueoAdmin(b)}
-                          disabled={!b.id}
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    )}
-  </div>
+  )}
 </section>
       {/* Listas por estado */}
       <section style={{ marginTop: 24 }}>

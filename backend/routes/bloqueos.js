@@ -1,68 +1,11 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
-import { verifyToken, allowRoles, requireAdmin } from "../middleware/auth.js";
+import { verifyToken, allowRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
 const nowISO = () => new Date().toISOString();
-
-/* ==========================================================
-   🛠️ Esquema bloqueos (migraciones suaves)
-
-   Objetivo:
-   - Unificar bloqueos de adiestrador y admin en una sola tabla.
-   - Soportar:
-     - trainer_id NULL => global
-     - is_all_day = 1 (hora puede ser NULL)
-
-   Nota: CREATE TABLE IF NOT EXISTS no altera tablas existentes.
-========================================================== */
-
-let _ensureBloqueosPromise = null;
-
-async function ensureBloqueosTable() {
-  // Evitar carreras si este módulo se importa varias veces
-  if (_ensureBloqueosPromise) return _ensureBloqueosPromise;
-
-  _ensureBloqueosPromise = (async () => {
-    // Tabla base (si no existía)
-    await query(`
-      CREATE TABLE IF NOT EXISTS bloqueos (
-        id TEXT PRIMARY KEY,
-        fecha TEXT NOT NULL,
-        hora TEXT,
-        trainer_id TEXT,
-        is_all_day INTEGER DEFAULT 0,
-        created_by_role TEXT,
-        created_at TEXT
-      )
-    `);
-
-    const info = await query(`PRAGMA table_info(bloqueos)`);
-    const cols = new Set((Array.isArray(info) ? info : []).map((r) => String(r?.name || "")));
-
-    const ensureCol = async (name, defSql) => {
-      if (cols.has(name)) return;
-      await query(`ALTER TABLE bloqueos ADD COLUMN ${defSql}`);
-      cols.add(name);
-    };
-
-    // Migraciones suaves para instalaciones antiguas
-    await ensureCol("trainer_id", "trainer_id TEXT");
-    await ensureCol("is_all_day", "is_all_day INTEGER DEFAULT 0");
-    await ensureCol("created_by_role", "created_by_role TEXT");
-    await ensureCol("created_at", "created_at TEXT");
-
-    // Índices útiles (idempotentes)
-    await query(`CREATE INDEX IF NOT EXISTS idx_bloqueos_fecha ON bloqueos(fecha)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_bloqueos_trainer_fecha ON bloqueos(trainer_id, fecha)`);
-  })();
-
-  return _ensureBloqueosPromise;
-}
-
-await ensureBloqueosTable();
 
 let _bloqueosColsPromise = null;
 async function getBloqueosCols() {
@@ -74,85 +17,95 @@ async function getBloqueosCols() {
   return _bloqueosColsPromise;
 }
 
+async function ensureBloqueosSchema() {
+  // Migración "suave": añadimos columnas si faltan. Si ya existen, no pasa nada.
+  try {
+    const cols = await getBloqueosCols();
+    const stmts = [];
+    if (!cols.includes("id")) stmts.push("ALTER TABLE bloqueos ADD COLUMN id TEXT");
+    if (!cols.includes("trainer_id")) stmts.push("ALTER TABLE bloqueos ADD COLUMN trainer_id TEXT");
+    if (!cols.includes("created_at")) stmts.push("ALTER TABLE bloqueos ADD COLUMN created_at TEXT");
+    if (!cols.includes("all_day")) stmts.push("ALTER TABLE bloqueos ADD COLUMN all_day INTEGER DEFAULT 0");
+    for (const sql of stmts) {
+      try {
+        await query(sql);
+      } catch (_) {}
+    }
+    if (stmts.length) _bloqueosColsPromise = null;
+  } catch (_) {}
+}
+
+function isAdminReq(req) {
+  const r = String(req.user?.role || req.user?.rol || "").toLowerCase();
+  return Boolean(req.user?.isAdmin) || r === "admin";
+}
+
 function pickTrainerId(req) {
   const id = req.user?.uid || req.user?.id || "";
   return String(id || "");
 }
 
-function normHora(h) {
-  const s = String(h || "").trim();
-  // admite "HH:MM" o "HH:MM:SS"
-  if (/^\d{2}:\d{2}(:\d{2})?$/.test(s)) return s.slice(0, 5);
-  // admite "9:00" -> "09:00"
-  if (/^\d{1}:\d{2}$/.test(s)) return `0${s}`;
-  return s;
+function isAllDayBody(body) {
+  return Boolean(
+    body?.allDay ??
+      body?.all_day ??
+      body?.isAllDay ??
+      body?.diaCompleto ??
+      body?.fullDay ??
+      body?.full_day ??
+      body?.is_all_day
+  );
 }
 
 function normFecha(f) {
   const raw = String(f || "").trim();
   if (!raw) return "";
-
-  // acepta YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-
-  // acepta DD/MM/YYYY -> YYYY-MM-DD
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
-    const [dd, mm, yyyy] = raw.split("/");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  // acepta YYYY/MM/DD -> YYYY-MM-DD
-  if (/^\d{4}\/\d{2}\/\d{2}$/.test(raw)) {
-    return raw.replaceAll("/", "-");
-  }
-
+  // acepta "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // acepta "DD/MM/YYYY"
+  const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return raw.slice(0, 10);
 }
 
-function toBool(v) {
-  if (v === true) return true;
-  if (v === false) return false;
-  const s = String(v ?? "").trim().toLowerCase();
-  return s === "1" || s === "true" || s === "yes" || s === "si" || s === "sí";
+function normHora(h) {
+  const s = String(h || "").trim();
+  if (!s) return "";
+  // admite "HH:MM" o "HH:MM:SS"
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(s)) return s.slice(0, 5);
+  // admite "9:00" -> "09:00"
+  if (/^\d{1}:\d{2}$/.test(s)) return `0${s}`;
+  return s.slice(0, 5);
 }
 
-function normalizeBlockPayload(body = {}) {
-  const fecha = normFecha(body?.fecha ?? body?.date ?? body?.dia);
-  const trainerId = String(
-    body?.trainerId ?? body?.trainer_id ?? body?.trainer ?? body?.trainerUid ?? ""
-  ).trim();
-  const scope = String(body?.scope ?? "").trim().toLowerCase();
+function normalizeBlockRow(row) {
+  if (!row) return row;
+  const r = { ...row };
+  if (r.all_day != null) r.all_day = Number(r.all_day) ? 1 : 0;
+  if (r.hora == null) r.hora = "";
+  return r;
+}
 
-  // all-day si:
-  // - body.allDay / isAllDay / diaCompleto / fullDay / is_all_day
-  // - o no viene hora
-  const horaRaw = body?.hora ?? body?.time ?? body?.hour ?? null;
-  const hora = horaRaw == null ? "" : normHora(horaRaw);
-  const isAllDay =
-    toBool(
-      body?.allDay ??
-        body?.isAllDay ??
-        body?.diaCompleto ??
-        body?.fullDay ??
-        body?.full_day ??
-        body?.is_all_day
-    ) ||
-    !hora;
+function buildSelectCols(cols) {
+  const hasId = cols.includes("id");
+  const hasTrainer = cols.includes("trainer_id");
+  const hasCreatedAt = cols.includes("created_at");
+  const hasAllDay = cols.includes("all_day");
 
-  const isGlobal = scope === "global" || (!trainerId && scope !== "trainer");
+  const selectCols = [];
+  if (hasId) selectCols.push("id");
+  selectCols.push("fecha", "hora");
+  if (hasTrainer) selectCols.push("trainer_id");
+  if (hasAllDay) selectCols.push("all_day");
+  if (hasCreatedAt) selectCols.push("created_at");
 
-  return {
-    fecha,
-    hora: isAllDay ? "" : hora,
-    trainerId: isGlobal ? "" : trainerId,
-    isAllDay,
-    isGlobal,
-  };
+  return { selectCols, hasId, hasTrainer, hasCreatedAt, hasAllDay };
 }
 
 /**
  * GET /api/bloqueos/day?fecha=YYYY-MM-DD
- * Devuelve bloqueos del día (por trainer si existe trainer_id en tabla; si no, global).
+ * Adiestrador: devuelve bloqueos SOLO de su agenda.
+ * Admin: devuelve sus propios bloqueos (no se usa en el panel admin; usar /admin/*).
  */
 router.get(
   "/day",
@@ -160,57 +113,31 @@ router.get(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
-      // Compat: algunos clientes envían date/dia/f en vez de fecha
-      const fecha = normFecha(
-        req.query?.fecha ?? req.query?.date ?? req.query?.dia ?? req.query?.f
-      );
+      await ensureBloqueosSchema();
+      const fecha = normFecha(req.query?.fecha ?? req.query?.date ?? req.query?.dia);
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
 
       const cols = await getBloqueosCols();
-      const hasTrainer = cols.includes("trainer_id");
-      const hasId = cols.includes("id");
-      const hasAllDay = cols.includes("is_all_day");
-      const hasCreatedAt = cols.includes("created_at");
-      const hasCreatedByRole = cols.includes("created_by_role");
-
-      const selectCols = [];
-      if (hasId) selectCols.push("id");
-      selectCols.push("fecha", "hora");
-      if (hasTrainer) selectCols.push("trainer_id");
-      if (hasAllDay) selectCols.push("is_all_day");
-      if (hasCreatedByRole) selectCols.push("created_by_role");
-      if (hasCreatedAt) selectCols.push("created_at");
+      const { selectCols, hasTrainer, hasAllDay } = buildSelectCols(cols);
 
       const params = [fecha];
       let sql = `SELECT ${selectCols.join(", ")} FROM bloqueos WHERE fecha = ?`;
 
-      // Semántica:
-      // - Adiestrador: ve sus bloqueos + globales (trainer_id IS NULL)
-      // - Admin: por compat, si pide trainerId en query, filtra a (global + trainer). Si no, devuelve globales.
       if (hasTrainer) {
-        const isAdmin = req.user?.isAdmin || String(req.user?.rol || "") === "admin";
-        const qTrainer = String(req.query?.trainerId ?? req.query?.trainer_id ?? "").trim();
-        if (isAdmin) {
-          if (qTrainer) {
-            sql += " AND (trainer_id IS NULL OR trainer_id = ?)";
-            params.push(qTrainer);
-          } else {
-            sql += " AND trainer_id IS NULL";
-          }
-        } else {
-          const trainerId = pickTrainerId(req);
-          if (!trainerId) return res.status(401).json({ error: "No autorizado" });
-          sql += " AND (trainer_id IS NULL OR trainer_id = ?)";
-          params.push(trainerId);
-        }
+        const trainerId = pickTrainerId(req);
+        if (!trainerId) return res.status(401).json({ error: "No autorizado" });
+        sql += " AND trainer_id = ?";
+        params.push(trainerId);
       }
 
-      // Orden: día completo primero, luego por hora
-      if (hasAllDay) sql += " ORDER BY is_all_day DESC, hora ASC";
-      else sql += " ORDER BY hora ASC";
+      const orderAllDay = hasAllDay
+        ? "CASE WHEN all_day = 1 THEN 0 ELSE 1 END"
+        : "CASE WHEN hora IS NULL OR hora = '' THEN 0 ELSE 1 END";
+
+      sql += ` ORDER BY ${orderAllDay} ASC, hora ASC`;
 
       const rows = await query(sql, params);
-      res.json(rows || []);
+      res.json((rows || []).map(normalizeBlockRow));
     } catch (e) {
       console.error("GET /bloqueos/day", e);
       res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
@@ -219,266 +146,156 @@ router.get(
 );
 
 /**
- * POST /api/bloqueos
- * Body: { fecha, hora }
- * Inserta bloqueo (por trainer si existe trainer_id; si no, global).
+ * GET /api/bloqueos/admin/list
+ * Devuelve TODOS los bloqueos (globales + por adiestrador), ordenados por fecha (cercano -> lejano).
  */
-router.post(
-  "/",
+router.get(
+  "/admin/list",
   verifyToken,
-  allowRoles(["adiestrador"]),
+  allowRoles(["admin"]),
   async (req, res) => {
     try {
-      const fecha = normFecha(req.body?.fecha ?? req.body?.date ?? req.body?.dia);
-      const hora = normHora(req.body?.hora ?? req.body?.time);
-      if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha/hora" });
-
+      await ensureBloqueosSchema();
       const cols = await getBloqueosCols();
-      const hasTrainer = cols.includes("trainer_id");
-      const hasId = cols.includes("id");
-      const hasCreatedAt = cols.includes("created_at");
+      const { selectCols, hasAllDay } = buildSelectCols(cols);
 
-      const trainerId = hasTrainer ? pickTrainerId(req) : null;
-      if (hasTrainer && !trainerId) return res.status(401).json({ error: "No autorizado" });
+      const orderAllDay = hasAllDay
+        ? "CASE WHEN all_day = 1 THEN 0 ELSE 1 END"
+        : "CASE WHEN hora IS NULL OR hora = '' THEN 0 ELSE 1 END";
 
-      // evitar duplicados
-      const dupParams = [fecha, hora];
-      let dupSql = "SELECT 1 FROM bloqueos WHERE fecha = ? AND hora = ?";
-      if (hasTrainer) {
-        dupSql += " AND trainer_id = ?";
-        dupParams.push(String(trainerId));
-      }
-      const dup = await query(dupSql, dupParams);
-      if (dup?.length) return res.status(409).json({ error: "Ya está bloqueada" });
-
-      const insertCols = [];
-      const values = [];
-      const params = [];
-
-      if (hasId) {
-        insertCols.push("id");
-        values.push("?");
-        params.push(uuidv4());
-      }
-
-      insertCols.push("fecha");
-      values.push("?");
-      params.push(fecha);
-
-      insertCols.push("hora");
-      values.push("?");
-      params.push(hora);
-
-      if (hasTrainer) {
-        insertCols.push("trainer_id");
-        values.push("?");
-        params.push(String(trainerId));
-      }
-
-      if (cols.includes("created_by_role")) {
-        insertCols.push("created_by_role");
-        values.push("?");
-        params.push("adiestrador");
-      }
-
-      if (hasCreatedAt) {
-        insertCols.push("created_at");
-        values.push("?");
-        params.push(nowISO());
-      }
-
-      await query(
-        `INSERT INTO bloqueos (${insertCols.join(", ")}) VALUES (${values.join(", ")})`,
-        params
+      const rows = await query(
+        `SELECT ${selectCols.join(", ")} FROM bloqueos
+         ORDER BY fecha ASC, ${orderAllDay} ASC, hora ASC`
       );
-
-      res.status(201).json({ ok: true });
+      res.json((rows || []).map(normalizeBlockRow));
     } catch (e) {
-      console.error("POST /bloqueos", e);
-      res.status(500).json({ error: "No se pudo bloquear" });
+      console.error("GET /bloqueos/admin/list", e);
+      res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
     }
   }
 );
 
 /**
- * DELETE /api/bloqueos
- * Body: { fecha, hora }
- * (fallback) Query: ?fecha=YYYY-MM-DD&hora=HH:MM
- * Borra bloqueo (por trainer si existe trainer_id; si no, global).
+ * GET /api/bloqueos/admin/day?fecha=YYYY-MM-DD[&trainerId=...]
+ * Devuelve bloqueos del día (globales + por adiestrador). Optional: trainerId para filtrar.
  */
-router.delete(
-  "/",
+router.get(
+  "/admin/day",
   verifyToken,
-  allowRoles(["adiestrador"]),
+  allowRoles(["admin"]),
   async (req, res) => {
     try {
-      // ✅ Compat:
-      // - Algunos clientes NO envían body en DELETE (usan querystring)
-      // - Otros envían body JSON (lo normal en este proyecto)
-      // - Algunos usan claves alternativas (date/time)
-      const fecha = normFecha(
-        req.body?.fecha ?? req.body?.date ?? req.query?.fecha ?? req.query?.date
-      );
-      const hora = normHora(
-        req.body?.hora ?? req.body?.time ?? req.query?.hora ?? req.query?.time
-      );
-
+      await ensureBloqueosSchema();
+      const fecha = normFecha(req.query?.fecha ?? req.query?.date ?? req.query?.dia);
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
-      if (!hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
 
       const cols = await getBloqueosCols();
-      const hasTrainer = cols.includes("trainer_id");
+      const { selectCols, hasTrainer, hasAllDay } = buildSelectCols(cols);
 
-      const params = [fecha, hora];
-      let sql = "DELETE FROM bloqueos WHERE fecha = ? AND hora = ?";
+      const params = [fecha];
+      let sql = `SELECT ${selectCols.join(", ")} FROM bloqueos WHERE fecha = ?`;
 
       if (hasTrainer) {
-        const trainerId = pickTrainerId(req);
-        if (!trainerId) return res.status(401).json({ error: "No autorizado" });
-        sql += " AND trainer_id = ?";
-        params.push(String(trainerId));
+        const tid = String(req.query?.trainerId ?? req.query?.trainer_id ?? "").trim();
+        if (tid) {
+          sql += " AND trainer_id = ?";
+          params.push(tid);
+        }
       }
 
-      // Para evitar "ok" silencioso, comprobamos existencia
-      const exists = await query(
-        hasTrainer
-          ? "SELECT 1 FROM bloqueos WHERE fecha = ? AND hora = ? AND trainer_id = ? LIMIT 1"
-          : "SELECT 1 FROM bloqueos WHERE fecha = ? AND hora = ? LIMIT 1",
-        params
-      );
-      if (!exists?.length) return res.status(404).json({ error: "Bloqueo no encontrado" });
+      const orderAllDay = hasAllDay
+        ? "CASE WHEN all_day = 1 THEN 0 ELSE 1 END"
+        : "CASE WHEN hora IS NULL OR hora = '' THEN 0 ELSE 1 END";
 
-      await query(sql, params);
-      res.json({ ok: true });
+      sql += ` ORDER BY ${orderAllDay} ASC, hora ASC`;
+
+      const rows = await query(sql, params);
+      res.json((rows || []).map(normalizeBlockRow));
     } catch (e) {
-      console.error("DELETE /bloqueos", e);
-      res.status(500).json({ error: "No se pudo desbloquear" });
+      console.error("GET /bloqueos/admin/day", e);
+      res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
     }
   }
 );
 
-/* ===================== Admin (gestión completa) ===================== */
-
-// GET /api/bloqueos/admin  -> lista TODOS los bloqueos, ordenados por fecha (cercano->lejano)
-router.get("/admin", verifyToken, requireAdmin, async (_req, res) => {
+async function createBloqueo(req, res) {
   try {
-    const cols = await getBloqueosCols();
-    const select = ["id", "fecha", "hora"];
-    if (cols.includes("trainer_id")) select.push("trainer_id");
-    if (cols.includes("is_all_day")) select.push("is_all_day");
-    if (cols.includes("created_by_role")) select.push("created_by_role");
-    if (cols.includes("created_at")) select.push("created_at");
+    await ensureBloqueosSchema();
 
-    const sql = `
-      SELECT ${select.join(", ")}
-      FROM bloqueos
-      ORDER BY fecha ASC,
-               COALESCE(is_all_day, 0) DESC,
-               CASE WHEN hora IS NULL OR hora = '' THEN '99:99' ELSE hora END ASC
-    `;
-    const rows = await query(sql);
-    res.json(rows || []);
-  } catch (e) {
-    console.error("GET /bloqueos/admin", e);
-    res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
-  }
-});
+    const fecha = normFecha(req.body?.fecha ?? req.body?.date ?? req.body?.dia);
+    const allDay = isAllDayBody(req.body);
+    const hora = allDay ? "" : normHora(req.body?.hora ?? req.body?.time);
 
-// GET /api/bloqueos/admin/day?fecha=YYYY-MM-DD&trainerId=...
-router.get("/admin/day", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const fecha = normFecha(req.query?.fecha ?? req.query?.date ?? req.query?.dia ?? req.query?.f);
     if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+    if (!allDay && !hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
 
     const cols = await getBloqueosCols();
-    const select = ["id", "fecha", "hora"];
-    const hasTrainer = cols.includes("trainer_id");
-    if (hasTrainer) select.push("trainer_id");
-    if (cols.includes("is_all_day")) select.push("is_all_day");
-    if (cols.includes("created_by_role")) select.push("created_by_role");
-    if (cols.includes("created_at")) select.push("created_at");
+    const { hasTrainer, hasId, hasCreatedAt, hasAllDay } = buildSelectCols(cols);
 
-    const params = [fecha];
-    let sql = `SELECT ${select.join(", ")} FROM bloqueos WHERE fecha = ?`;
-
-    const t = String(req.query?.trainerId ?? req.query?.trainer_id ?? "").trim();
-    if (hasTrainer && t) {
-      sql += " AND (trainer_id IS NULL OR trainer_id = ?)";
-      params.push(t);
-    }
-
-    sql += " ORDER BY COALESCE(is_all_day,0) DESC, hora ASC";
-    const rows = await query(sql, params);
-    res.json(rows || []);
-  } catch (e) {
-    console.error("GET /bloqueos/admin/day", e);
-    res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
-  }
-});
-
-// POST /api/bloqueos/admin
-// Body: { fecha, hora? , allDay? , trainerId? , scope? }
-router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const p = normalizeBlockPayload(req.body || {});
-    if (!p.fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
-    if (!p.isAllDay && !p.hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
-
-    const cols = await getBloqueosCols();
-    const hasTrainer = cols.includes("trainer_id");
-    const hasAllDay = cols.includes("is_all_day");
-    const hasCreatedByRole = cols.includes("created_by_role");
-    const hasCreatedAt = cols.includes("created_at");
-
-    // Evitar duplicados (misma fecha + (hora o all-day) + trainer/global)
-    const dupParams = [p.fecha];
-    let dupSql = "SELECT 1 FROM bloqueos WHERE fecha = ?";
-    if (hasAllDay) {
-      dupSql += " AND is_all_day = ?";
-      dupParams.push(p.isAllDay ? 1 : 0);
-    } else {
-      // Si no existe columna, consideramos all-day como hora vacía
-      if (p.isAllDay) {
-        dupSql += " AND (hora IS NULL OR hora = '')";
+    // Trainer ID (solo si la tabla lo soporta)
+    let trainerId = null;
+    if (hasTrainer) {
+      if (isAdminReq(req)) {
+        const scope = String(req.body?.scope || "").toLowerCase();
+        const tid = String(req.body?.trainerId ?? req.body?.trainer_id ?? "").trim();
+        trainerId = scope === "global" || !tid ? null : tid;
+      } else {
+        // adiestrador: siempre su agenda
+        trainerId = pickTrainerId(req);
+        if (!trainerId) return res.status(401).json({ error: "No autorizado" });
       }
     }
-    if (!p.isAllDay) {
-      dupSql += " AND hora = ?";
-      dupParams.push(p.hora);
-    }
 
+    // evitar duplicados
+    const dupParams = [fecha, hora];
+    let dupSql = "SELECT 1 FROM bloqueos WHERE fecha = ? AND hora = ?";
     if (hasTrainer) {
-      if (p.isGlobal) {
+      if (trainerId == null) {
         dupSql += " AND trainer_id IS NULL";
       } else {
         dupSql += " AND trainer_id = ?";
-        dupParams.push(p.trainerId);
+        dupParams.push(String(trainerId));
       }
     }
-
+    if (hasAllDay) {
+      // si es día completo, lo consideramos duplicado si hay otro día completo para ese scope
+      dupSql += " AND all_day = ?";
+      dupParams.push(allDay ? 1 : 0);
+    }
     const dup = await query(dupSql, dupParams);
     if (dup?.length) return res.status(409).json({ error: "Ya está bloqueada" });
 
-    const id = uuidv4();
-    const insertCols = ["id", "fecha", "hora"];
-    const values = ["?", "?", "?"];
-    const params = [id, p.fecha, p.isAllDay ? null : p.hora];
+    const insertCols = [];
+    const values = [];
+    const params = [];
+
+    if (hasId) {
+      insertCols.push("id");
+      values.push("?");
+      params.push(uuidv4());
+    }
+
+    insertCols.push("fecha");
+    values.push("?");
+    params.push(fecha);
+
+    insertCols.push("hora");
+    values.push("?");
+    // IMPORTANTE: para día completo guardamos "" (no NULL) para esquemas legacy con NOT NULL
+    params.push(allDay ? "" : hora);
+
+    if (hasAllDay) {
+      insertCols.push("all_day");
+      values.push("?");
+      params.push(allDay ? 1 : 0);
+    }
 
     if (hasTrainer) {
       insertCols.push("trainer_id");
       values.push("?");
-      params.push(p.isGlobal ? null : p.trainerId);
+      params.push(trainerId == null ? null : String(trainerId));
     }
-    if (hasAllDay) {
-      insertCols.push("is_all_day");
-      values.push("?");
-      params.push(p.isAllDay ? 1 : 0);
-    }
-    if (hasCreatedByRole) {
-      insertCols.push("created_by_role");
-      values.push("?");
-      params.push("admin");
-    }
+
     if (hasCreatedAt) {
       insertCols.push("created_at");
       values.push("?");
@@ -490,68 +307,168 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
       params
     );
 
-    res.status(201).json({ ok: true, id });
+    res.status(201).json({ ok: true });
   } catch (e) {
-    console.error("POST /bloqueos/admin", e);
+    console.error("POST /bloqueos", e);
     res.status(500).json({ error: "No se pudo crear el bloqueo" });
   }
-});
+}
 
-// PATCH /api/bloqueos/admin/:id (editar)
-router.patch("/admin/:id", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const id = String(req.params?.id || "").trim();
-    if (!id) return res.status(400).json({ error: "Falta id" });
+/**
+ * POST /api/bloqueos
+ * Adiestrador: crea bloqueo en su agenda.
+ * Admin: crea bloqueo global o por adiestrador (trainerId, scope) y por hora o día completo (allDay).
+ */
+router.post(
+  "/",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => createBloqueo(req, res)
+);
 
-    const p = normalizeBlockPayload(req.body || {});
-    if (!p.fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
-    if (!p.isAllDay && !p.hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
+/**
+ * POST /api/bloqueos/admin
+ * Alias admin.
+ */
+router.post(
+  "/admin",
+  verifyToken,
+  allowRoles(["admin"]),
+  async (req, res) => createBloqueo(req, res)
+);
 
-    const cols = await getBloqueosCols();
-    const hasTrainer = cols.includes("trainer_id");
-    const hasAllDay = cols.includes("is_all_day");
+/**
+ * DELETE /api/bloqueos (por fecha/hora)
+ * Body: { fecha, hora } o { fecha, allDay:true }
+ * - Adiestrador: borra solo en su agenda.
+ * - Admin: borra global (por defecto) o por trainerId (si se especifica).
+ */
+router.delete(
+  "/",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      await ensureBloqueosSchema();
 
-    // Existe?
-    const exists = await query("SELECT 1 FROM bloqueos WHERE id = ? LIMIT 1", [id]);
-    if (!exists?.length) return res.status(404).json({ error: "Bloqueo no encontrado" });
+      const fecha = normFecha(
+        req.body?.fecha ?? req.body?.date ?? req.query?.fecha ?? req.query?.date
+      );
+      const allDay = isAllDayBody(req.body) || String(req.query?.allDay || "").toLowerCase() === "true";
+      const hora = allDay
+        ? ""
+        : normHora(req.body?.hora ?? req.body?.time ?? req.query?.hora ?? req.query?.time);
 
-    const sets = ["fecha = ?", "hora = ?"];
-    const params = [p.fecha, p.isAllDay ? null : p.hora];
+      if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+      if (!allDay && !hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
 
-    if (hasTrainer) {
-      sets.push("trainer_id = ?");
-      params.push(p.isGlobal ? null : p.trainerId);
+      const cols = await getBloqueosCols();
+      const hasTrainer = cols.includes("trainer_id");
+      const hasAllDay = cols.includes("all_day");
+
+      const delHora = allDay ? "" : hora;
+      const params = [fecha, delHora];
+      let sql = "DELETE FROM bloqueos WHERE fecha = ? AND hora = ?";
+
+      if (hasAllDay) {
+        sql += " AND all_day = ?";
+        params.push(allDay ? 1 : 0);
+      } else if (allDay) {
+        // sin columna all_day, lo tratamos como "hora vacía"
+      }
+
+      if (hasTrainer) {
+        if (isAdminReq(req)) {
+          const scope = String(req.body?.scope ?? req.query?.scope ?? "").toLowerCase();
+          const tidRaw = req.body?.trainerId ?? req.body?.trainer_id ?? req.query?.trainerId ?? req.query?.trainer_id ?? "";
+          const tid = String(tidRaw || "").trim();
+          if (!tid || scope === "global") {
+            sql += " AND trainer_id IS NULL";
+          } else {
+            sql += " AND trainer_id = ?";
+            params.push(tid);
+          }
+        } else {
+          const trainerId = pickTrainerId(req);
+          if (!trainerId) return res.status(401).json({ error: "No autorizado" });
+          sql += " AND trainer_id = ?";
+          params.push(trainerId);
+        }
+      }
+
+      await query(sql, params);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("DELETE /bloqueos", e);
+      res.status(500).json({ error: "No se pudo eliminar el bloqueo" });
     }
-    if (hasAllDay) {
-      sets.push("is_all_day = ?");
-      params.push(p.isAllDay ? 1 : 0);
+  }
+);
+
+/**
+ * DELETE /api/bloqueos/:id
+ * Admin: borra cualquiera.
+ * Adiestrador: borra solo si pertenece a su agenda (si hay trainer_id).
+ */
+router.delete(
+  "/:id",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      await ensureBloqueosSchema();
+      const id = String(req.params?.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Falta id" });
+
+      const cols = await getBloqueosCols();
+      const hasId = cols.includes("id");
+      const hasTrainer = cols.includes("trainer_id");
+      if (!hasId) return res.status(400).json({ error: "ID no soportado" });
+
+      const params = [id];
+      let sql = "DELETE FROM bloqueos WHERE id = ?";
+
+      if (hasTrainer && !isAdminReq(req)) {
+        const trainerId = pickTrainerId(req);
+        if (!trainerId) return res.status(401).json({ error: "No autorizado" });
+        sql += " AND trainer_id = ?";
+        params.push(trainerId);
+      }
+
+      await query(sql, params);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("DELETE /bloqueos/:id", e);
+      res.status(500).json({ error: "No se pudo eliminar el bloqueo" });
     }
-
-    params.push(id);
-    await query(`UPDATE bloqueos SET ${sets.join(", ")} WHERE id = ?`, params);
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error("PATCH /bloqueos/admin/:id", e);
-    res.status(500).json({ error: "No se pudo editar el bloqueo" });
   }
-});
+);
 
-// DELETE /api/bloqueos/admin/:id
-router.delete("/admin/:id", verifyToken, requireAdmin, async (req, res) => {
-  try {
-    const id = String(req.params?.id || "").trim();
-    if (!id) return res.status(400).json({ error: "Falta id" });
+/**
+ * DELETE /api/bloqueos/admin/:id
+ * Alias admin (para compatibilidad con frontend).
+ */
+router.delete(
+  "/admin/:id",
+  verifyToken,
+  allowRoles(["admin"]),
+  async (req, res) => {
+    try {
+      await ensureBloqueosSchema();
+      const id = String(req.params?.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Falta id" });
 
-    const exists = await query("SELECT 1 FROM bloqueos WHERE id = ? LIMIT 1", [id]);
-    if (!exists?.length) return res.status(404).json({ error: "Bloqueo no encontrado" });
+      const cols = await getBloqueosCols();
+      const hasId = cols.includes("id");
+      if (!hasId) return res.status(400).json({ error: "ID no soportado" });
 
-    await query("DELETE FROM bloqueos WHERE id = ?", [id]);
-    res.json({ ok: true });
-  } catch (e) {
-    console.error("DELETE /bloqueos/admin/:id", e);
-    res.status(500).json({ error: "No se pudo eliminar el bloqueo" });
+      await query("DELETE FROM bloqueos WHERE id = ?", [id]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("DELETE /bloqueos/admin/:id", e);
+      res.status(500).json({ error: "No se pudo eliminar el bloqueo" });
+    }
   }
-});
+);
 
 export default router;
