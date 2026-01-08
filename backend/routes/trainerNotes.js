@@ -126,7 +126,29 @@ router.get(
         params
       );
 
-      return res.json({ items: rows });
+      const email = String(req.user?.email || "").trim().toLowerCase() || null;
+      const items = (Array.isArray(rows) ? rows : []).map((n) => {
+        const createdAt = n?.createdAt || n?.created_at || null;
+        const updatedAt = n?.updatedAt || n?.updated_at || null;
+
+        return {
+          ...n,
+          created_at: createdAt,
+          updated_at: updatedAt,
+          author_uid: trainerId,
+          author_role: "adiestrador",
+          author_email: email,
+          // Compatibilidad
+          createdAt,
+          updatedAt,
+          authorUid: trainerId,
+          authorRole: "adiestrador",
+          authorEmail: email,
+          canDelete: true,
+        };
+      });
+
+      return res.json({ items });
     } catch (e) {
       console.error("GET /api/trainer-notes", e);
       return res.status(500).json({ error: "No se pudieron cargar las notas" });
@@ -182,6 +204,8 @@ router.post(
         [id, trainerId, clientId, dogId, title || null, text, ts, ts]
       );
 
+      const email = String(req.user?.email || "").trim().toLowerCase() || null;
+
       return res.status(201).json({
         item: {
           id,
@@ -190,10 +214,20 @@ router.post(
           dogId,
           title: title || "",
           text,
+          created_at: ts,
+          updated_at: ts,
+          author_uid: trainerId,
+          author_role: "adiestrador",
+          author_email: email,
+          // Compatibilidad
           createdAt: ts,
           updatedAt: ts,
+          authorUid: trainerId,
+          authorRole: "adiestrador",
+          authorEmail: email,
+          canDelete: true,
         },
-      });
+      });;
     } catch (e) {
       console.error("POST /api/trainer-notes", e);
       return res.status(500).json({ error: "No se pudo guardar la nota" });
@@ -265,7 +299,30 @@ router.patch(
         [id, trainerId]
       );
 
-      return res.json({ item: row[0] });
+      const email = String(req.user?.email || "").trim().toLowerCase() || null;
+      const n = row?.[0] || null;
+      const createdAt = n?.createdAt || n?.created_at || null;
+      const updatedAt = n?.updatedAt || n?.updated_at || null;
+
+      return res.json({
+        item: n
+          ? {
+              ...n,
+              created_at: createdAt,
+              updated_at: updatedAt,
+              author_uid: trainerId,
+              author_role: "adiestrador",
+              author_email: email,
+              // Compatibilidad
+              createdAt,
+              updatedAt,
+              authorUid: trainerId,
+              authorRole: "adiestrador",
+              authorEmail: email,
+              canDelete: true,
+            }
+          : null,
+      });
     } catch (e) {
       console.error("PATCH /api/trainer-notes/:id", e);
       return res.status(500).json({ error: "No se pudo actualizar la nota" });

@@ -5,23 +5,104 @@ import { http } from "../../helpers/http";
 import { useUi } from "../../context/ui";
 import { useAuth } from "../../context/auth";
 
+/* =========================
+   Helpers de reservas
+   ========================= */
+
+function reservaIdOf(r) {
+  const id = r?.id || r?._id || r?.uid || r?.pk || r?.reservaId || r?.reserva_id;
+  return id ? String(id) : "";
+}
+
 function reservaDateTimeMs(r) {
   const f = String(r?.fecha || "").slice(0, 10);
   const h = String(r?.hora || "00:00").slice(0, 5) || "00:00";
-  // Nota: Date('YYYY-MM-DDTHH:mm:ss') se interpreta en local time.
+  // Date('YYYY-MM-DDTHH:mm:ss') se interpreta en local time del navegador
   const iso = `${f}T${h}:00`;
   const d = new Date(iso);
   const ms = d.getTime();
   return Number.isFinite(ms) ? ms : NaN;
 }
 
-// ==== utilidades básicas ====
+/* =========================
+   Helpers de notas
+   ========================= */
+
+function formatDateTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-ES", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function noteIdOf(n) {
+  const id = n?.id || n?._id || n?.noteId || n?.note_id || n?.uid || n?.pk;
+  return id ? String(id) : "";
+}
+
+function noteCreatedAt(n) {
+  return n?.created_at || n?.createdAt || n?.created || n?.timestamp || "";
+}
+
+function noteText(n) {
+  return String(
+    n?.text ??
+      n?.nota ??
+      n?.note ??
+      n?.admin_note ??
+      n?.user_note ??
+      n?.userNote ??
+      n?.adminNote ??
+      ""
+  ).trim();
+}
+
+function noteAuthorLabel(n) {
+  const rawRole = String(n?.author_role ?? n?.authorRole ?? n?.author ?? n?.role ?? "")
+    .toLowerCase()
+    .trim();
+
+  const role =
+    rawRole === "trainer"
+      ? "adiestrador"
+      : rawRole === "user" || rawRole === "cliente" || rawRole === "client"
+      ? "client"
+      : rawRole;
+
+  const roleLabel =
+    role === "admin"
+      ? "Centro"
+      : role === "adiestrador"
+      ? "Adiestrador"
+      : role === "client"
+      ? "Cliente"
+      : rawRole || "Autor";
+
+  const email = String(n?.author_email ?? n?.authorEmail ?? n?.email ?? "").trim();
+  const uid = String(
+    n?.author_uid ?? n?.authorUid ?? n?.author_id ?? n?.authorId ?? ""
+  ).trim();
+
+  const who =
+    email || uid || String(n?.authorName ?? n?.author_name ?? n?.name ?? "").trim();
+
+  return who ? `${roleLabel} (${who})` : roleLabel;
+}
+
+/* =========================
+   Utilidades UI
+   ========================= */
+
 function formatEUR(value, currency = "EUR") {
   if (value == null) return "A consultar";
   try {
-    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(
-      value
-    );
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(value);
   } catch {
     return `${value} ${currency}`;
   }
@@ -86,7 +167,7 @@ function statusLabel(status) {
   if (s === "confirmed" || s === "confirmada") return "Confirmada";
   if (s === "cancelled" || s === "cancelada") return "Cancelada";
   if (s === "rejected" || s === "rechazada") return "Rechazada";
-  if (s === "pending_user") return "Pendiente (tu aceptación)";
+  if (s === "pending_user") return "Pendiente centro";
   return s || "Estado";
 }
 
@@ -96,11 +177,14 @@ function statusClass(status) {
   if (s === "confirmed" || s === "confirmada") return "badge badge-confirmed";
   if (s === "cancelled" || s === "cancelada") return "badge badge-cancelled";
   if (s === "rejected" || s === "rechazada") return "badge badge-rejected";
-  if (s === "pending_user") return "badge badge-pending-user";
+  if (s === "pending_user") return "badge badge-pending";
   return "badge";
 }
 
-// ==== card de reserva ====
+/* =========================
+   Card Reserva
+   ========================= */
+
 function ReservaCard({
   r,
   onCancel,
@@ -122,7 +206,8 @@ function ReservaCard({
   onAddNote,
   onDeleteNote,
 }) {
-  const normalizedStatus = String(r.status || "").toLowerCase();
+  const rid = reservaIdOf(r);
+  const normalizedStatus = String(r?.status || "").toLowerCase();
 
   const puedeCancelar =
     normalizedStatus === "pending" ||
@@ -131,9 +216,10 @@ function ReservaCard({
     normalizedStatus === "confirmed" ||
     normalizedStatus === "pending_user";
 
-  const puedeAceptarRechazar = normalizedStatus === "pending_user";
+  const puedeAceptarRechazar =
+    normalizedStatus === "pending_user" &&
+    (r?.canUserConfirm === true || r?.userConfirmRequired === true);
 
-  // ✅ Chat: alineado con backend (confirmed / pending / pending_user + equivalentes)
   const puedeChat =
     normalizedStatus === "confirmed" ||
     normalizedStatus === "confirmada" ||
@@ -142,55 +228,54 @@ function ReservaCard({
     normalizedStatus === "pending_user";
 
   const countNotas =
-    typeof r.notesCount === "number"
+    typeof r?.notesCount === "number"
       ? r.notesCount
       : isNotesOpen && Array.isArray(notes)
-        ? notes.length
-        : null;
+      ? notes.length
+      : null;
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div>
           <div style={{ fontWeight: "bold", textTransform: "capitalize" }}>
-            {r.servicioTitulo || r.servicioId || "Reserva"}
+            {r?.servicioTitulo || r?.servicioId || "Reserva"}
           </div>
 
           <div style={{ fontSize: 14, marginTop: 4 }}>
-            <b>Fecha:</b> {r.fecha} · <b>Hora:</b> {r.hora}{" "}
-            {r.modalidad && (
+            <b>Fecha:</b> {r?.fecha} · <b>Hora:</b> {r?.hora}{" "}
+            {r?.modalidad && (
               <>
                 · <i>{r.modalidad}</i>
               </>
             )}
           </div>
 
-          {(r.trainerName || r.trainerNombre || r.trainer) && (
+          {(r?.trainerName || r?.trainerNombre || r?.trainer) && (
             <div style={{ fontSize: 14, marginTop: 2 }}>
-              <b>Adiestrador:</b>{" "}
-              {r.trainerName || r.trainerNombre || r.trainer}
+              <b>Adiestrador:</b> {r?.trainerName || r?.trainerNombre || r?.trainer}
             </div>
           )}
 
-          {r.perro && (
+          {r?.perro && (
             <div style={{ fontSize: 14, marginTop: 2 }}>
               <b>Perro:</b> {renderPerro(r.perro)}
             </div>
           )}
 
-          {r.price != null && (
+          {r?.price != null && (
             <div style={{ fontSize: 14, marginTop: 2 }}>
               <b>Precio:</b> {formatEUR(r.price, r.currency || "EUR")}
             </div>
           )}
 
-          {r.adminNote && (
+          {r?.adminNote && (
             <div style={{ fontSize: 12, marginTop: 4 }}>
               <b>Nota centro:</b> {r.adminNote}
             </div>
           )}
 
-          {r.cancelReason && (
+          {r?.cancelReason && (
             <div style={{ fontSize: 12, marginTop: 4 }}>
               <b>Motivo cancelación:</b> {r.cancelReason}
             </div>
@@ -198,7 +283,7 @@ function ReservaCard({
         </div>
 
         <div style={{ textAlign: "right" }}>
-          <span className={statusClass(r.status)}>{statusLabel(r.status)}</span>
+          <span className={statusClass(r?.status)}>{statusLabel(r?.status)}</span>
         </div>
       </div>
 
@@ -207,48 +292,41 @@ function ReservaCard({
           style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
           className="reservas-actions-row"
         >
-          <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
+          <button className="btn-secondary" onClick={() => onToggleNotes?.(r)}>
             📝 Notas{countNotas != null ? ` (${countNotas})` : ""}
           </button>
 
-        {/* ✅ BOTÓN CHAT */}
-        {puedeChat && (
-          <button
-            className="btn-primary"
-            onClick={() => onOpenChat?.(r)}
-            disabled={openingChatId === r.id}
-            title="Abrir chat relacionado con esta reserva"
-          >
-            {openingChatId === r.id ? "Abriendo chat…" : "💬 Abrir chat"}
-          </button>
-        )}
-
-        {puedeAceptarRechazar && (
-          <>
+          {puedeChat && (
             <button
               className="btn-primary"
-              onClick={() => onUserDecision?.(r, "confirm")}
+              onClick={() => onOpenChat?.(r)}
+              disabled={openingChatId === rid}
+              title="Abrir chat relacionado con esta reserva"
             >
-              Aceptar
+              {openingChatId === rid ? "Abriendo chat…" : "💬 Abrir chat"}
             </button>
-            <button
-              className="btn-outline"
-              onClick={() => onUserDecision?.(r, "reject")}
-            >
-              Rechazar
-            </button>
-          </>
-        )}
+          )}
 
-        {puedeCancelar && (
-          <button className="btn-outline" onClick={() => onCancel(r)}>
-            Cancelar reserva
-          </button>
-        )}
+          {puedeAceptarRechazar && (
+            <>
+              <button className="btn-primary" onClick={() => onUserDecision?.(r, "confirm")}>
+                Aceptar
+              </button>
+              <button className="btn-outline" onClick={() => onUserDecision?.(r, "reject")}>
+                Rechazar
+              </button>
+            </>
+          )}
+
+          {puedeCancelar && (
+            <button className="btn-outline" onClick={() => onCancel?.(r)}>
+              Cancelar reserva
+            </button>
+          )}
         </div>
       )}
 
-      {/* === Panel desplegable de notas dentro de la card === */}
+      {/* Panel desplegable de notas */}
       {!readOnly && isNotesOpen && (
         <div className="reservas-notes">
           {loadingNotes ? (
@@ -257,29 +335,27 @@ function ReservaCard({
             <p className="reservas-notes__empty">No hay notas todavía.</p>
           ) : (
             <div className="reservas-notes__list">
-              {notes.map((n) => (
-                <div key={n.id} className="reservas-notes__item">
+              {notes.map((n, idx) => (
+                <div
+                  key={noteIdOf(n) || `${rid}-note-${idx}`}
+                  className="reservas-notes__item"
+                >
                   <div>
+                    {/* ✅ AQUÍ estaba el error: spans mal cerrados. Ya está limpio */}
                     <div className="reservas-notes__meta">
-                      <b>{n.author || "Centro"}</b>{" "}
-                      {n.createdAt && (
-                        <span>
-                          ·{" "}
-                          {new Date(n.createdAt).toLocaleString("es-ES", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            day: "2-digit",
-                            month: "2-digit",
-                          })}
-                        </span>
-                      )}
+                      <b>{noteAuthorLabel(n) || "Centro"}</b>
+                      {noteCreatedAt(n) ? (
+                        <span> · {formatDateTime(noteCreatedAt(n))}</span>
+                      ) : null}
                     </div>
-                    <div className="reservas-notes__text">{n.text || n.nota}</div>
+
+                    <div className="reservas-notes__text">{noteText(n)}</div>
                   </div>
-                  {onDeleteNote && (
+
+                  {onDeleteNote && n?.canDelete === true && (
                     <button
                       className="btn-ghost"
-                      onClick={() => onDeleteNote(n.id)}
+                      onClick={() => onDeleteNote(noteIdOf(n))}
                       title="Eliminar nota"
                     >
                       🗑
@@ -290,13 +366,13 @@ function ReservaCard({
             </div>
           )}
 
-          {/* zona para añadir nueva nota */}
+          {/* Añadir nueva nota */}
           <div className="reservas-notes__new">
             <textarea
               rows={2}
               placeholder="Escribe una nota…"
               value={newNote}
-              onChange={(e) => onChangeNote(e.target.value)}
+              onChange={(e) => onChangeNote?.(e.target.value)}
             />
             <button
               className="btn-primary"
@@ -312,7 +388,10 @@ function ReservaCard({
   );
 }
 
-// ==== componente principal ====
+/* =========================
+   Página principal
+   ========================= */
+
 export default function ReservasUser() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -375,46 +454,13 @@ export default function ReservasUser() {
         }
         if (alive) setTrainersById(map);
       } catch {
-        // silencioso: no bloquea la página
+        // silencioso
       }
     })();
     return () => {
       alive = false;
     };
   }, []);
-
-  // ✅ abrir chat por reserva
-  const handleOpenChat = async (r) => {
-    if (!r?.id) return;
-    if (openingChatId === r.id) return;
-
-    try {
-      setOpeningChatId(r.id);
-
-      const resp = await http(`/api/chats/by-reserva/${r.id}`, {
-        method: "POST",
-        auth: true,
-      });
-
-      const conversationId = resp?.conversationId || resp?.id;
-      if (!conversationId) {
-        ui.notify({ type: 'error', message: 'No se pudo abrir el chat (no se recibió conversationId).' });
-        return;
-      }
-
-      navigate(`/chat/${conversationId}`, { state: { from: "/reservas" } });
-    } catch (e) {
-      console.error("Error abriendo chat:", e);
-      const msg =
-        e?.data?.error ||
-        e?.responseData?.error ||
-        e?.message ||
-        "No se pudo abrir el chat para esta reserva.";
-      ui.notify({ type: 'error', message: msg });
-    } finally {
-      setOpeningChatId(null);
-    }
-  };
 
   const reservasEnriched = useMemo(() => {
     if (!Array.isArray(reservas) || !reservas.length) return [];
@@ -426,34 +472,30 @@ export default function ReservasUser() {
     });
   }, [reservas, trainersById]);
 
-  // texto de filtro
   const filtro = search.trim().toLowerCase();
 
-  // reservas filtradas por búsqueda
   const reservasFiltradas = useMemo(() => {
     if (!filtro) return reservasEnriched;
 
     return reservasEnriched.filter((r) => {
-      const perroStr = typeof r.perro === "string" ? r.perro : renderPerro(r.perro);
+      const perroStr = typeof r?.perro === "string" ? r.perro : renderPerro(r?.perro);
       const campos = [
-        r.servicioTitulo,
-        r.servicioId,
+        r?.servicioTitulo,
+        r?.servicioId,
         perroStr,
-        r.trainerName,
-        r.fecha,
-        r.hora,
-        statusLabel(r.status),
+        r?.trainerName,
+        r?.fecha,
+        r?.hora,
+        statusLabel(r?.status),
       ];
-
       return campos.some((v) => String(v || "").toLowerCase().includes(filtro));
     });
   }, [reservasEnriched, filtro]);
 
-  // mapa de días con reservas (YYYY-MM-DD) usando las filtradas
   const fechasConReservas = useMemo(() => {
     const map = new Map();
     for (const r of reservasFiltradas) {
-      if (!r.fecha) continue;
+      if (!r?.fecha) continue;
       const f = String(r.fecha).slice(0, 10);
       const list = map.get(f) || [];
       list.push(r);
@@ -467,11 +509,10 @@ export default function ReservasUser() {
     return fechasConReservas.get(selectedDate) || [];
   }, [fechasConReservas, selectedDate]);
 
-  // agrupaciones por estado
   const pendientesCentro = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || "").toLowerCase();
+        const s = String(r?.status || "").toLowerCase();
         return s === "pending" || s === "pendiente";
       }),
     [reservasFiltradas]
@@ -480,7 +521,7 @@ export default function ReservasUser() {
   const pendientesUsuario = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || "").toLowerCase();
+        const s = String(r?.status || "").toLowerCase();
         return s === "pending_user";
       }),
     [reservasFiltradas]
@@ -492,15 +533,15 @@ export default function ReservasUser() {
     const past = [];
 
     for (const r of reservasFiltradas) {
-      const s = String(r.status || "").toLowerCase();
+      const s = String(r?.status || "").toLowerCase();
       const isConfirmed = s === "confirmed" || s === "confirmada";
       if (!isConfirmed) continue;
+
       const ms = reservaDateTimeMs(r);
       if (Number.isFinite(ms) && ms < now) past.push(r);
       else future.push(r);
     }
 
-    // Futuras: ascendente (más cercanas primero). Pasadas: descendente.
     future.sort((a, b) => reservaDateTimeMs(a) - reservaDateTimeMs(b));
     past.sort((a, b) => reservaDateTimeMs(b) - reservaDateTimeMs(a));
 
@@ -510,7 +551,7 @@ export default function ReservasUser() {
   const canceladasRechazadas = useMemo(
     () =>
       reservasFiltradas.filter((r) => {
-        const s = String(r.status || "").toLowerCase();
+        const s = String(r?.status || "").toLowerCase();
         return (
           s === "cancelled" ||
           s === "cancelada" ||
@@ -521,18 +562,21 @@ export default function ReservasUser() {
     [reservasFiltradas]
   );
 
-  // cancelar reserva
   const handleCancel = async (r) => {
     const ok = await ui.confirm({
-      title: 'Cancelar reserva',
-      message: `¿Cancelar la reserva del ${r.fecha} a las ${r.hora}?`,
-      confirmText: 'Cancelar',
-      cancelText: 'Volver',
+      title: "Cancelar reserva",
+      message: `¿Cancelar la reserva del ${r?.fecha} a las ${r?.hora}?`,
+      confirmText: "Cancelar",
+      cancelText: "Volver",
       danger: true,
     });
     if (!ok) return;
+
+    const rid = reservaIdOf(r);
+    if (!rid) return;
+
     try {
-      await http(`/api/reservas/${r.id}/cancel`, {
+      await http(`/api/reservas/${rid}/cancel`, {
         method: "PATCH",
         data: { reason: "Cancelada por el cliente" },
         auth: true,
@@ -540,26 +584,27 @@ export default function ReservasUser() {
       await cargarReservas();
     } catch (e) {
       console.error("Error cancelando reserva", e);
-      const msg = e?.data?.error || e?.message || 'No se pudo cancelar la reserva.';
-      ui.notify({ type: 'error', message: msg });
+      const msg = e?.data?.error || e?.message || "No se pudo cancelar la reserva.";
+      ui.notify({ type: "error", message: msg });
     }
   };
 
-  // aceptar / rechazar cuando está en pending_user
   const handleUserDecision = async (r, action) => {
     const verb = action === "confirm" ? "aceptar" : "rechazar";
     const ok = await ui.confirm({
-      title: 'Confirmar acción',
-      message: `¿Seguro que quieres ${verb} la reserva del ${r.fecha} a las ${r.hora}?`,
-      confirmText: 'Sí',
-      cancelText: 'No',
-      danger: verb === 'cancelar',
+      title: "Confirmar acción",
+      message: `¿Seguro que quieres ${verb} la reserva del ${r?.fecha} a las ${r?.hora}?`,
+      confirmText: "Sí",
+      cancelText: "No",
+      danger: false,
     });
-    if (!ok) {
-      return;
-    }
+    if (!ok) return;
+
+    const rid = reservaIdOf(r);
+    if (!rid) return;
+
     try {
-      await http(`/api/reservas/${r.id}/user-confirm`, {
+      await http(`/api/reservas/${rid}/user-confirm`, {
         method: "PATCH",
         data: { action },
         auth: true,
@@ -567,15 +612,53 @@ export default function ReservasUser() {
       await cargarReservas();
     } catch (e) {
       console.error("Error actualizando reserva (user-confirm)", e);
-      ui.notify({ type: 'error', message: 'No se pudo actualizar la reserva.' });
+      ui.notify({ type: "error", message: "No se pudo actualizar la reserva." });
     }
   };
 
-  // ==== NOTAS ====
-  const loadNotes = async (reserva) => {
+  // Chat
+  const handleOpenChat = async (r) => {
+    const rid = reservaIdOf(r);
+    if (!rid) return;
+    if (openingChatId === rid) return;
+
+    try {
+      setOpeningChatId(rid);
+
+      const resp = await http(`/api/chats/by-reserva/${rid}`, {
+        method: "POST",
+        auth: true,
+      });
+
+      const conversationId = resp?.conversationId || resp?.id;
+      if (!conversationId) {
+        ui.notify({
+          type: "error",
+          message: "No se pudo abrir el chat (no se recibió conversationId).",
+        });
+        return;
+      }
+
+      navigate(`/chat/${conversationId}`, { state: { from: "/reservas" } });
+    } catch (e) {
+      console.error("Error abriendo chat:", e);
+      const msg =
+        e?.data?.error ||
+        e?.responseData?.error ||
+        e?.message ||
+        "No se pudo abrir el chat para esta reserva.";
+      ui.notify({ type: "error", message: msg });
+    } finally {
+      setOpeningChatId(null);
+    }
+  };
+
+  // Notas
+  const loadNotes = async (reservaId) => {
+    if (!reservaId) return;
     setLoadingNotes(true);
     try {
-      const data = await http(`/api/reservas/${reserva.id}/notes`, { auth: true });
+      const data = await http(`/api/reservas/${reservaId}/notes`, { auth: true });
       setNotes(Array.isArray(data) ? data : data?.items || []);
     } catch (e) {
       console.error("Error cargando notas", e);
@@ -586,15 +669,19 @@ export default function ReservasUser() {
   };
 
   const handleToggleNotes = (r) => {
-    if (openNotesId === r.id) {
+    const rid = reservaIdOf(r);
+    if (!rid) return;
+
+    if (openNotesId === rid) {
       setOpenNotesId(null);
       setNotes([]);
       setNewNote("");
       return;
     }
-    setOpenNotesId(r.id);
+
+    setOpenNotesId(rid);
     setNewNote("");
-    loadNotes(r);
+    loadNotes(rid);
   };
 
   const handleAddNote = async () => {
@@ -610,32 +697,41 @@ export default function ReservasUser() {
         auth: true,
       });
       setNewNote("");
-      await loadNotes({ id: openNotesId });
+      await loadNotes(openNotesId);
     } catch (e) {
       console.error("Error guardando nota", e);
-      ui.notify({ type: 'error', message: 'No se pudo guardar la nota (revisa qué campo espera el backend).' });
+      ui.notify({
+        type: "error",
+        message: "No se pudo guardar la nota (revisa qué campo espera el backend).",
+      });
     }
   };
 
   const handleDeleteNote = async (noteId) => {
-    if (!openNotesId) return;
+    if (!openNotesId || !noteId) return;
+
     const ok = await ui.confirm({
-      title: 'Eliminar nota',
-      message: '¿Eliminar esta nota?',
-      confirmText: 'Eliminar',
-      cancelText: 'Cancelar',
+      title: "Eliminar nota",
+      message: "¿Eliminar esta nota?",
+      confirmText: "Eliminar",
+      cancelText: "Cancelar",
       danger: true,
     });
     if (!ok) return;
+
     try {
       await http(`/api/reservas/${openNotesId}/notes/${noteId}`, {
         method: "DELETE",
         auth: true,
       });
-      await loadNotes({ id: openNotesId });
+      await loadNotes(openNotesId);
     } catch (e) {
       console.error("Error eliminando nota", e);
-      ui.notify({ type: 'error', message: 'No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).' });
+      ui.notify({
+        type: "error",
+        message:
+          "No se pudo eliminar la nota (si el backend no tiene DELETE, se puede quitar este botón).",
+      });
     }
   };
 
@@ -657,14 +753,13 @@ export default function ReservasUser() {
     );
   }
 
-  // ==== render ====
   return (
     <div className="card contratar-page">
       <h1>Reservas</h1>
       <p className="reservas-subtitle">
-        Consulta tu calendario de reservas, gestiona su estado y abre el chat asociado desde cada reserva.
+        Consulta tu calendario de reservas, gestiona su estado y abre el chat asociado desde
+        cada reserva.
       </p>
-
 
       <div
         style={{
@@ -677,7 +772,8 @@ export default function ReservasUser() {
           fontSize: 14,
         }}
       >
-        ⚠️ <b>Cancelaciones:</b> solo es posible cancelar una reserva con más de <b>24 horas</b> de antelación.
+        ⚠️ <b>Cancelaciones:</b> solo es posible cancelar una reserva con más de <b>24 horas</b>{" "}
+        de antelación.
       </div>
 
       {/* Buscador */}
@@ -690,24 +786,30 @@ export default function ReservasUser() {
         />
       </div>
 
-      {/* ==== Calendario resumen ==== */}
+      {/* Calendario */}
       <section className="month-scheduler" style={{ marginBottom: 32 }}>
         <div className="month-header">
           <button
             className="btn-ghost"
             type="button"
-            onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))}
+            onClick={() =>
+              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
+            }
           >
             ‹
           </button>
+
           <div className="month-label">
             Calendario de reservas ·{" "}
             {mesBase.toLocaleString("es-ES", { month: "long", year: "numeric" })}
           </div>
+
           <button
             className="btn-ghost"
             type="button"
-            onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))}
+            onClick={() =>
+              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
+            }
           >
             ›
           </button>
@@ -722,12 +824,14 @@ export default function ReservasUser() {
         <div className="month-grid">
           {(() => {
             const first = new Date(mesBase.getFullYear(), mesBase.getMonth(), 1);
-            const startOffset = (first.getDay() + 6) % 7; // lunes = 0
+            const startOffset = (first.getDay() + 6) % 7; // lunes=0
             const lastDay = new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 0).getDate();
             const cells = [];
+
             for (let i = 0; i < 42; i++) {
               const dayNum = i - startOffset + 1;
               const inMonth = dayNum >= 1 && dayNum <= lastDay;
+
               let f = "";
               let isSelected = false;
               let hasReserva = false;
@@ -743,8 +847,9 @@ export default function ReservasUser() {
                 <button
                   key={i}
                   type="button"
-                  className={`daycell ${inMonth ? "" : "out"} ${isSelected ? "selected" : ""} ${hasReserva ? "has-reserva" : ""
-                    }`}
+                  className={`daycell ${inMonth ? "" : "out"} ${isSelected ? "selected" : ""} ${
+                    hasReserva ? "has-reserva" : ""
+                  }`}
                   onClick={() => {
                     if (!inMonth) return;
                     setSelectedDate(f === selectedDate ? "" : f);
@@ -774,90 +879,98 @@ export default function ReservasUser() {
         {selectedDate && (
           <div className="month-selected">
             <strong>Reservas del día: {renderFecha(selectedDate)}</strong>
+
             {reservasDelDiaSeleccionado.length === 0 ? (
               <p className="reservas-empty">No tienes reservas ese día.</p>
             ) : (
               <div className="reservas-list reservas-list--day">
-                {reservasDelDiaSeleccionado.map((r) => (
-                  <ReservaCard
-                    key={r.id}
-                    r={r}
-                    onCancel={handleCancel}
-                    onToggleNotes={handleToggleNotes}
-                    onUserDecision={handleUserDecision}
-                    onOpenChat={handleOpenChat}
-                    openingChatId={openingChatId}
-                    isNotesOpen={openNotesId === r.id}
-                    notes={notes}
-                    loadingNotes={loadingNotes}
-                    newNote={newNote}
-                    onChangeNote={setNewNote}
-                    onAddNote={handleAddNote}
-                    onDeleteNote={handleDeleteNote}
-                  />
-                ))}
+                {reservasDelDiaSeleccionado.map((r) => {
+                  const rid = reservaIdOf(r);
+                  return (
+                    <ReservaCard
+                      key={rid}
+                      r={r}
+                      onCancel={handleCancel}
+                      onToggleNotes={handleToggleNotes}
+                      onUserDecision={handleUserDecision}
+                      onOpenChat={handleOpenChat}
+                      openingChatId={openingChatId}
+                      isNotesOpen={openNotesId === rid}
+                      notes={notes}
+                      loadingNotes={loadingNotes}
+                      newNote={newNote}
+                      onChangeNote={setNewNote}
+                      onAddNote={handleAddNote}
+                      onDeleteNote={handleDeleteNote}
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
         )}
       </section>
 
-      {/* ==== Listas por estado ==== */}
+      {/* Listas por estado */}
       <section className="reservas-section">
         <h2>Pendientes por confirmar por el centro</h2>
         {pendientesCentro.length === 0 ? (
           <p className="reservas-empty">No tienes reservas pendientes de centro.</p>
         ) : (
           <div className="reservas-list">
-            {pendientesCentro.map((r) => (
-              <ReservaCard
-                key={r.id}
-                r={r}
-                onCancel={handleCancel}
-                onToggleNotes={handleToggleNotes}
-                onUserDecision={handleUserDecision}
-                onOpenChat={handleOpenChat}
-                openingChatId={openingChatId}
-                isNotesOpen={openNotesId === r.id}
-                notes={notes}
-                loadingNotes={loadingNotes}
-                newNote={newNote}
-                onChangeNote={setNewNote}
-                onAddNote={handleAddNote}
-                onDeleteNote={handleDeleteNote}
-              />
-            ))}
+            {pendientesCentro.map((r) => {
+              const rid = reservaIdOf(r);
+              return (
+                <ReservaCard
+                  key={rid}
+                  r={r}
+                  onCancel={handleCancel}
+                  onToggleNotes={handleToggleNotes}
+                  onUserDecision={handleUserDecision}
+                  onOpenChat={handleOpenChat}
+                  openingChatId={openingChatId}
+                  isNotesOpen={openNotesId === rid}
+                  notes={notes}
+                  loadingNotes={loadingNotes}
+                  newNote={newNote}
+                  onChangeNote={setNewNote}
+                  onAddNote={handleAddNote}
+                  onDeleteNote={handleDeleteNote}
+                />
+              );
+            })}
           </div>
         )}
       </section>
 
-      <section className="reservas-section">
-        <h2>Pendientes por confirmar por el usuario</h2>
-        {pendientesUsuario.length === 0 ? (
-          <p className="reservas-empty">No tienes reservas pendientes de tu aceptación.</p>
-        ) : (
+      {pendientesUsuario.length > 0 && (
+        <section className="reservas-section">
+          <h2>Pendientes (histórico)</h2>
           <div className="reservas-list">
-            {pendientesUsuario.map((r) => (
-              <ReservaCard
-                key={r.id}
-                r={r}
-                onCancel={handleCancel}
-                onToggleNotes={handleToggleNotes}
-                onUserDecision={handleUserDecision}
-                onOpenChat={handleOpenChat}
-                openingChatId={openingChatId}
-                isNotesOpen={openNotesId === r.id}
-                notes={notes}
-                loadingNotes={loadingNotes}
-                newNote={newNote}
-                onChangeNote={setNewNote}
-                onAddNote={handleAddNote}
-                onDeleteNote={handleDeleteNote}
-              />
-            ))}
+            {pendientesUsuario.map((r) => {
+              const rid = reservaIdOf(r);
+              return (
+                <ReservaCard
+                  key={rid}
+                  r={r}
+                  onCancel={handleCancel}
+                  onToggleNotes={handleToggleNotes}
+                  onUserDecision={handleUserDecision}
+                  onOpenChat={handleOpenChat}
+                  openingChatId={openingChatId}
+                  isNotesOpen={openNotesId === rid}
+                  notes={notes}
+                  loadingNotes={loadingNotes}
+                  newNote={newNote}
+                  onChangeNote={setNewNote}
+                  onAddNote={handleAddNote}
+                  onDeleteNote={handleDeleteNote}
+                />
+              );
+            })}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="reservas-section">
         <h2>Confirmadas</h2>
@@ -865,24 +978,27 @@ export default function ReservasUser() {
           <p className="reservas-empty">No tienes reservas confirmadas próximas.</p>
         ) : (
           <div className="reservas-list">
-            {confirmadasFuturas.map((r) => (
-              <ReservaCard
-                key={r.id}
-                r={r}
-                onCancel={handleCancel}
-                onToggleNotes={handleToggleNotes}
-                onUserDecision={handleUserDecision}
-                onOpenChat={handleOpenChat}
-                openingChatId={openingChatId}
-                isNotesOpen={openNotesId === r.id}
-                notes={notes}
-                loadingNotes={loadingNotes}
-                newNote={newNote}
-                onChangeNote={setNewNote}
-                onAddNote={handleAddNote}
-                onDeleteNote={handleDeleteNote}
-              />
-            ))}
+            {confirmadasFuturas.map((r) => {
+              const rid = reservaIdOf(r);
+              return (
+                <ReservaCard
+                  key={rid}
+                  r={r}
+                  onCancel={handleCancel}
+                  onToggleNotes={handleToggleNotes}
+                  onUserDecision={handleUserDecision}
+                  onOpenChat={handleOpenChat}
+                  openingChatId={openingChatId}
+                  isNotesOpen={openNotesId === rid}
+                  notes={notes}
+                  loadingNotes={loadingNotes}
+                  newNote={newNote}
+                  onChangeNote={setNewNote}
+                  onAddNote={handleAddNote}
+                  onDeleteNote={handleDeleteNote}
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -893,13 +1009,10 @@ export default function ReservasUser() {
           <p className="reservas-empty">No tienes reservas pasadas.</p>
         ) : (
           <div className="reservas-list">
-            {pasadasConfirmadas.map((r) => (
-              <ReservaCard
-                key={r.id}
-                r={r}
-                readOnly
-              />
-            ))}
+            {pasadasConfirmadas.map((r) => {
+              const rid = reservaIdOf(r);
+              return <ReservaCard key={rid} r={r} readOnly />;
+            })}
           </div>
         )}
       </section>
@@ -910,24 +1023,27 @@ export default function ReservasUser() {
           <p className="reservas-empty">No tienes reservas canceladas ni rechazadas.</p>
         ) : (
           <div className="reservas-list">
-            {canceladasRechazadas.map((r) => (
-              <ReservaCard
-                key={r.id}
-                r={r}
-                onCancel={handleCancel}
-                onToggleNotes={handleToggleNotes}
-                onUserDecision={handleUserDecision}
-                onOpenChat={handleOpenChat}
-                openingChatId={openingChatId}
-                isNotesOpen={openNotesId === r.id}
-                notes={notes}
-                loadingNotes={loadingNotes}
-                newNote={newNote}
-                onChangeNote={setNewNote}
-                onAddNote={handleAddNote}
-                onDeleteNote={handleDeleteNote}
-              />
-            ))}
+            {canceladasRechazadas.map((r) => {
+              const rid = reservaIdOf(r);
+              return (
+                <ReservaCard
+                  key={rid}
+                  r={r}
+                  onCancel={handleCancel}
+                  onToggleNotes={handleToggleNotes}
+                  onUserDecision={handleUserDecision}
+                  onOpenChat={handleOpenChat}
+                  openingChatId={openingChatId}
+                  isNotesOpen={openNotesId === rid}
+                  notes={notes}
+                  loadingNotes={loadingNotes}
+                  newNote={newNote}
+                  onChangeNote={setNewNote}
+                  onAddNote={handleAddNote}
+                  onDeleteNote={handleDeleteNote}
+                />
+              );
+            })}
           </div>
         )}
       </section>

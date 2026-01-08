@@ -12,31 +12,18 @@ import {
 
 /* ===================== Utils ===================== */
 
-// tiempo relativo tipo "hace 5 min"
+// fecha+hora exactas (no relative time)
 function relativeTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const diffMs = Date.now() - d.getTime();
-  const sec = Math.floor(diffMs / 1000);
-  if (sec < 5) return 'justo ahora';
-  if (sec < 60) return `hace ${sec} s`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `hace ${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `hace ${h} h`;
-  const dDays = Math.floor(h / 24);
-  if (dDays === 1) return 'hace 1 día';
-  if (dDays < 7) return `hace ${dDays} días`;
-  const w = Math.floor(dDays / 7);
-  if (w === 1) return 'hace 1 semana';
-  if (w < 5) return `hace ${w} semanas`;
-  const m = Math.floor(dDays / 30);
-  if (m === 1) return 'hace 1 mes';
-  if (m < 12) return `hace ${m} meses`;
-  const y = Math.floor(dDays / 365);
-  if (y === 1) return 'hace 1 año';
-  return `hace ${y} años`;
+  return d.toLocaleString('es-ES', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function perrosTexto(perroField) {
@@ -80,11 +67,50 @@ function isPastFechaHora(fecha, hora) {
   return dt.getTime() < Date.now();
 }
 
+function noteIdOf(n) {
+  const id = first(n?.id, n?._id, n?.noteId, n?.note_id, n?.uid, n?.pk);
+  return id ? String(id) : '';
+}
+
+function noteCreatedAt(n) {
+  return first(n?.created_at, n?.createdAt, n?.created, n?.timestamp);
+}
+
+function noteText(n) {
+  return String(
+    first(n?.text, n?.nota, n?.note, n?.admin_note, n?.user_note, n?.message, '')
+  ).trim();
+}
+
 function labelAutorNota(n) {
-  const rawRole = String(n?.authorRole || n?.author || '').toLowerCase().trim();
-  const role = rawRole === 'trainer' ? 'adiestrador' : rawRole === 'user' || rawRole === 'cliente' ? 'client' : rawRole;
-  const roleLabel = role === 'admin' ? 'Centro' : role === 'adiestrador' ? 'Adiestrador' : role === 'client' ? 'Cliente' : rawRole || 'Autor';
-  const who = String(n?.authorName || n?.authorEmail || '').trim();
+  const rawRole = String(
+    first(n?.author_role, n?.authorRole, n?.author, n?.role, '')
+  )
+    .toLowerCase()
+    .trim();
+
+  const role =
+    rawRole === 'trainer'
+      ? 'adiestrador'
+      : rawRole === 'user' || rawRole === 'cliente' || rawRole === 'client'
+      ? 'client'
+      : rawRole;
+
+  const roleLabel =
+    role === 'admin'
+      ? 'Centro'
+      : role === 'adiestrador'
+      ? 'Adiestrador'
+      : role === 'client'
+      ? 'Cliente'
+      : rawRole || 'Autor';
+
+  const email = String(first(n?.author_email, n?.authorEmail, n?.email, '')).trim();
+  const uid = String(
+    first(n?.author_uid, n?.authorUid, n?.author_id, n?.authorId, '')
+  ).trim();
+  const who = email || uid || String(first(n?.authorName, n?.author_name, n?.name, '')).trim();
+
   return who ? `${roleLabel} (${who})` : roleLabel;
 }
 
@@ -147,7 +173,7 @@ export default function ReservasAdmin() {
     try {
       const data = await http(`/api/reservas/${id}/notes`, {
         method: 'POST',
-        data: { text: txt },
+        data: { text: txt, nota: txt, note: txt, admin_note: txt, user_note: txt },
         auth: true,
       });
       setNoteDraftByRes((p) => ({ ...p, [id]: '' }));
@@ -176,7 +202,7 @@ export default function ReservasAdmin() {
       });
       setNotesByRes((p) => ({
         ...p,
-        [id]: (p[id] || []).filter((n) => n.id !== noteId),
+        [id]: (p[id] || []).filter((n) => noteIdOf(n) !== String(noteId)),
       }));
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo borrar la nota'));
@@ -536,8 +562,10 @@ const crearBloqueoAvanzado = async () => {
 
   const payload = {
     fecha,
-    ...(type === 'hour' ? { hora } : { allDay: true, hora: null }),
-    ...(scope === 'trainer' ? { trainerId } : { trainerId: null, scope: 'global' }),
+    ...(type === 'hour' ? { hora } : { allDay: true, all_day: true, hora: null }),
+    ...(scope === 'trainer'
+      ? { trainerId, trainer_id: trainerId, scope: 'trainer' }
+      : { trainerId: null, trainer_id: null, scope: 'global' }),
     motivo: 'Bloqueo admin',
   };
 
@@ -575,8 +603,10 @@ const eliminarBloqueoAdmin = async (b) => {
     } else {
       const payload = {
         fecha,
-        ...(blk.allDay ? { allDay: true, hora: null } : { hora }),
-        ...(trainerId ? { trainerId } : { trainerId: null, scope: 'global' }),
+        ...(blk.allDay ? { allDay: true, all_day: true, hora: null } : { hora }),
+        ...(trainerId
+          ? { trainerId, trainer_id: trainerId, scope: 'trainer' }
+          : { trainerId: null, trainer_id: null, scope: 'global' }),
       };
 
       await tryHttpCandidates([
@@ -609,11 +639,11 @@ const bloquear = async () => {
       { path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora } } },
       {
         path: '/api/bloqueos/admin',
-        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, scope: 'global' } },
+        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, trainer_id: null, scope: 'global' } },
       },
       {
         path: '/api/bloqueos',
-        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, scope: 'global' } },
+        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, trainer_id: null, scope: 'global' } },
       },
     ]);
     showSuccess('Hora bloqueada');
@@ -653,7 +683,7 @@ const bloquear = async () => {
           servicioId,
           modalidad: quickMod,
           trainerId: quickTrainerId ? String(quickTrainerId) : '',
-          status: 'pending_user',
+          status: 'pending',
           perro: (() => {
             const sel = quickDogs.filter((p) => quickDogIds.includes(p.id));
             return JSON.stringify(sel.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza, nacimiento: p.nacimiento })));
@@ -717,15 +747,56 @@ const bloquear = async () => {
 
 const blocksDayView = useMemo(() => {
   const arr = Array.isArray(blocksDay) ? blocksDay : [];
-  const key = (b) => {
-    const isGlobal = b?.isGlobal ? '0' : '1';
-    const trainer = String(b?.trainerId || '');
-    const allDay = b?.allDay ? '0' : '1';
-    const h = b?.allDay ? '' : String(b?.hora || '');
-    return `${isGlobal}-${trainer}-${allDay}-${h}`;
+  const today = new Date().toISOString().slice(0, 10);
+
+  // La fuente de verdad está en backend, pero en UI asumimos:
+  // - solo bloqueos futuros
+  // - hoy: solo horas que no han pasado
+  if (quickFecha && String(quickFecha) < today) return [];
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  const parseMin = (hhmm) => {
+    const s = String(hhmm || '').trim();
+    const [hh, mm = '0'] = s.split(':');
+    const h = Number(hh);
+    const m = Number(mm);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
   };
-  return [...arr].sort((a, b) => key(a).localeCompare(key(b)));
-}, [blocksDay]);
+
+  const filtered = arr.filter((b) => {
+    if (!b) return false;
+
+    // Si vemos "hoy", ocultamos horas pasadas (defensa extra por si backend no filtra aún)
+    if (quickFecha && String(quickFecha) === today && !b.allDay) {
+      const t = parseMin(b.hora);
+      if (t != null && t < nowMin) return false;
+    }
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    // Día completo primero
+    const aAll = a?.allDay ? 0 : 1;
+    const bAll = b?.allDay ? 0 : 1;
+    if (aAll !== bAll) return aAll - bAll;
+
+    // Hora ascendente
+    const ta = a?.allDay ? -1 : parseMin(a?.hora) ?? 1e9;
+    const tb = b?.allDay ? -1 : parseMin(b?.hora) ?? 1e9;
+    if (ta !== tb) return ta - tb;
+
+    // Global antes que adiestrador
+    const aScope = a?.isGlobal ? 0 : 1;
+    const bScope = b?.isGlobal ? 0 : 1;
+    if (aScope !== bScope) return aScope - bScope;
+
+    return String(a?.trainerId || '').localeCompare(String(b?.trainerId || ''));
+  });
+}, [blocksDay, quickFecha]);
+
 
   useEffect(() => {
     loadServicios();
@@ -1021,7 +1092,8 @@ const blocksDayView = useMemo(() => {
 
   <div style={{ marginTop: 10 }}>
     <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
-      Bloqueos del día
+      Bloqueos del día{' '}
+      <span style={{ opacity: 0.75 }}>(solo futuros; hoy solo horas no pasadas)</span>
     </div>
 
     {loadingBlocksDay ? (
@@ -1122,6 +1194,7 @@ const blocksDayView = useMemo(() => {
               title: 'Pendientes (aceptación del usuario)',
               items: adminBuckets.pendingUserAccept,
               actions: false,
+              hideIfEmpty: true,
             },
             {
               title: 'Confirmadas (próximas)',
@@ -1140,7 +1213,7 @@ const blocksDayView = useMemo(() => {
               items: adminBuckets.cancelled,
               actions: false,
             },
-          ].map((group) => (
+          ].filter((g) => !(g.hideIfEmpty && !g.items.length)).map((group) => (
             <div key={group.title}>
               <h3>{group.title}</h3>
               {!group.items.length ? (
@@ -1317,9 +1390,9 @@ const blocksDayView = useMemo(() => {
                                   Sin notas aún.
                                 </div>
                               ) : (
-                                notes.map((n) => (
+                                notes.map((n, idx) => (
                                   <div
-                                    key={n.id}
+                                    key={noteIdOf(n) || `${r.id}-note-${idx}`}
                                     className="note-item"
                                     style={{
                                       background: '#fff',
@@ -1340,13 +1413,13 @@ const blocksDayView = useMemo(() => {
                                       }}
                                     >
                                       <b>{labelAutorNota(n)}</b>{' '}
-                                      · {relativeTime(n.createdAt)}
+                                      · {relativeTime(noteCreatedAt(n))}
                                     </div>
                                     <div
                                       className="note-text"
                                       style={{ whiteSpace: 'pre-wrap' }}
                                     >
-                                      {n.text}
+                                      {noteText(n)}
                                     </div>
                                     <div
                                       className="note-actions"
@@ -1356,15 +1429,17 @@ const blocksDayView = useMemo(() => {
                                         gap: 6,
                                       }}
                                     >
-                                      <button
-                                        className="btn-ghost"
-                                        onClick={() =>
-                                          deleteNote(r.id, n.id)
-                                        }
-                                        title="Borrar nota"
-                                      >
-                                        🗑️
-                                      </button>
+                                      {n?.canDelete === true && (
+                                        <button
+                                          className="btn-ghost"
+                                          onClick={() =>
+                                            deleteNote(r.id, noteIdOf(n))
+                                          }
+                                          title="Borrar nota"
+                                        >
+                                          🗑️
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 ))

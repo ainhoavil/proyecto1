@@ -12,31 +12,84 @@ import {
 
 /* ===================== Utils ===================== */
 
-// tiempo relativo tipo "hace 5 min"
-function relativeTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const diffMs = Date.now() - d.getTime();
-  const sec = Math.floor(diffMs / 1000);
-  if (sec < 5) return 'justo ahora';
-  if (sec < 60) return `hace ${sec} s`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `hace ${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `hace ${h} h`;
-  const dDays = Math.floor(h / 24);
-  if (dDays === 1) return 'hace 1 día';
-  if (dDays < 7) return `hace ${dDays} días`;
-  const w = Math.floor(dDays / 7);
-  if (w === 1) return 'hace 1 semana';
-  if (w < 5) return `hace ${w} semanas`;
-  const m = Math.floor(dDays / 30);
-  if (m === 1) return 'hace 1 mes';
-  if (m < 12) return `hace ${m} meses`;
-  const y = Math.floor(dDays / 365);
-  if (y === 1) return 'hace 1 año';
-  return `hace ${y} años`;
+const NOTE_TIMEZONE = "Europe/Madrid";
+
+function noteCreatedAt(n) {
+  return (
+    n?.created_at ??
+    n?.createdAt ??
+    n?.created ??
+    n?.timestamp ??
+    n?.created_on ??
+    n?.createdOn ??
+    null
+  );
+}
+
+function formatNoteDateTime(value) {
+  if (!value) return "";
+  const v = typeof value === "string" ? value.replace(" ", "T") : value;
+  const d = value instanceof Date ? value : new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const opts = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  };
+  try {
+    return new Intl.DateTimeFormat("es-ES", { ...opts, timeZone: NOTE_TIMEZONE }).format(d);
+  } catch {
+    return new Intl.DateTimeFormat("es-ES", opts).format(d);
+  }
+}
+
+function labelAutorNota(n) {
+  const authorObj = n && typeof n.author === "object" && n.author ? n.author : null;
+  const authorRole = String(
+    n?.author_role ??
+      n?.authorRole ??
+      authorObj?.role ??
+      (typeof n?.author === "string" ? n.author : "") ??
+      n?.role ??
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const roleNorm =
+    authorRole === "adiestrador"
+      ? "trainer"
+      : authorRole === "cliente" || authorRole === "client"
+        ? "user"
+        : authorRole;
+
+  const roleLabel =
+    roleNorm === "admin"
+      ? "Centro"
+      : roleNorm === "trainer"
+        ? "Adiestrador"
+        : roleNorm === "user"
+          ? "Cliente"
+          : "";
+
+  const whoRaw =
+    n?.author_email ??
+    n?.authorEmail ??
+    authorObj?.email ??
+    n?.author_name ??
+    n?.authorName ??
+    authorObj?.name ??
+    n?.author_uid ??
+    n?.authorUid ??
+    authorObj?.uid ??
+    (typeof n?.author === "string" ? n.author : "") ??
+    "";
+
+  const who = String(whoRaw || "Autor").trim() || "Autor";
+  return roleLabel ? `${roleLabel}: ${who}` : who;
 }
 
 function reservaDateTimeMs(r) {
@@ -68,10 +121,15 @@ export default function ReservasTrainer() {
   const loadNotes = async (id) => {
     try {
       const rows = await http(`/api/reservas/${id}/notes`, { auth: true });
-      const arr = Array.isArray(rows) ? rows : [];
+      const arr = Array.isArray(rows?.items) ? rows.items : Array.isArray(rows) ? rows : [];
+      const ordered = [...arr].sort((a, b) => {
+        const ta = Date.parse(String(noteCreatedAt(a) || "").replace(" ", "T")) || 0;
+        const tb = Date.parse(String(noteCreatedAt(b) || "").replace(" ", "T")) || 0;
+        return ta - tb;
+      });
       setNotesByRes((p) => ({
         ...p,
-        [id]: [...arr].reverse(),
+        [id]: ordered,
       }));
     } catch (e) {
       setNotesByRes((p) => ({ ...p, [id]: [] }));
@@ -87,16 +145,28 @@ export default function ReservasTrainer() {
     const txt = (noteDraftByRes[id] || '').trim();
     if (!txt) return;
     try {
-      const n = await http(`/api/reservas/${id}/notes`, {
+      const resp = await http(`/api/reservas/${id}/notes`, {
         method: 'POST',
         data: { text: txt },
         auth: true,
       });
+
+      const items = Array.isArray(resp?.items) ? resp.items : Array.isArray(resp) ? resp : null;
       setNoteDraftByRes((p) => ({ ...p, [id]: '' }));
-      setNotesByRes((p) => ({
-        ...p,
-        [id]: [...(p[id] || []), n],
-      }));
+
+      if (items) {
+        const ordered = [...items].sort((a, b) => {
+          const ta = Date.parse(String(noteCreatedAt(a) || "").replace(" ", "T")) || 0;
+          const tb = Date.parse(String(noteCreatedAt(b) || "").replace(" ", "T")) || 0;
+          return ta - tb;
+        });
+        setNotesByRes((p) => ({ ...p, [id]: ordered }));
+      } else {
+        setNotesByRes((p) => ({
+          ...p,
+          [id]: [...(p[id] || []), resp],
+        }));
+      }
       showSuccess('Nota añadida');
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo añadir la nota'));
@@ -116,7 +186,7 @@ export default function ReservasTrainer() {
       });
       setNotesByRes((p) => ({
         ...p,
-        [id]: (p[id] || []).filter((n) => n.id !== noteId),
+        [id]: (p[id] || []).filter((n) => String(n?.id) !== String(noteId)),
       }));
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo borrar la nota'));
@@ -379,13 +449,7 @@ export default function ReservasTrainer() {
                                 </div>
                               ) : (
                                 notes.map((n) => {
-                                  const label =
-                                    n.author === 'admin'
-                                      ? 'Admin'
-                                      : n.author === 'trainer'
-                                      ? 'Adiestrador'
-                                      : 'Usuario';
-
+                                  
                                   return (
                                     <div
                                       key={n.id}
@@ -408,8 +472,7 @@ export default function ReservasTrainer() {
                                           gridColumn: '1 / span 2',
                                         }}
                                       >
-                                        <b>{label}</b> ·{' '}
-                                        {relativeTime(n.createdAt)}
+                                        <b>{labelAutorNota(n)}</b> · {formatNoteDateTime(noteCreatedAt(n))}
                                       </div>
                                       <div
                                         className="note-text"
@@ -425,16 +488,15 @@ export default function ReservasTrainer() {
                                           gap: 6,
                                         }}
                                       >
-                                        {/* Trainer puede borrar sus notas */}
-                                        <button
-                                          className="btn-ghost"
-                                          onClick={() =>
-                                            deleteNote(r.id, n.id)
-                                          }
-                                          title="Borrar nota"
-                                        >
-                                          🗑️
-                                        </button>
+                                        {n?.canDelete === true ? (
+                                          <button
+                                            className="btn-ghost"
+                                            onClick={() => deleteNote(r.id, n.id)}
+                                            title="Eliminar"
+                                          >
+                                            🗑️
+                                          </button>
+                                        ) : null}
                                       </div>
                                     </div>
                                   );

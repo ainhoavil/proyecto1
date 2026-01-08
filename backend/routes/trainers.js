@@ -1,6 +1,7 @@
 import express from "express";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
+import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ let _bloqueosHasAllDay = null;
 async function bloqueosHasTrainerIdColumn() {
   if (_bloqueosHasTrainerId !== null) return _bloqueosHasTrainerId;
   try {
+    await ensureBloqueosSchema();
     const cols = await query(`PRAGMA table_info(bloqueos)`);
     _bloqueosHasTrainerId = (cols || []).some(
       (c) => String(c?.name || "").toLowerCase() === "trainer_id"
@@ -26,6 +28,7 @@ async function bloqueosHasTrainerIdColumn() {
 async function bloqueosHasAllDayColumn() {
   if (_bloqueosHasAllDay !== null) return _bloqueosHasAllDay;
   try {
+    await ensureBloqueosSchema();
     const cols = await query(`PRAGMA table_info(bloqueos)`);
     _bloqueosHasAllDay = (cols || []).some(
       (c) => String(c?.name || "").toLowerCase() === "is_all_day"

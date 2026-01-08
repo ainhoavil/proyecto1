@@ -10,6 +10,8 @@ import {
   isTrainerAvailable,
   listEligibleTrainerIds,
 } from "../utils/availability.js";
+import { validateReservationSlot, filterHourSlotsForFecha } from "../utils/openingHours.js";
+import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
 import {
   notifyReservationCenterConfirmed,
   notifyReservationUserConfirmed,
@@ -409,11 +411,14 @@ router.get("/disponibilidad", async (req, res) => {
     const dur = Number(durationMin || 60);
     const tId = String(trainerId || "").trim();
 
-    const slots = [];
+    let slots = [];
     for (let h = BUSINESS_HOURS.start; h < BUSINESS_HOURS.end; h++) {
       if (BUSINESS_HOURS.skipHours.has(h)) continue;
       slots.push(`${String(h).padStart(2, "0")}:00`);
     }
+
+
+    slots = filterHourSlotsForFecha(String(fecha), slots);
 
     const index = await buildAvailabilityIndex({ fecha: String(fecha) });
 
@@ -491,6 +496,17 @@ router.post("/", verifyToken, async (req, res) => {
       userNote = null,
       trainerId, // '<id>' | 'any' | undefined
     } = req.body;
+
+    if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+    if (!hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
+
+    const slotCheck = validateReservationSlot(fecha, hora);
+    if (!slotCheck.ok) {
+      return res.status(400).json({
+        error: slotCheck.message || "Hora no permitida",
+        code: slotCheck.code || "SLOT_NOT_ALLOWED",
+      });
+    }
 
     const uid = req.user?.uid || null;
     const emailNorm = String(email || req.user?.email || "").trim();
@@ -1115,103 +1131,9 @@ router.get(
 
 /* ===================== NOTAS TIPO HILO ===================== */
 
-// GET /api/reservas/:id/notes
-router.get("/:id/notes", verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
 
-    const perm = await canSeeReservation(req, id);
-    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
 
-    const rows = await query(
-      `SELECT id, author, text, created_at AS createdAt
-         FROM reserva_notas
-        WHERE reserva_id=? AND deleted_at IS NULL
-        ORDER BY created_at DESC`,
-      [id]
-    );
-
-    res.json(rows);
-  } catch (e) {
-    console.error("GET /reservas/:id/notes", e);
-    res.status(500).json({ error: "No se pudieron obtener notas" });
-  }
-});
-
-// POST /api/reservas/:id/notes
-router.post("/:id/notes", verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { text = "" } = req.body || {};
-
-    const perm = await canSeeReservation(req, id);
-    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
-
-    const rol = req.user?.rol || req.user?.role || "user";
-
-    let author = "user";
-    if (rol === "adiestrador") {
-      author = "admin";
-    } else if (req.user?.isAdmin || rol === "admin") {
-      author = "admin";
-    }
-
-    const nid = uuidv4();
-    const ts = nowISO();
-
-    await query(
-      `INSERT INTO reserva_notas (id, reserva_id, author, text, created_at)
-         VALUES (?,?,?,?,?)`,
-      [nid, id, author, String(text).trim(), ts]
-    );
-
-    res
-      .status(201)
-      .json({ id: nid, author, text: String(text).trim(), createdAt: ts });
-  } catch (e) {
-    console.error("POST /reservas/:id/notes", e);
-    res.status(500).json({ error: "No se pudo crear nota" });
-  }
-});
-
-// DELETE /api/reservas/:id/notes/:noteId
-router.delete("/:id/notes/:noteId", verifyToken, async (req, res) => {
-  try {
-    const { id, noteId } = req.params;
-
-    const perm = await canSeeReservation(req, id);
-    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
-
-    const row = (
-      await query(
-        `SELECT id, author
-           FROM reserva_notas
-          WHERE id=? AND reserva_id=? AND deleted_at IS NULL
-          LIMIT 1`,
-        [noteId, id]
-      )
-    )[0];
-
-    if (!row) return res.status(404).json({ error: "Nota no encontrada" });
-
-    const rol = req.user?.rol || req.user?.role || "user";
-    const isStaff = req.user?.isAdmin || rol === "admin" || rol === "adiestrador";
-
-    if (!(isStaff || row.author === "user")) {
-      return res.status(403).json({ error: "No puedes borrar esta nota" });
-    }
-
-    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [
-      nowISO(),
-      noteId,
-    ]);
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error("DELETE /reservas/:id/notes/:noteId", e);
-    res.status(500).json({ error: "No se pudo borrar la nota" });
-  }
-});
+/* Notas de reserva: gestionadas en backend/routes/reservaNotes.js (router montado en /api/reservas) */
 
 /* ===================== Acciones directas (Admin / Adiestrador) ===================== */
 
@@ -1779,6 +1701,7 @@ router.patch("/:id", verifyToken, async (req, res) => {
 // POST /api/reservas/bloqueos
 router.post("/bloqueos", verifyToken, requireAdmin, async (req, res) => {
   try {
+    await ensureBloqueosSchema();
     const { fecha, hora } = req.body;
     if (!fecha || !hora) return res.status(400).json({ error: "Faltan campos" });
 
@@ -1799,6 +1722,7 @@ router.post("/bloqueos", verifyToken, requireAdmin, async (req, res) => {
 // DELETE /api/reservas/bloqueos?fecha=YYYY-MM-DD&hora=HH:MM
 router.delete("/bloqueos", verifyToken, requireAdmin, async (req, res) => {
   try {
+    await ensureBloqueosSchema();
     const { fecha, hora } = req.query;
     if (!fecha || !hora) return res.status(400).json({ error: "Faltan fecha y hora" });
 

@@ -2,6 +2,7 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
+import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
 
 const router = express.Router();
 
@@ -57,6 +58,7 @@ function overlaps(startA, durA, startB, durB) {
 
 async function bloqueosHasTrainerIdColumn() {
   try {
+    await ensureBloqueosSchema();
     const cols = await query(`PRAGMA table_info(bloqueos)`);
     return cols.some((c) => String(c.name).toLowerCase() === "trainer_id");
   } catch {
@@ -68,6 +70,7 @@ let _bloqueosHasAllDay = null;
 async function bloqueosHasAllDayColumn() {
   if (_bloqueosHasAllDay !== null) return _bloqueosHasAllDay;
   try {
+    await ensureBloqueosSchema();
     const cols = await query(`PRAGMA table_info(bloqueos)`);
     _bloqueosHasAllDay = cols.some(
       (c) => String(c.name).toLowerCase() === "is_all_day"

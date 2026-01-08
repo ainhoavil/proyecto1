@@ -61,14 +61,21 @@ function getDisplayedHourSlots(fechaYmd) {
   return out;
 }
 
+function padHHMM(x) {
+  if (!x) return '';
+  const [h, m = '00'] = String(x).trim().split(':');
+  if (!h) return '';
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 function normalizeTimeArray(v) {
   if (!v) return [];
-  if (Array.isArray(v)) return v.map((x) => String(x || '').trim()).filter(Boolean);
+  if (Array.isArray(v)) return v.map((x) => padHHMM(x)).filter(Boolean);
   if (typeof v === 'object') {
     // soporta formatos tipo { "09:00": true, "10:00": false }
     return Object.entries(v)
       .filter(([, val]) => !!val)
-      .map(([k]) => String(k || '').trim())
+      .map(([k]) => padHHMM(k))
       .filter(Boolean);
   }
   return [];

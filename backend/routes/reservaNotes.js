@@ -211,18 +211,38 @@ router.get("/:id/notes", verifyToken, async (req, res) => {
     const isTrainer = meRole === "adiestrador";
 
     const items = combined.map((n) => {
-      const authorUid = String(n?.authorUid || "").trim();
-      const authorEmail = String(n?.authorEmail || "").trim().toLowerCase();
-      const sameAuthor = (!!authorUid && !!meUid && authorUid === meUid) || (!!authorEmail && !!meEmail && authorEmail === meEmail);
+  const authorUidVal = String(n?.authorUid || n?.author_uid || "").trim();
+  const authorEmailVal = String(n?.authorEmail || n?.author_email || "").trim().toLowerCase();
 
-      return {
-        ...n,
-        authorRole: n?.authorRole ? normalizeRole(n.authorRole) : n?.authorRole,
-        canDelete: isAdmin || isTrainer || sameAuthor,
-      };
-    });
+  const sameAuthor =
+    (!!authorUidVal && !!meUid && authorUidVal === meUid) ||
+    (!!authorEmailVal && !!meEmail && authorEmailVal === meEmail);
 
-    res.json({ ok: true, items });
+  const roleNormalized = n?.authorRole
+    ? normalizeRole(n.authorRole)
+    : n?.author_role
+      ? normalizeRole(n.author_role)
+      : n?.authorRole;
+
+  return {
+    ...n,
+    // snake_case (contrato frontend)
+    created_at: n?.createdAt || n?.created_at || null,
+    author_uid: n?.authorUid || n?.author_uid || null,
+    author_email: n?.authorEmail || n?.author_email || null,
+    author_role: roleNormalized,
+
+    // compatibilidad (camelCase)
+    createdAt: n?.createdAt || n?.created_at || null,
+    authorUid: n?.authorUid || n?.author_uid || null,
+    authorEmail: n?.authorEmail || n?.author_email || null,
+    authorRole: roleNormalized,
+
+    canDelete: isAdmin || isTrainer || sameAuthor,
+  };
+});
+
+res.json({ ok: true, items });
   } catch (e) {
     console.error("GET /reservas/:id/notes", e);
     res.status(500).json({
@@ -301,17 +321,38 @@ router.post("/:id/notes", verifyToken, async (req, res) => {
     const isTrainer = meRole === "adiestrador";
 
     const items = combined.map((n) => {
-      const authorUid = String(n?.authorUid || "").trim();
-      const authorEmail = String(n?.authorEmail || "").trim().toLowerCase();
-      const sameAuthor = (!!authorUid && !!meUid && authorUid === meUid) || (!!authorEmail && !!meEmail && authorEmail === meEmail);
-      return {
-        ...n,
-        authorRole: n?.authorRole ? normalizeRole(n.authorRole) : n?.authorRole,
-        canDelete: isAdmin || isTrainer || sameAuthor,
-      };
-    });
+  const authorUidVal = String(n?.authorUid || n?.author_uid || "").trim();
+  const authorEmailVal = String(n?.authorEmail || n?.author_email || "").trim().toLowerCase();
 
-    res.json({ ok: true, items });
+  const sameAuthor =
+    (!!authorUidVal && !!meUid && authorUidVal === meUid) ||
+    (!!authorEmailVal && !!meEmail && authorEmailVal === meEmail);
+
+  const roleNormalized = n?.authorRole
+    ? normalizeRole(n.authorRole)
+    : n?.author_role
+      ? normalizeRole(n.author_role)
+      : n?.authorRole;
+
+  return {
+    ...n,
+    // snake_case (contrato frontend)
+    created_at: n?.createdAt || n?.created_at || null,
+    author_uid: n?.authorUid || n?.author_uid || null,
+    author_email: n?.authorEmail || n?.author_email || null,
+    author_role: roleNormalized,
+
+    // compatibilidad (camelCase)
+    createdAt: n?.createdAt || n?.created_at || null,
+    authorUid: n?.authorUid || n?.author_uid || null,
+    authorEmail: n?.authorEmail || n?.author_email || null,
+    authorRole: roleNormalized,
+
+    canDelete: isAdmin || isTrainer || sameAuthor,
+  };
+});
+
+res.json({ ok: true, items });
   } catch (e) {
     console.error("POST /reservas/:id/notes", e);
     res.status(500).json({

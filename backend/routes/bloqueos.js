@@ -1,6 +1,7 @@
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
+import { isFutureOrTodayNotPassed } from "../utils/openingHours.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
 import { notifyReservationRejected } from "../services/notifications.js";
 
@@ -21,6 +22,15 @@ async function getBloqueosCols() {
 async function ensureBloqueosSchema() {
   // Migración "suave": añadimos columnas si faltan. Si ya existen, no pasa nada.
   try {
+    await query(`CREATE TABLE IF NOT EXISTS bloqueos (
+      id TEXT PRIMARY KEY,
+      fecha TEXT NOT NULL,
+      hora TEXT DEFAULT '',
+      trainer_id TEXT,
+      is_all_day INTEGER DEFAULT 0,
+      created_at TEXT
+    )`);
+
     const cols = await getBloqueosCols();
     const stmts = [];
     if (!cols.includes("id")) stmts.push("ALTER TABLE bloqueos ADD COLUMN id TEXT");
@@ -274,7 +284,11 @@ router.get(
       sql += ` ORDER BY ${orderAllDay} ASC, hora ASC`;
 
       const rows = await query(sql, params);
-      res.json((rows || []).map(normalizeBlockRow));
+      const normalized = (rows || []).map(normalizeBlockRow);
+      const filtered = normalized.filter((b) =>
+        isFutureOrTodayNotPassed({ fecha: b.fecha, hora: b.hora, allDay: b.allDay })
+      );
+      res.json(filtered);
     } catch (e) {
       console.error("GET /bloqueos/day", e);
       res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
@@ -304,7 +318,11 @@ router.get(
         `SELECT ${selectCols.join(", ")} FROM bloqueos
          ORDER BY fecha ASC, ${orderAllDay} ASC, hora ASC`
       );
-      res.json((rows || []).map(normalizeBlockRow));
+      const normalized = (rows || []).map(normalizeBlockRow);
+      const filtered = normalized.filter((b) =>
+        isFutureOrTodayNotPassed({ fecha: b.fecha, hora: b.hora, allDay: b.allDay })
+      );
+      res.json(filtered);
     } catch (e) {
       console.error("GET /bloqueos/admin/list", e);
       res.status(500).json({ error: "No se pudieron cargar los bloqueos" });
@@ -347,7 +365,11 @@ router.get(
       sql += ` ORDER BY ${orderAllDay} ASC, hora ASC`;
 
       const rows = await query(sql, params);
-      res.json((rows || []).map(normalizeBlockRow));
+      const normalized = (rows || []).map(normalizeBlockRow);
+      const filtered = normalized.filter((b) =>
+        isFutureOrTodayNotPassed({ fecha: b.fecha, hora: b.hora, allDay: b.allDay })
+      );
+      res.json(filtered);
     } catch (e) {
       console.error("GET /bloqueos/admin/day", e);
       res.status(500).json({ error: "No se pudieron cargar los bloqueos" });

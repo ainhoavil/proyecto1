@@ -63,18 +63,83 @@ function perrosTexto(perroField) {
   }
 }
 
+const NOTE_TIMEZONE = "Europe/Madrid";
+
+function noteCreatedAt(n) {
+  return (
+    n?.created_at ??
+    n?.createdAt ??
+    n?.created ??
+    n?.timestamp ??
+    n?.created_on ??
+    n?.createdOn ??
+    null
+  );
+}
+
+function formatNoteDateTime(value) {
+  if (!value) return "";
+  const v = typeof value === "string" ? value.replace(" ", "T") : value;
+  const d = value instanceof Date ? value : new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const opts = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  };
+  try {
+    return new Intl.DateTimeFormat("es-ES", { ...opts, timeZone: NOTE_TIMEZONE }).format(d);
+  } catch {
+    return new Intl.DateTimeFormat("es-ES", opts).format(d);
+  }
+}
+
 function labelAutorNota(n) {
-  const role = String(n?.authorRole || "").toLowerCase();
+  const authorObj = n && typeof n.author === "object" && n.author ? n.author : null;
+  const authorRole = String(
+    n?.author_role ??
+      n?.authorRole ??
+      authorObj?.role ??
+      (typeof n?.author === "string" ? n.author : "") ??
+      n?.role ??
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const roleNorm =
+    authorRole === "adiestrador"
+      ? "trainer"
+      : authorRole === "cliente" || authorRole === "client"
+        ? "user"
+        : authorRole;
+
   const roleLabel =
-    role === "admin"
+    roleNorm === "admin"
       ? "Centro"
-      : role === "trainer" || role === "adiestrador"
+      : roleNorm === "trainer"
         ? "Adiestrador"
-        : role === "user" || role === "cliente" || role === "client"
+        : roleNorm === "user"
           ? "Cliente"
           : "";
-  const who =
-    String(n?.authorName || n?.authorEmail || n?.authorUid || n?.author || "Autor").trim() || "Autor";
+
+  const whoRaw =
+    n?.author_email ??
+    n?.authorEmail ??
+    authorObj?.email ??
+    n?.author_name ??
+    n?.authorName ??
+    authorObj?.name ??
+    n?.author_uid ??
+    n?.authorUid ??
+    authorObj?.uid ??
+    (typeof n?.author === "string" ? n.author : "") ??
+    "";
+
+  const who = String(whoRaw || "Autor").trim() || "Autor";
   return roleLabel ? `${roleLabel}: ${who}` : who;
 }
 
@@ -1013,9 +1078,9 @@ async function deleteReservaNote(noteId) {
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                   <span>{labelAutorNota(n)}</span>
                   <span>·</span>
-                  <span>{humanDate(n.createdAt)}</span>
+                  <span>{formatNoteDateTime(noteCreatedAt(n))}</span>
                 </div>
-                {n?.canDelete ? (
+                {n?.canDelete === true ? (
                   <button
                     type="button"
                     className="btn-outline"
