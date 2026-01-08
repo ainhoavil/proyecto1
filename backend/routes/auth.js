@@ -902,11 +902,7 @@ router.post("/role", verifyToken, requireAdmin, async (req, res) => {
     if (!ROLES.includes(rol))
       return res.status(400).json({ error: "Rol inválido" });
 
-    const uRows = await query(
-      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
-      [uid]
-    );
-    const u = uRows[0] || {};
+    const u = await getUserContact(uid);
 
     await query(`UPDATE usuarios SET rol = ? WHERE id = ?`, [rol, uid]);
     await query(`UPDATE users SET role = ? WHERE uid = ?`, [rol, uid]);

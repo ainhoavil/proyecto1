@@ -90,36 +90,6 @@ function buildDateFromFechaHora(fecha, hora) {
   return new Date(Y, (M || 1) - 1, D, h || 0, m || 0);
 }
 
-function dayOfWeekFromFecha(fecha) {
-  if (!fecha) return null;
-  const [Y, M, D] = String(fecha).split("-").map(Number);
-  if (!Y || !M || !D) return null;
-  return new Date(Y, (M || 1) - 1, D).getDay(); // 0=domingo ... 6=sábado
-}
-
-function isReservaSlotAllowed(fecha, hora) {
-  const dow = dayOfWeekFromFecha(fecha);
-  if (dow === 0) {
-    return { ok: false, reason: "NO_SUNDAY", msg: "No se puede reservar los domingos" };
-  }
-
-  if (dow === 6) {
-    const [hRaw, mRaw = "0"] = String(hora || "00:00").split(":");
-    const h = Number(hRaw);
-    const m = Number(mRaw);
-    // Última hora permitida: 13:00
-    if (Number.isFinite(h) && (h > 13 || (h === 13 && Number.isFinite(m) && m > 0))) {
-      return {
-        ok: false,
-        reason: "SAT_AFTER_13",
-        msg: "Los sábados la última hora de reserva es a las 13:00",
-      };
-    }
-  }
-
-  return { ok: true };
-}
-
 function isPast(fecha, hora) {
   const d = buildDateFromFechaHora(fecha, hora);
   if (!d) return false;
@@ -439,14 +409,10 @@ router.get("/disponibilidad", async (req, res) => {
     const dur = Number(durationMin || 60);
     const tId = String(trainerId || "").trim();
 
-    // Slots base del negocio (aplicando reglas: domingos cerrado, sábados última hora 13:00)
     const slots = [];
     for (let h = BUSINESS_HOURS.start; h < BUSINESS_HOURS.end; h++) {
       if (BUSINESS_HOURS.skipHours.has(h)) continue;
-      const slot = `${String(h).padStart(2, "0")}:00`;
-      const allowed = isReservaSlotAllowed(String(fecha), slot);
-      if (!allowed.ok) continue;
-      slots.push(slot);
+      slots.push(`${String(h).padStart(2, "0")}:00`);
     }
 
     const index = await buildAvailabilityIndex({ fecha: String(fecha) });
@@ -532,12 +498,6 @@ router.post("/", verifyToken, async (req, res) => {
       return res
         .status(400)
         .json({ error: "Faltan campos (login/email/fecha/hora)" });
-    }
-
-    // Regla de negocio: no reservas domingos; sábados última hora 13:00
-    const allowedSlot = isReservaSlotAllowed(String(fecha), String(hora));
-    if (!allowedSlot.ok) {
-      return res.status(400).json({ error: allowedSlot.msg || "Hora no permitida" });
     }
 
     // Fallback del servicio
@@ -760,12 +720,6 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
     const emailNorm = String(email || "").trim();
     if (!emailNorm || !fecha || !hora) {
       return res.status(400).json({ error: "Faltan campos (email/fecha/hora)" });
-    }
-
-    // Regla de negocio: no reservas domingos; sábados última hora 13:00
-    const allowedSlot = isReservaSlotAllowed(String(fecha), String(hora));
-    if (!allowedSlot.ok) {
-      return res.status(400).json({ error: allowedSlot.msg || "Hora no permitida" });
     }
 
     let servicioTituloSafe = servicioTitulo || null;
@@ -1159,14 +1113,109 @@ router.get(
   }
 );
 
-/* ===================== NOTAS =====================
-   NOTA: Las notas de reservas se gestionan en routes/reservaNotes.js
-   (/api/reservas/:id/notes)
-================================================== */
+/* ===================== NOTAS TIPO HILO ===================== */
+
+// GET /api/reservas/:id/notes
+router.get("/:id/notes", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const perm = await canSeeReservation(req, id);
+    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
+
+    const rows = await query(
+      `SELECT id, author, text, created_at AS createdAt
+         FROM reserva_notas
+        WHERE reserva_id=? AND deleted_at IS NULL
+        ORDER BY created_at DESC`,
+      [id]
+    );
+
+    res.json(rows);
+  } catch (e) {
+    console.error("GET /reservas/:id/notes", e);
+    res.status(500).json({ error: "No se pudieron obtener notas" });
+  }
+});
+
+// POST /api/reservas/:id/notes
+router.post("/:id/notes", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { text = "" } = req.body || {};
+
+    const perm = await canSeeReservation(req, id);
+    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
+
+    const rol = req.user?.rol || req.user?.role || "user";
+
+    let author = "user";
+    if (rol === "adiestrador") {
+      author = "admin";
+    } else if (req.user?.isAdmin || rol === "admin") {
+      author = "admin";
+    }
+
+    const nid = uuidv4();
+    const ts = nowISO();
+
+    await query(
+      `INSERT INTO reserva_notas (id, reserva_id, author, text, created_at)
+         VALUES (?,?,?,?,?)`,
+      [nid, id, author, String(text).trim(), ts]
+    );
+
+    res
+      .status(201)
+      .json({ id: nid, author, text: String(text).trim(), createdAt: ts });
+  } catch (e) {
+    console.error("POST /reservas/:id/notes", e);
+    res.status(500).json({ error: "No se pudo crear nota" });
+  }
+});
+
+// DELETE /api/reservas/:id/notes/:noteId
+router.delete("/:id/notes/:noteId", verifyToken, async (req, res) => {
+  try {
+    const { id, noteId } = req.params;
+
+    const perm = await canSeeReservation(req, id);
+    if (!perm.ok) return res.status(403).json({ error: "Sin permisos" });
+
+    const row = (
+      await query(
+        `SELECT id, author
+           FROM reserva_notas
+          WHERE id=? AND reserva_id=? AND deleted_at IS NULL
+          LIMIT 1`,
+        [noteId, id]
+      )
+    )[0];
+
+    if (!row) return res.status(404).json({ error: "Nota no encontrada" });
+
+    const rol = req.user?.rol || req.user?.role || "user";
+    const isStaff = req.user?.isAdmin || rol === "admin" || rol === "adiestrador";
+
+    if (!(isStaff || row.author === "user")) {
+      return res.status(403).json({ error: "No puedes borrar esta nota" });
+    }
+
+    await query(`UPDATE reserva_notas SET deleted_at=? WHERE id=?`, [
+      nowISO(),
+      noteId,
+    ]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /reservas/:id/notes/:noteId", e);
+    res.status(500).json({ error: "No se pudo borrar la nota" });
+  }
+});
 
 /* ===================== Acciones directas (Admin / Adiestrador) ===================== */
 
-// PATCH /api/reservas/:id/confirm  (CONFIRMA EL CENTRO → pasa a pending_user)
+// PATCH /api/reservas/:id/confirm  (CONFIRMA EL CENTRO → confirmed)
 router.patch(
   "/:id/confirm",
   verifyToken,
@@ -1177,7 +1226,7 @@ router.patch(
       const { note = "" } = req.body || {};
       await query(
         `UPDATE reservas
-          SET status='pending_user',
+          SET status='confirmed',
               admin_note=COALESCE(?,admin_note),
               updated_at=?
         WHERE id=?`,
@@ -1465,7 +1514,7 @@ router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     const rRows = await query(
-      `SELECT id, paquete_id AS paqueteId, status, fecha, hora
+      `SELECT id, paquete_id AS paqueteId, status
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
@@ -1480,13 +1529,11 @@ router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
       st === "rejected" ||
       st === "rechazada" ||
       st === "deleted" ||
-      st === "eliminada" ||
-      ((st === "confirmed" || st === "confirmada") && isPast(r.fecha, r.hora));
+      st === "eliminada";
 
     if (!puedeBorrar) {
       return res.status(400).json({
-        error:
-          "Solo se pueden borrar reservas canceladas/rechazadas o confirmadas que ya hayan pasado",
+        error: "Solo se pueden borrar reservas canceladas o rechazadas",
       });
     }
 

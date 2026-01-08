@@ -80,14 +80,6 @@ function renderPerro(perro) {
   return String(perro);
 }
 
-function labelAutorNota(n) {
-  const rawRole = String(n?.authorRole || n?.author || "").toLowerCase().trim();
-  const role = rawRole === "trainer" ? "adiestrador" : rawRole === "user" || rawRole === "cliente" ? "client" : rawRole;
-  const roleLabel = role === "admin" ? "Centro" : role === "adiestrador" ? "Adiestrador" : role === "client" ? "Cliente" : rawRole || "Autor";
-  const who = String(n?.authorName || n?.authorEmail || "").trim();
-  return who ? `${roleLabel} (${who})` : roleLabel;
-}
-
 function statusLabel(status) {
   const s = String(status || "").toLowerCase();
   if (s === "pending" || s === "pendiente") return "Pendiente centro";
@@ -269,7 +261,7 @@ function ReservaCard({
                 <div key={n.id} className="reservas-notes__item">
                   <div>
                     <div className="reservas-notes__meta">
-                      <b>{labelAutorNota(n)}</b>{" "}
+                      <b>{n.author || "Centro"}</b>{" "}
                       {n.createdAt && (
                         <span>
                           ·{" "}
@@ -284,7 +276,7 @@ function ReservaCard({
                     </div>
                     <div className="reservas-notes__text">{n.text || n.nota}</div>
                   </div>
-                  {onDeleteNote && n?.canDelete ? (
+                  {onDeleteNote && (
                     <button
                       className="btn-ghost"
                       onClick={() => onDeleteNote(n.id)}
@@ -292,7 +284,7 @@ function ReservaCard({
                     >
                       🗑
                     </button>
-                  ) : null}
+                  )}
                 </div>
               ))}
             </div>
@@ -548,7 +540,8 @@ export default function ReservasUser() {
       await cargarReservas();
     } catch (e) {
       console.error("Error cancelando reserva", e);
-      ui.notify({ type: 'error', message: 'No se pudo cancelar la reserva.' });
+      const msg = e?.data?.error || e?.message || 'No se pudo cancelar la reserva.';
+      ui.notify({ type: 'error', message: msg });
     }
   };
 
@@ -671,6 +664,21 @@ export default function ReservasUser() {
       <p className="reservas-subtitle">
         Consulta tu calendario de reservas, gestiona su estado y abre el chat asociado desde cada reserva.
       </p>
+
+
+      <div
+        style={{
+          marginTop: 10,
+          marginBottom: 14,
+          padding: "10px 12px",
+          borderRadius: 10,
+          border: "1px solid rgba(0,0,0,0.08)",
+          background: "rgba(255, 165, 0, 0.10)",
+          fontSize: 14,
+        }}
+      >
+        ⚠️ <b>Cancelaciones:</b> solo es posible cancelar una reserva con más de <b>24 horas</b> de antelación.
+      </div>
 
       {/* Buscador */}
       <div className="reservas-search">
