@@ -79,14 +79,6 @@ export default function ReservasAdmin() {
   const [notice, setNotice] = useState({ type: '', text: '' });
   const [trace, setTrace] = useState(null);
 
-useEffect(() => {
-  if (!notice?.text) return;
-  const t = setTimeout(() => {
-    clearNotice();
-  }, 8000);
-  return () => clearTimeout(t);
-}, [notice?.text]);
-
   const showSuccess = (t) => setNotice({ type: 'success', text: t });
   const showError = (t) => setNotice({ type: 'error', text: t });
   const clearNotice = () => setNotice({ type: '', text: '' });
@@ -258,7 +250,7 @@ useEffect(() => {
   /* ===== Listado admin ===== */
   const cargarAdminList = async () => {
     try {
-      // No limpiamos el aviso automáticamente: dura lo suficiente para poder leerlo.
+      clearNotice();
       const qs = new URLSearchParams({
         limit: String(adminLimit || 300),
         ...(adminFilterEmail ? { email: adminFilterEmail.trim() } : {}),
@@ -342,12 +334,11 @@ useEffect(() => {
   const [quickTrainerId, setQuickTrainerId] = useState('');
 
   // Bloqueos avanzados (admin)
-const [blockScope, setBlockScope] = useState('global'); // 'global' | 'trainer'
-const [blockType, setBlockType] = useState('hour'); // 'hour' | 'allDay'
-const [blockTrainerId, setBlockTrainerId] = useState('');
-const [blocksOpen, setBlocksOpen] = useState(false);
-const [blocksAll, setBlocksAll] = useState([]);
-const [loadingBlocksAll, setLoadingBlocksAll] = useState(false);
+  const [blockScope, setBlockScope] = useState('global'); // 'global' | 'trainer'
+  const [blockType, setBlockType] = useState('hour'); // 'hour' | 'allDay'
+  const [blockTrainerId, setBlockTrainerId] = useState('');
+  const [blocksDay, setBlocksDay] = useState([]);
+  const [loadingBlocksDay, setLoadingBlocksDay] = useState(false);
 
   useEffect(() => {
   let alive = true;
@@ -446,24 +437,28 @@ const normalizeBlock = (b) => {
   };
 };
 
-const loadBloqueosAdminList = async () => {
-  setLoadingBlocksAll(true);
+const loadBloqueosDiaAdmin = async (fecha) => {
+  const f = String(fecha || quickFecha || '').trim();
+  if (!f) return;
+
+  setLoadingBlocksDay(true);
   try {
+    const qs = new URLSearchParams({ fecha: f });
     const data = await tryHttpCandidates([
-      { path: `/api/bloqueos/admin/list`, opts: { method: 'GET' } },
-      // Fallbacks por compatibilidad (si existiesen en algún entorno)
-      { path: `/api/bloqueos/admin/day?fecha=${encodeURIComponent(String(quickFecha || '').trim())}`, opts: { method: 'GET' } },
-      { path: `/api/bloqueos/day?fecha=${encodeURIComponent(String(quickFecha || '').trim())}`, opts: { method: 'GET' } },
+      { path: `/api/bloqueos/admin/day?${qs.toString()}`, opts: { method: 'GET' } },
+      { path: `/api/reservas/bloqueos/day?${qs.toString()}`, opts: { method: 'GET' } },
+      { path: `/api/bloqueos/day?${qs.toString()}`, opts: { method: 'GET' } },
+      { path: `/api/reservas/bloqueos?${qs.toString()}`, opts: { method: 'GET' } },
     ]);
 
     const arr = normList(data?.items || data?.bloqueos || data?.blocks || data || []);
-    setBlocksAll(arr.map(normalizeBlock).filter((x) => x.fecha));
+    setBlocksDay(arr.map(normalizeBlock).filter((x) => x.fecha));
   } catch (e) {
-    setBlocksAll([]);
-    showError(serverErrMsg(e, 'No se pudieron cargar los bloqueos'));
-    setTraceErr({ action: 'GET bloqueos admin list', error: serializeErr(e) });
+    setBlocksDay([]);
+    showError(serverErrMsg(e, 'No se pudieron cargar los bloqueos del día'));
+    setTraceErr({ action: 'GET bloqueos admin day', fecha: f, error: serializeErr(e) });
   } finally {
-    setLoadingBlocksAll(false);
+    setLoadingBlocksDay(false);
   }
 };
 
@@ -491,7 +486,7 @@ const crearBloqueoAvanzado = async () => {
 
   const payload = {
     fecha,
-    ...(type === 'hour' ? { hora } : { allDay: true, hora: '' }),
+    ...(type === 'hour' ? { hora } : { allDay: true, hora: null }),
     ...(scope === 'trainer' ? { trainerId } : { trainerId: null, scope: 'global' }),
     motivo: 'Bloqueo admin',
   };
@@ -507,7 +502,7 @@ const crearBloqueoAvanzado = async () => {
     ]);
 
     showSuccess(type === 'allDay' ? 'Día bloqueado' : 'Hora bloqueada');
-    if (blocksOpen) await loadBloqueosAdminList();
+    await loadBloqueosDiaAdmin(fecha);
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo crear el bloqueo'));
@@ -530,7 +525,7 @@ const eliminarBloqueoAdmin = async (b) => {
     } else {
       const payload = {
         fecha,
-        ...(blk.allDay ? { allDay: true, hora: '' } : { hora }),
+        ...(blk.allDay ? { allDay: true, hora: null } : { hora }),
         ...(trainerId ? { trainerId } : { trainerId: null, scope: 'global' }),
       };
 
@@ -549,7 +544,7 @@ const eliminarBloqueoAdmin = async (b) => {
     }
 
     showSuccess('Bloqueo eliminado');
-    if (blocksOpen) await loadBloqueosAdminList();
+    await loadBloqueosDiaAdmin(fecha);
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo eliminar el bloqueo'));
@@ -572,7 +567,7 @@ const bloquear = async () => {
       },
     ]);
     showSuccess('Hora bloqueada');
-    if (blocksOpen) await loadBloqueosAdminList();
+    await loadBloqueosDiaAdmin(quickFecha);
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
@@ -594,6 +589,10 @@ const bloquear = async () => {
       showError('Selecciona al menos un perro para la reserva.');
       return;
     }
+    if (!quickTrainerId) {
+      showError('Selecciona un adiestrador para la reserva.');
+      return;
+    }
     try {
       await http('/api/reservas/admin', {
         method: 'POST',
@@ -604,7 +603,7 @@ const bloquear = async () => {
           servicioId,
           modalidad: quickMod,
           trainerId: quickTrainerId ? String(quickTrainerId) : '',
-          status: 'pending',
+          status: 'pending_user',
           perro: (() => {
             const sel = quickDogs.filter((p) => quickDogIds.includes(p.id));
             return JSON.stringify(sel.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza, nacimiento: p.nacimiento })));
@@ -663,34 +662,23 @@ const bloquear = async () => {
   }, [adminList]);
 
 
-const blocksAllView = useMemo(() => {
-  const arr = Array.isArray(blocksAll) ? blocksAll : [];
-  // Orden por fecha (cercano -> lejano), luego día completo, luego hora, luego global/trainer
-  const cmp = (a, b) => {
-    const fa = String(a?.fecha || '');
-    const fb = String(b?.fecha || '');
-    if (fa !== fb) return fa.localeCompare(fb);
-    const aa = a?.allDay ? 0 : 1;
-    const ab = b?.allDay ? 0 : 1;
-    if (aa !== ab) return aa - ab;
-    const ha = String(a?.hora || '');
-    const hb = String(b?.hora || '');
-    if (ha !== hb) return ha.localeCompare(hb);
-    const ga = a?.isGlobal ? 0 : 1;
-    const gb = b?.isGlobal ? 0 : 1;
-    if (ga !== gb) return ga - gb;
-    const ta = String(a?.trainerId || '');
-    const tb = String(b?.trainerId || '');
-    return ta.localeCompare(tb);
+const blocksDayView = useMemo(() => {
+  const arr = Array.isArray(blocksDay) ? blocksDay : [];
+  const key = (b) => {
+    const isGlobal = b?.isGlobal ? '0' : '1';
+    const trainer = String(b?.trainerId || '');
+    const allDay = b?.allDay ? '0' : '1';
+    const h = b?.allDay ? '' : String(b?.hora || '');
+    return `${isGlobal}-${trainer}-${allDay}-${h}`;
   };
-  return [...arr].sort(cmp);
-}, [blocksAll]);
+  return [...arr].sort((a, b) => key(a).localeCompare(key(b)));
+}, [blocksDay]);
 
   useEffect(() => {
     loadServicios();
     loadTrainers();
     cargarAdminList();
-    // Bloqueos NO se cargan al entrar; se cargan solo al pulsar "Ver bloqueos"
+    loadBloqueosDiaAdmin(quickFecha);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -958,76 +946,59 @@ const blocksAllView = useMemo(() => {
       <button className="btn-danger" onClick={crearBloqueoAvanzado}>
         Crear bloqueo
       </button>
-      <button
-        className="btn-ghost"
-        onClick={async () => {
-          if (blocksOpen) {
-            setBlocksOpen(false);
-            return;
-          }
-          setBlocksOpen(true);
-          await loadBloqueosAdminList();
-        }}
-      >
-        {blocksOpen ? 'Ocultar bloqueos' : 'Ver bloqueos'}
+      <button className="btn-ghost" onClick={() => loadBloqueosDiaAdmin(quickFecha)}>
+        Ver bloqueos
       </button>
     </div>
   </div>
 
-    {blocksOpen && (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
-        Bloqueos (todos)
-      </div>
-
-      {loadingBlocksAll ? (
-        <div className="empty">Cargando…</div>
-      ) : !blocksAllView.length ? (
-        <div className="empty">No hay bloqueos.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {blocksAllView.map((b, idx) => {
-            const labelHora = b.allDay ? 'Día completo' : b.hora || '—';
-            const scopeLabel = b.isGlobal
-              ? 'Global'
-              : trainerNameById.get(b.trainerId) || b.trainerId || 'Adiestrador';
-
-            return (
-              <div
-                key={`${b.fecha}-${b.hora}-${b.trainerId}-${idx}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                  padding: '10px 12px',
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  borderRadius: 12,
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {b.fecha} · {labelHora}
-                  </div>
-                  <div style={{ fontSize: 13, opacity: 0.8 }}>{scopeLabel}</div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button
-                    className="btn-ghost"
-                    onClick={() => eliminarBloqueoAdmin(b)}
-                    title="Eliminar bloqueo"
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+  <div style={{ marginTop: 10 }}>
+    <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
+      Bloqueos del día
     </div>
-  )}
+
+    {loadingBlocksDay ? (
+      <div className="empty">Cargando…</div>
+    ) : !blocksDayView.length ? (
+      <div className="empty">No hay bloqueos para esta fecha.</div>
+    ) : (
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {blocksDayView.map((b, idx) => {
+          const labelHora = b.allDay ? 'Día completo' : b.hora || '—';
+          const scopeLabel = b.isGlobal
+            ? 'Global'
+            : trainerNameById.get(b.trainerId) || b.trainerId || 'Adiestrador';
+          const key = b.id || `${b.fecha}-${b.hora}-${b.trainerId}-${idx}`;
+          return (
+            <span
+              key={key}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                border: '1px solid #e6e6e6',
+                borderRadius: 16,
+                padding: '6px 10px',
+                background: '#fff',
+              }}
+              title={b.id ? `id: ${b.id}` : ''}
+            >
+              <b>{labelHora}</b>
+              <span style={{ opacity: 0.8 }}>{scopeLabel}</span>
+              <button
+                className="btn-ghost"
+                onClick={() => eliminarBloqueoAdmin(b)}
+                title="Eliminar bloqueo"
+                style={{ padding: '2px 8px' }}
+              >
+                ✕
+              </button>
+            </span>
+          );
+        })}
+      </div>
+    )}
+  </div>
 </section>
       {/* Listas por estado */}
       <section style={{ marginTop: 24 }}>

@@ -118,17 +118,65 @@ async function getReservaById(reservaId) {
   return rows[0] || null;
 }
 
+function formatPerroField(perroVal) {
+  if (perroVal == null) return "";
+  // Si ya viene como array/objeto
+  if (Array.isArray(perroVal)) {
+    const names = perroVal
+      .map((p) => {
+        if (!p) return "";
+        if (typeof p === "string") return p.trim();
+        if (typeof p === "object") return safeStr(p.nombre || p.name).trim();
+        return "";
+      })
+      .filter(Boolean);
+    return names.join(", ");
+  }
+  if (typeof perroVal === "object") {
+    const n = safeStr(perroVal.nombre || perroVal.name).trim();
+    return n;
+  }
+
+  // String (a veces llega como JSON serializado)
+  const s = safeStr(perroVal).trim();
+  if (!s) return "";
+
+  const looksJson =
+    (s.startsWith("[") && s.endsWith("]")) || (s.startsWith("{") && s.endsWith("}"));
+  if (looksJson) {
+    try {
+      return formatPerroField(JSON.parse(s));
+    } catch {
+      // ignore
+    }
+  }
+
+  // Intento extra: JSON con comillas simples
+  if (s.includes("nombre") && (s.includes("{") || s.includes("["))) {
+    try {
+      return formatPerroField(JSON.parse(s.replace(/'/g, '"')));
+    } catch {
+      // ignore
+    }
+  }
+
+  return s;
+}
+
 function buildReservaLines(r) {
   if (!r) return [];
   const lines = [];
+  lines.push(`Fecha: ${r.fecha} · Hora: ${r.hora}`);
   if (r.servicioTitulo) lines.push(`Servicio: ${r.servicioTitulo}`);
+  if (r.durationMin) lines.push(`Duración: ${r.durationMin} min`);
   if (r.modalidad) lines.push(`Modalidad: ${r.modalidad}`);
-  if (r.fecha) lines.push(`Fecha: ${r.fecha}`);
-  if (r.hora) lines.push(`Hora: ${r.hora}`);
-  if (r.durationMin) lines.push(`Duración: ${Number(r.durationMin) || 60} min`);
-  const m = money(r.price, r.currency);
-  if (m) lines.push(`Precio: ${m}`);
-  if (r.perro) lines.push(`Perro: ${r.perro}`);
+  if (r.price != null) lines.push(`Precio: ${r.price} ${r.currency || "EUR"}`);
+
+  const perros = formatPerroField(r.perro);
+  if (perros) lines.push(`Perro(s): ${perros}`);
+
+  if (r.trainerName) lines.push(`Adiestrador: ${r.trainerName}`);
+
   return lines;
 }
 
@@ -153,33 +201,55 @@ export async function notifyReservationCreated(reservaId) {
     const clientEmail = normEmail(r.email);
     if (!clientEmail) return;
 
+    const status = String(r.status || "").toLowerCase();
+    const origin = String(r.origin || "").toLowerCase();
+    const needsUserAccept = status === "pending_user" || origin === "admin";
+
+    // Resolver trainer (si hay)
     const trainer = r.trainerId ? await getUserById(r.trainerId) : null;
-
-    // 1) Email al CLIENTE
-    await sendReservationEmail({
-      to: clientEmail,
-      subject: `${appName} · Reserva recibida`,
-      title: "Reserva recibida",
-      intro:
-        "Hemos recibido tu solicitud. Te avisaremos cuando el centro la confirme.",
-      lines: buildReservaLines(r),
-      actionPath: "/reservas",
-      actionText: "Ver mis reservas",
-    });
-
-    // 2) Email al ADIESTRADOR asignado (si tiene email)
     const trainerEmail = normEmail(trainer?.email);
+    const trainerName =
+      safeStr(trainer?.nombre || trainer?.name || trainer?.displayName || trainer?.email || "")
+        .trim() || safeStr(r.trainerName || "").trim();
+
+    // 1) Cliente
+    if (needsUserAccept) {
+      await sendReservationEmail({
+        to: clientEmail,
+        subject: `${appName} · Confirma tu reserva`,
+        title: "Reserva pendiente de tu confirmación",
+        intro:
+          "El centro ha creado/confirmado una reserva. Entra en DogForm para aceptarla o rechazarla.",
+        lines: buildReservaLines({ ...r, trainerName }),
+        actionPath: "/reservas",
+        actionText: "Ir a mis reservas",
+      });
+    } else {
+      await sendReservationEmail({
+        to: clientEmail,
+        subject: `${appName} · Reserva recibida`,
+        title: "Reserva recibida",
+        intro:
+          "Hemos recibido tu solicitud. Te avisaremos cuando el centro la confirme.",
+        lines: buildReservaLines({ ...r, trainerName }),
+        actionPath: "/reservas",
+        actionText: "Ver mis reservas",
+      });
+    }
+
+    // 2) Adiestrador (si aplica)
     if (trainerEmail) {
-      const who = trainer?.nombre ? `Hola ${trainer.nombre},` : "Hola,";
+      const who = trainerName ? `Hola ${trainerName},` : "Hola,";
+      const pendingTxt = needsUserAccept
+        ? " (pendiente de aceptación del cliente)"
+        : " (pendiente)";
+
       await sendReservationEmail({
         to: trainerEmail,
         subject: `${appName} · Nueva reserva asignada`,
         title: "Nueva reserva asignada",
-        intro: `${who} se te ha asignado una nueva reserva (pendiente).`,
-        lines: [
-          ...buildReservaLines(r),
-          clientEmail ? `Cliente: ${clientEmail}` : "",
-        ].filter(Boolean),
+        intro: `${who} se te ha asignado una nueva reserva${pendingTxt}.`,
+        lines: [...buildReservaLines({ ...r, trainerName }), `Cliente: ${clientEmail}`],
         actionPath: "/trainer-agenda",
         actionText: "Ver agenda",
       });

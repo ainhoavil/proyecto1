@@ -5,6 +5,16 @@ import { http } from "../../helpers/http";
 import { useUi } from "../../context/ui";
 import { useAuth } from "../../context/auth";
 
+function reservaDateTimeMs(r) {
+  const f = String(r?.fecha || "").slice(0, 10);
+  const h = String(r?.hora || "00:00").slice(0, 5) || "00:00";
+  // Nota: Date('YYYY-MM-DDTHH:mm:ss') se interpreta en local time.
+  const iso = `${f}T${h}:00`;
+  const d = new Date(iso);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
 // ==== utilidades básicas ====
 function formatEUR(value, currency = "EUR") {
   if (value == null) return "A consultar";
@@ -97,6 +107,8 @@ function ReservaCard({
   onToggleNotes,
   onUserDecision,
 
+  readOnly = false,
+
   // chat
   onOpenChat,
   openingChatId,
@@ -153,6 +165,13 @@ function ReservaCard({
             )}
           </div>
 
+          {(r.trainerName || r.trainerNombre || r.trainer) && (
+            <div style={{ fontSize: 14, marginTop: 2 }}>
+              <b>Adiestrador:</b>{" "}
+              {r.trainerName || r.trainerNombre || r.trainer}
+            </div>
+          )}
+
           {r.perro && (
             <div style={{ fontSize: 14, marginTop: 2 }}>
               <b>Perro:</b> {renderPerro(r.perro)}
@@ -183,13 +202,14 @@ function ReservaCard({
         </div>
       </div>
 
-      <div
-        style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
-        className="reservas-actions-row"
-      >
-        <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
-          📝 Notas{countNotas != null ? ` (${countNotas})` : ""}
-        </button>
+      {!readOnly && (
+        <div
+          style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
+          className="reservas-actions-row"
+        >
+          <button className="btn-secondary" onClick={() => onToggleNotes(r)}>
+            📝 Notas{countNotas != null ? ` (${countNotas})` : ""}
+          </button>
 
         {/* ✅ BOTÓN CHAT */}
         {puedeChat && (
@@ -225,10 +245,11 @@ function ReservaCard({
             Cancelar reserva
           </button>
         )}
-      </div>
+        </div>
+      )}
 
       {/* === Panel desplegable de notas dentro de la card === */}
-      {isNotesOpen && (
+      {!readOnly && isNotesOpen && (
         <div className="reservas-notes">
           {loadingNotes ? (
             <p className="reservas-notes__loading">Cargando notas…</p>
@@ -298,6 +319,7 @@ export default function ReservasUser() {
   const ui = useUi();
 
   const [reservas, setReservas] = useState([]);
+  const [trainersById, setTrainersById] = useState({});
   const [loading, setLoading] = useState(true);
 
   // chat
@@ -338,6 +360,29 @@ export default function ReservasUser() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const t = await http("/api/trainers/public");
+        const items = Array.isArray(t) ? t : t?.items || [];
+        const map = {};
+        for (const it of items) {
+          const id = String(it?.id || it?.uid || "").trim();
+          if (!id) continue;
+          const nombre = String(it?.nombre || it?.name || it?.fullName || "").trim();
+          map[id] = nombre || map[id] || "";
+        }
+        if (alive) setTrainersById(map);
+      } catch {
+        // silencioso: no bloquea la página
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // ✅ abrir chat por reserva
   const handleOpenChat = async (r) => {
     if (!r?.id) return;
@@ -371,19 +416,30 @@ export default function ReservasUser() {
     }
   };
 
+  const reservasEnriched = useMemo(() => {
+    if (!Array.isArray(reservas) || !reservas.length) return [];
+    return reservas.map((r) => {
+      const tidRaw = r?.trainerId ?? r?.trainer_id ?? r?.trainer_uid ?? r?.trainerUid;
+      const tid = String(tidRaw || "").trim();
+      const tName = tid ? String(trainersById?.[tid] || "").trim() : "";
+      return tName ? { ...r, trainerName: tName } : r;
+    });
+  }, [reservas, trainersById]);
+
   // texto de filtro
   const filtro = search.trim().toLowerCase();
 
   // reservas filtradas por búsqueda
   const reservasFiltradas = useMemo(() => {
-    if (!filtro) return reservas;
+    if (!filtro) return reservasEnriched;
 
-    return reservas.filter((r) => {
+    return reservasEnriched.filter((r) => {
       const perroStr = typeof r.perro === "string" ? r.perro : renderPerro(r.perro);
       const campos = [
         r.servicioTitulo,
         r.servicioId,
         perroStr,
+        r.trainerName,
         r.fecha,
         r.hora,
         statusLabel(r.status),
@@ -391,7 +447,7 @@ export default function ReservasUser() {
 
       return campos.some((v) => String(v || "").toLowerCase().includes(filtro));
     });
-  }, [reservas, filtro]);
+  }, [reservasEnriched, filtro]);
 
   // mapa de días con reservas (YYYY-MM-DD) usando las filtradas
   const fechasConReservas = useMemo(() => {
@@ -430,14 +486,26 @@ export default function ReservasUser() {
     [reservasFiltradas]
   );
 
-  const confirmadas = useMemo(
-    () =>
-      reservasFiltradas.filter((r) => {
-        const s = String(r.status || "").toLowerCase();
-        return s === "confirmed" || s === "confirmada";
-      }),
-    [reservasFiltradas]
-  );
+  const { confirmadasFuturas, pasadasConfirmadas } = useMemo(() => {
+    const now = Date.now();
+    const future = [];
+    const past = [];
+
+    for (const r of reservasFiltradas) {
+      const s = String(r.status || "").toLowerCase();
+      const isConfirmed = s === "confirmed" || s === "confirmada";
+      if (!isConfirmed) continue;
+      const ms = reservaDateTimeMs(r);
+      if (Number.isFinite(ms) && ms < now) past.push(r);
+      else future.push(r);
+    }
+
+    // Futuras: ascendente (más cercanas primero). Pasadas: descendente.
+    future.sort((a, b) => reservaDateTimeMs(a) - reservaDateTimeMs(b));
+    past.sort((a, b) => reservaDateTimeMs(b) - reservaDateTimeMs(a));
+
+    return { confirmadasFuturas: future, pasadasConfirmadas: past };
+  }, [reservasFiltradas]);
 
   const canceladasRechazadas = useMemo(
     () =>
@@ -777,11 +845,11 @@ export default function ReservasUser() {
 
       <section className="reservas-section">
         <h2>Confirmadas</h2>
-        {confirmadas.length === 0 ? (
-          <p className="reservas-empty">No tienes reservas confirmadas.</p>
+        {confirmadasFuturas.length === 0 ? (
+          <p className="reservas-empty">No tienes reservas confirmadas próximas.</p>
         ) : (
           <div className="reservas-list">
-            {confirmadas.map((r) => (
+            {confirmadasFuturas.map((r) => (
               <ReservaCard
                 key={r.id}
                 r={r}
@@ -797,6 +865,23 @@ export default function ReservasUser() {
                 onChangeNote={setNewNote}
                 onAddNote={handleAddNote}
                 onDeleteNote={handleDeleteNote}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="reservas-section">
+        <h2>Reservas pasadas</h2>
+        {pasadasConfirmadas.length === 0 ? (
+          <p className="reservas-empty">No tienes reservas pasadas.</p>
+        ) : (
+          <div className="reservas-list">
+            {pasadasConfirmadas.map((r) => (
+              <ReservaCard
+                key={r.id}
+                r={r}
+                readOnly
               />
             ))}
           </div>

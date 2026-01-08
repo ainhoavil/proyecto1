@@ -905,10 +905,68 @@ router.get(
   }
 );
 
+
+/* ===================== Agenda del adiestrador (compat) ===================== */
+// Alias: GET /api/reservas/trainer?fecha=YYYY-MM-DD
+router.get(
+  "/trainer",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      const fecha = String(req.query?.fecha || "").slice(0, 10);
+      if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+
+      const myId = String(req.user?.id || req.user?.uid || "");
+      if (!myId) return res.status(401).json({ error: "No autorizado" });
+
+      const rows = await query(
+        `
+        SELECT
+          id,
+          uid,
+          email,
+          fecha,
+          hora,
+          duration_min AS durationMin,
+          servicio_id AS servicioId,
+          servicio_titulo AS servicioTitulo,
+          modalidad,
+          duration,
+          price,
+          currency,
+          perro,
+          telefono,
+          direccion,
+          pricing,
+          paquete_id AS paqueteId,
+          status,
+          origin,
+          user_note AS userNote,
+          admin_note AS adminNote,
+          cancel_reason AS cancelReason,
+          trainer_id AS trainerId,
+          created_at AS createdAt,
+          updated_at AS updatedAt
+        FROM reservas
+        WHERE fecha = ? AND trainer_id = ?
+        ORDER BY hora ASC
+        `,
+        [fecha, myId]
+      );
+
+      res.json({ ok: true, items: rows });
+    } catch (err) {
+      console.error("GET /api/reservas/trainer error:", err);
+      res.status(500).json({ error: "No se pudo cargar la agenda del día" });
+    }
+  }
+);
+
+
 /* ===================== Mis reservas (adiestrador) ✅ NUEVO ===================== */
 // GET /api/reservas/mias-trainer
-router.get(
-  "/mias-trainer",
+router.get(["/mias-trainer", "/mis-trainer"],
   verifyToken,
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
@@ -969,7 +1027,7 @@ router.get(
 
 /* ===================== Mis reservas (usuario) ===================== */
 // GET /api/reservas/mias
-router.get("/mias", verifyToken, async (req, res) => {
+router.get(["/mias", "/mis"], verifyToken, async (req, res) => {
   try {
     const { uid, email } = req.user || {};
     if (!uid && !email) return res.status(401).json({ error: "No autenticado" });

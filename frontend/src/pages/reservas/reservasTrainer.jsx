@@ -39,6 +39,14 @@ function relativeTime(iso) {
   return `hace ${y} años`;
 }
 
+function reservaDateTimeMs(r) {
+  const fecha = String(r?.fecha || '').slice(0, 10);
+  const hora = String(r?.hora || '00:00').slice(0, 5);
+  if (!fecha) return null;
+  const ms = Date.parse(`${fecha}T${hora}:00`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export default function ReservasTrainer() {
   const { user, role } = useAuth();
   const [list, setList] = useState([]);
@@ -182,14 +190,19 @@ export default function ReservasTrainer() {
   const trainerBuckets = useMemo(() => {
     const pending = [];
     const confirmed = [];
+    const past = [];
     const cancelled = [];
+
+    const now = Date.now();
 
     for (const r of list) {
       const s = String(r.status || '').toLowerCase();
       if (s === 'pending' || s === 'pendiente') {
         pending.push(r);
       } else if (s === 'confirmed' || s === 'confirmada') {
-        confirmed.push(r);
+        const t = reservaDateTimeMs(r);
+        if (t != null && t < now) past.push(r);
+        else confirmed.push(r);
       } else if (
         ['cancelled', 'rejected', 'deleted', 'cancelada', 'rechazada', 'eliminada'].includes(s)
       ) {
@@ -204,9 +217,17 @@ export default function ReservasTrainer() {
         )
       );
 
+    const sortByDTDesc = (arr) =>
+      [...arr].sort((a, b) => {
+        const ta = reservaDateTimeMs(a) ?? 0;
+        const tb = reservaDateTimeMs(b) ?? 0;
+        return tb - ta;
+      });
+
     return {
       pending: sortByDT(pending),
       confirmed: sortByDT(confirmed),
+      past: sortByDTDesc(past),
       cancelled: sortByDT(cancelled),
     };
   }, [list]);
@@ -260,6 +281,12 @@ export default function ReservasTrainer() {
               actions: true,
             },
             {
+              title: 'Reservas pasadas',
+              items: trainerBuckets.past,
+              actions: false,
+              noButtons: true,
+            },
+            {
               title: 'Canceladas / Rechazadas',
               items: trainerBuckets.cancelled,
               actions: false,
@@ -303,25 +330,27 @@ export default function ReservasTrainer() {
                           {r.status}
                         </div>
 
-                        <div
-                          style={{
-                            gridColumn: '1 / -1',
-                            display: 'flex',
-                            gap: 8,
-                            alignItems: 'center',
-                            marginTop: 6,
-                          }}
-                        >
-                          <button
-                            className="btn-ghost"
-                            onClick={() => toggleNotes(r)}
+                        {!group.noButtons && (
+                          <div
+                            style={{
+                              gridColumn: '1 / -1',
+                              display: 'flex',
+                              gap: 8,
+                              alignItems: 'center',
+                              marginTop: 6,
+                            }}
                           >
-                            📝 Notas{' '}
-                            {notes.length ? `(${notes.length})` : ''}
-                          </button>
-                        </div>
+                            <button
+                              className="btn-ghost"
+                              onClick={() => toggleNotes(r)}
+                            >
+                              📝 Notas{' '}
+                              {notes.length ? `(${notes.length})` : ''}
+                            </button>
+                          </div>
+                        )}
 
-                        {isOpen && (
+                        {!group.noButtons && isOpen && (
                           <div
                             className="notes-box"
                             style={{
@@ -449,35 +478,37 @@ export default function ReservasTrainer() {
                           </div>
                         )}
 
-                        <div
-                          className="trainer-actions"
-                          style={{
-                            gridColumn: '1 / -1',
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: 8,
-                            alignItems: 'center',
-                            marginTop: 8,
-                          }}
-                        >
-                          {group.actions && canConfirm && (
-                            <button
-                              className="btn-primary"
-                              onClick={() => confirmar(r.id)}
-                            >
-                              Confirmar
-                            </button>
-                          )}
+                        {!group.noButtons && (
+                          <div
+                            className="trainer-actions"
+                            style={{
+                              gridColumn: '1 / -1',
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                              alignItems: 'center',
+                              marginTop: 8,
+                            }}
+                          >
+                            {group.actions && canConfirm && (
+                              <button
+                                className="btn-primary"
+                                onClick={() => confirmar(r.id)}
+                              >
+                                Confirmar
+                              </button>
+                            )}
 
-                          {group.actions && canReject && (
-                            <button
-                              className="btn-danger"
-                              onClick={() => rechazar(r.id)}
-                            >
-                              Rechazar
-                            </button>
-                          )}
-                        </div>
+                            {group.actions && canReject && (
+                              <button
+                                className="btn-danger"
+                                onClick={() => rechazar(r.id)}
+                              >
+                                Rechazar
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </li>
                     );
                   })}

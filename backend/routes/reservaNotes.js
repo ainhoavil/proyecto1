@@ -45,6 +45,47 @@ async function assertReservaAccess(req, reservaId) {
   return true;
 }
 
+async function hydrateAuthorFields(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return Array.isArray(rows) ? rows : [];
+  const missingUids = Array.from(
+    new Set(
+      rows
+        .filter((r) => !r?.authorEmail || !r?.authorRole)
+        .map((r) => String(r?.authorUid || "").trim())
+        .filter(Boolean)
+    )
+  );
+  if (!missingUids.length) return rows;
+
+  // Tabla de usuarios: "usuarios" (id, email, rol). Si no existe, no rompe.
+  try {
+    const placeholders = missingUids.map(() => "?").join(",");
+    const users = await query(
+      `SELECT id, email, rol FROM usuarios WHERE id IN (${placeholders})`,
+      missingUids
+    );
+
+    const map = new Map(
+      (Array.isArray(users) ? users : []).map((u) => [
+        String(u?.id || ""),
+        { email: u?.email, rol: u?.rol },
+      ])
+    );
+
+    return rows.map((r) => {
+      const uid = String(r?.authorUid || "").trim();
+      const u = map.get(uid);
+      return {
+        ...r,
+        authorEmail: r.authorEmail || u?.email || r.authorEmail,
+        authorRole: r.authorRole || u?.rol || r.authorRole,
+      };
+    });
+  } catch {
+    return rows;
+  }
+}
+
 /* ============================================================
    GET /api/reservas/:id/notes
 ============================================================ */
@@ -66,7 +107,8 @@ router.get("/:id/notes", verifyToken, allowRoles(["adiestrador", "admin"]), asyn
       [reservaId]
     );
 
-    res.json({ items: Array.isArray(rows) ? rows : [] });
+    const hydrated = await hydrateAuthorFields(Array.isArray(rows) ? rows : []);
+    res.json({ items: hydrated });
   } catch (e) {
     console.error("GET /reservas/:id/notes", e);
     res.status(500).json({
@@ -92,8 +134,20 @@ router.post("/:id/notes", verifyToken, allowRoles(["adiestrador", "admin"]), asy
     if (access !== true) return res.status(access.status).json({ error: access.error });
 
     const authorUid = String(req.user?.uid || req.user?.id || "");
-    const authorEmail = String(req.user?.email || "");
-    const authorRole = String(req.user?.rol || req.user?.role || "");
+    let authorEmail = String(req.user?.email || "").trim();
+    let authorRole = String(req.user?.rol || req.user?.role || "").trim();
+
+    if ((!authorEmail || !authorRole) && authorUid) {
+      try {
+        const u = await query(`SELECT email, rol FROM usuarios WHERE id = ? LIMIT 1`, [authorUid]);
+        if (Array.isArray(u) && u.length) {
+          authorEmail = authorEmail || String(u[0]?.email || "").trim();
+          authorRole = authorRole || String(u[0]?.rol || "").trim();
+        }
+      } catch {
+        // ignora
+      }
+    }
 
     await query(
       `INSERT INTO reserva_notes (reserva_id, author_uid, author_email, author_role, text)
@@ -111,7 +165,8 @@ router.post("/:id/notes", verifyToken, allowRoles(["adiestrador", "admin"]), asy
       [reservaId]
     );
 
-    res.json({ ok: true, items: rows });
+    const hydrated = await hydrateAuthorFields(Array.isArray(rows) ? rows : []);
+    res.json({ ok: true, items: hydrated });
   } catch (e) {
     console.error("POST /reservas/:id/notes", e);
     res.status(500).json({

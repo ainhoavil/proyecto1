@@ -1,3 +1,4 @@
+// backend/routes/auth.js
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -16,9 +17,145 @@ import {
 import { isValidEmail, hasMinLetters, isValidSpanishPhone, normalizeSpanishPhone, isStrongPassword } from "../utils/validators.js";
 
 const router = express.Router();
+function parseJSONSafe(str, fallback) {
+  try {
+    if (str == null) return fallback;
+    if (typeof str === "object") return str;
+    const s = String(str).trim();
+    if (!s) return fallback;
+    return JSON.parse(s);
+  } catch {
+    return fallback;
+  }
+}
+
+function reservaDateTimeMs(r) {
+  const f = String(r?.fecha || "").slice(0, 10);
+  const h = (String(r?.hora || "00:00").slice(0, 5) || "00:00").padStart(5, "0");
+  if (!f) return null;
+  const d = new Date(`${f}T${h}:00`);
+  if (!Number.isNaN(d.getTime())) return d.getTime();
+
+  const d2 = new Date(f);
+  if (!Number.isNaN(d2.getTime())) return d2.getTime();
+  return null;
+}
+
+async function tableHasColumn(table, col) {
+  try {
+    const cols = await query(`PRAGMA table_info(${table})`);
+    return Array.isArray(cols) && cols.some((c) => String(c?.name) === col);
+  } catch {
+    return false;
+  }
+}
+
+async function getUserContact(uid) {
+  const out = { email: "", nombre: "" };
+
+  // 1) users (uid/email)
+  try {
+    const rows = await query(`SELECT email FROM users WHERE uid=? LIMIT 1`, [uid]);
+    if (rows?.length && rows[0]?.email) out.email = String(rows[0].email).trim().toLowerCase();
+  } catch {}
+
+  // 2) usuarios (id/email/nombre según esquema)
+  try {
+    const hasEmail = await tableHasColumn("usuarios", "email");
+    const hasNombre = await tableHasColumn("usuarios", "nombre");
+    const fields = [
+      hasEmail ? "email" : null,
+      hasNombre ? "nombre" : null,
+    ].filter(Boolean).join(", ");
+
+    if (fields) {
+      const rows = await query(`SELECT ${fields} FROM usuarios WHERE id=? LIMIT 1`, [uid]);
+      if (rows?.length) {
+        if (!out.email && rows[0]?.email) out.email = String(rows[0].email).trim().toLowerCase();
+        if (rows[0]?.nombre) out.nombre = String(rows[0].nombre).trim();
+      }
+    }
+  } catch {}
+
+  return out;
+}
+
+async function rejectFutureReservationsByUid(uid, reason = "Cuenta eliminada") {
+  if (!uid) return 0;
+
+  let rows = [];
+  try {
+    rows = await query(
+      `SELECT id, fecha, hora, paquete_id AS paqueteId, status
+         FROM reservas
+        WHERE uid=?`,
+      [uid]
+    );
+  } catch (e) {
+    console.warn("[DELETE USER] No se pudieron listar reservas:", e?.message || e);
+    return 0;
+  }
+
+  const now = Date.now();
+  const toReject = (rows || []).filter((r) => {
+    const ms = reservaDateTimeMs(r);
+    if (ms == null) return false;
+    return ms >= now;
+  });
+
+  if (!toReject.length) return 0;
+
+  // Detecta columna updated_at (por compatibilidad)
+  const hasUpdatedAt = await tableHasColumn("reservas", "updated_at");
+
+  let rejected = 0;
+  for (const r of toReject) {
+    try {
+      // Ajuste de paquete (si aplica)
+      if (r.paqueteId) {
+        const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+          r.paqueteId,
+        ]);
+        if (pRows?.length) {
+          const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+          if (["pending", "pending_user", "confirmed"].includes(String(r.status))) {
+            saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+          }
+          await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+            JSON.stringify(saldo),
+            new Date().toISOString(),
+            r.paqueteId,
+          ]);
+        }
+      }
+
+      // Rechaza la reserva (no tocar pasadas)
+      if (hasUpdatedAt) {
+        await query(`UPDATE reservas SET status='rejected', updated_at=? WHERE id=?`, [
+          new Date().toISOString(),
+          r.id,
+        ]);
+      } else {
+        await query(`UPDATE reservas SET status='rejected' WHERE id=?`, [r.id]);
+      }
+
+      rejected += 1;
+    } catch (e) {
+      console.warn("[DELETE USER] No se pudo rechazar reserva", r?.id, e?.message || e);
+    }
+  }
+
+  return rejected;
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || "devsecret";
 const ROLES = ["client", "user", "admin", "adiestrador"];
 
+/* ============================================================
+   Bootstrap de Admin por .env (para no quedarte sin admin)
+   - backend/.env: ADMIN_EMAILS=tuemail@gmail.com,otro@...
+   - En el primer login/registro con ese email, se actualiza BD a rol=admin
+============================================================ */
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
@@ -88,10 +225,6 @@ async function ensureAuthTables() {
     "auth_provider TEXT DEFAULT 'local'"
   );
 
-  // Campos usados en notificaciones / panel admin
-  await ensureColumn("users", "nombre", "nombre TEXT");
-  await ensureColumn("users", "role", "role TEXT DEFAULT 'client'");
-
   // Índices (idempotentes)
   await query(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub)`
@@ -130,37 +263,6 @@ async function ensureAuthTables() {
 
 // Ejecutamos al cargar el archivo
 await ensureAuthTables();
-
-async function getUserContactByUid(uid) {
-  const uidSafe = String(uid || "").trim();
-  if (!uidSafe) return { email: null, nombre: null };
-
-  try {
-    const r1 = await query(
-      "SELECT email, nombre FROM users WHERE uid = ? LIMIT 1",
-      [uidSafe]
-    );
-    if (Array.isArray(r1) && r1.length) {
-      return { email: r1[0]?.email || null, nombre: r1[0]?.nombre || null };
-    }
-  } catch (_) {
-    // ignore and fallback
-  }
-
-  try {
-    const r2 = await query(
-      "SELECT email FROM usuarios WHERE id = ? LIMIT 1",
-      [uidSafe]
-    );
-    if (Array.isArray(r2) && r2.length) {
-      return { email: r2[0]?.email || null, nombre: null };
-    }
-  } catch (_) {
-    // ignore
-  }
-
-  return { email: null, nombre: null };
-}
 
 /* ============================================================
    Firma un token JWT
@@ -800,7 +902,11 @@ router.post("/role", verifyToken, requireAdmin, async (req, res) => {
     if (!ROLES.includes(rol))
       return res.status(400).json({ error: "Rol inválido" });
 
-    const u = await getUserContactByUid(uid);
+    const uRows = await query(
+      `SELECT email, nombre FROM usuarios WHERE id=? LIMIT 1`,
+      [uid]
+    );
+    const u = uRows[0] || {};
 
     await query(`UPDATE usuarios SET rol = ? WHERE id = ?`, [rol, uid]);
     await query(`UPDATE users SET role = ? WHERE uid = ?`, [rol, uid]);
@@ -823,7 +929,10 @@ router.delete("/users/:id", verifyToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     // Recuperar email/nombre antes de borrar (para notificación)
-    const u = await getUserContactByUid(id);
+    const u = await getUserContact(id);
+
+    // Rechazar automáticamente todas las reservas futuras (no pasadas)
+    await rejectFutureReservationsByUid(id, "Cuenta eliminada");
 
     await query("DELETE FROM users WHERE uid = ?", [id]);
     await query("DELETE FROM usuarios WHERE id = ?", [id]);
@@ -845,8 +954,11 @@ router.delete("/me", verifyToken, async (req, res) => {
     const uid = req.user?.uid;
     if (!uid) return res.status(401).json({ error: "No autenticado" });
 
-    const u = await getUserContactByUid(uid);
+    const u = await getUserContact(uid);
     const email = (u.email || req.user?.email || "").trim().toLowerCase();
+
+    // Rechazar automáticamente todas las reservas futuras (no pasadas)
+    await rejectFutureReservationsByUid(uid, "Cuenta eliminada");
 
     await query("DELETE FROM users WHERE uid = ?", [uid]);
     await query("DELETE FROM usuarios WHERE id = ?", [uid]);

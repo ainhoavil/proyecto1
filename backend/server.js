@@ -19,6 +19,7 @@ import perfilRoutes from "./routes/perfil.js";
 import perrosRoutes from "./routes/perros.js";
 import filesRoutes from "./routes/files.js";
 import trainersRoutes from "./routes/trainers.js";
+import trainerAgendaRoutes from "./routes/trainerAgenda.js";
 import trainerProfilesRoutes from "./routes/trainerProfiles.js";
 import trainerNotesRoutes from "./routes/trainerNotes.js";
 import bloqueosRoutes from "./routes/bloqueos.js";
@@ -83,6 +84,7 @@ app.get("/api/health", async (_req, res) => {
 // ==== Montar rutas principales ====
 app.use("/api/auth", authRoutes);
 app.use("/api/reservas", reservasRoutes);
+app.use("/api/reservas", trainerAgendaRoutes);
 app.use("/api/reservas", reservaNotesRoutes);
 app.use("/api/contacto", contactoRoutes);
 app.use("/api/settings", settingsRoutes);

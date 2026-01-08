@@ -40,6 +40,21 @@ function perrosTexto(perroField) {
   }
 }
 
+function labelAutorNota(n) {
+  const role = String(n?.authorRole || "").toLowerCase();
+  const roleLabel =
+    role === "admin"
+      ? "Centro"
+      : role === "trainer" || role === "adiestrador"
+        ? "Adiestrador"
+        : role === "user" || role === "cliente"
+          ? "Cliente"
+          : "";
+  const who =
+    String(n?.authorName || n?.authorEmail || n?.authorUid || n?.author || "Autor").trim() || "Autor";
+  return roleLabel ? `${roleLabel}: ${who}` : who;
+}
+
 export default function TrainerAgenda() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -913,7 +928,7 @@ async function addReservaNote() {
           notesItems.map((n) => (
             <div key={n.id} style={{ padding: "8px 6px", borderBottom: "1px solid #f2f2f2" }}>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, opacity: 0.8 }}>
-                <span>{n.authorEmail || n.authorUid || "autor"}</span>
+                <span>{labelAutorNota(n)}</span>
                 <span>·</span>
                 <span>{n.createdAt || ""}</span>
               </div>

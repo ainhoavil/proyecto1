@@ -231,4 +231,119 @@ router.post(
   }
 );
 
-export default router;
+export default router
+// GET /api/reservas/trainer/day?fecha=YYYY-MM-DD
+router.get(
+  "/trainer/day",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      const { fecha } = req.query || {};
+      const trainerId = String(req.user?.id || req.user?.uid || "");
+      if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+      if (!trainerId) return res.status(401).json({ error: "No autorizado" });
+
+      // Detecta columnas reales por compatibilidad
+      const cols = await query("PRAGMA table_info(reservas)");
+      const has = (name) => Array.isArray(cols) && cols.some((c) => String(c?.name) === name);
+
+      const trainerCol = has("trainer_id") ? "trainer_id" : has("trainerId") ? "trainerId" : "trainer_id";
+      const durationCol = has("duration_min") ? "duration_min" : has("durationMin") ? "durationMin" : null;
+      const servicioCol = has("servicio_titulo")
+        ? "servicio_titulo"
+        : has("servicioTitulo")
+        ? "servicioTitulo"
+        : null;
+      const perroCol = has("perro") ? "perro" : null;
+      const uidCol = has("uid") ? "uid" : null;
+      const emailCol = has("email") ? "email" : null;
+      const modalidadCol = has("modalidad") ? "modalidad" : null;
+      const statusCol = has("status") ? "status" : null;
+
+      const sql = `
+        SELECT
+          id,
+          fecha,
+          hora,
+          ${durationCol ? `${durationCol} AS durationMin` : "NULL AS durationMin"},
+          ${statusCol ? `${statusCol} AS status` : "NULL AS status"},
+          ${modalidadCol ? `${modalidadCol} AS modalidad` : "NULL AS modalidad"},
+          ${servicioCol ? `${servicioCol} AS servicioTitulo` : "NULL AS servicioTitulo"},
+          ${emailCol ? `${emailCol} AS email` : "NULL AS email"},
+          ${uidCol ? `${uidCol} AS uid` : "NULL AS uid"},
+          ${perroCol ? `${perroCol} AS perro` : "NULL AS perro"}
+        FROM reservas
+        WHERE ${trainerCol} = ?
+          AND fecha = ?
+          ${statusCol ? "AND status IN ('pending','pending_user','confirmed')" : ""}
+        ORDER BY hora ASC
+      `;
+
+      const rows = await query(sql, [trainerId, String(fecha).slice(0, 10)]);
+      res.json(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error("GET /api/reservas/trainer/day", e);
+      res.status(500).json({ error: "No se pudo cargar la agenda del día" });
+    }
+  }
+);
+
+
+/* Mis reservas (adiestrador) - compat */
+// GET /api/reservas/mias-trainer?limit=300
+router.get(
+  "/mias-trainer",
+  verifyToken,
+  allowRoles(["adiestrador", "admin"]),
+  async (req, res) => {
+    try {
+      const myId = String(req.user?.id || req.user?.uid || "");
+      if (!myId) return res.status(401).json({ error: "No autorizado" });
+
+      const limit = Math.min(Number(req.query?.limit || 300), 1000);
+
+      const cols = await query("PRAGMA table_info(reservas)");
+      const has = (name) => Array.isArray(cols) && cols.some((c) => String(c?.name) === name);
+
+      const trainerCol = has("trainer_id") ? "trainer_id" : has("trainerId") ? "trainerId" : "trainer_id";
+      const durationCol = has("duration_min") ? "duration_min" : has("durationMin") ? "durationMin" : null;
+      const servicioCol = has("servicio_titulo")
+        ? "servicio_titulo"
+        : has("servicioTitulo")
+        ? "servicioTitulo"
+        : null;
+      const perroCol = has("perro") ? "perro" : null;
+      const uidCol = has("uid") ? "uid" : null;
+      const emailCol = has("email") ? "email" : null;
+      const modalidadCol = has("modalidad") ? "modalidad" : null;
+      const statusCol = has("status") ? "status" : null;
+
+      const sql = `
+        SELECT
+          id,
+          fecha,
+          hora,
+          ${durationCol ? `${durationCol} AS durationMin` : "NULL AS durationMin"},
+          ${statusCol ? `${statusCol} AS status` : "NULL AS status"},
+          ${modalidadCol ? `${modalidadCol} AS modalidad` : "NULL AS modalidad"},
+          ${servicioCol ? `${servicioCol} AS servicioTitulo` : "NULL AS servicioTitulo"},
+          ${emailCol ? `${emailCol} AS email` : "NULL AS email"},
+          ${uidCol ? `${uidCol} AS uid` : "NULL AS uid"},
+          ${perroCol ? `${perroCol} AS perro` : "NULL AS perro"}
+        FROM reservas
+        WHERE ${trainerCol} = ?
+          ${statusCol ? "AND status IN ('pending','pending_user','confirmed')" : ""}
+        ORDER BY fecha DESC, hora DESC
+        LIMIT ?
+      `;
+      const rows = await query(sql, [myId, limit]);
+      res.json(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error("GET /api/reservas/mias-trainer", e);
+      res.status(500).json({ error: "No se pudieron cargar las reservas" });
+    }
+  }
+);
+
+;

@@ -34,12 +34,30 @@ const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 const getDogId = (p) => String(p?.id ?? p?.uid ?? p?._id ?? '').trim();
 const DISPLAY_HOURS = { start: 9, end: 20, skip: new Set([14, 15]) };
 
-function getDisplayedHourSlots() {
+function dayOfWeekFromYMD(ymdStr) {
+  const s = String(ymdStr || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).getDay(); // local time
+}
+
+function getDisplayedHourSlots(fechaYmd) {
+  const dow = dayOfWeekFromYMD(fechaYmd);
+  // Domingos: cerrado
+  if (dow === 0) return [];
+
   const out = [];
   for (let h = DISPLAY_HOURS.start; h <= DISPLAY_HOURS.end; h++) {
     if (DISPLAY_HOURS.skip.has(h)) continue;
     out.push(`${String(h).padStart(2, '0')}:00`);
   }
+
+  // Sábados: a partir de las 14:00 no disponible (13:00 es la última hora)
+  if (dow === 6) return out.filter((t) => Number(String(t).slice(0, 2)) < 14);
+
   return out;
 }
 
@@ -263,7 +281,15 @@ export default function Contratar() {
     const day = String(f || '').trim();
     if (!day) return;
 
-    const displayedSlots = getDisplayedHourSlots();
+    const displayedSlots = getDisplayedHourSlots(day);
+
+    if (!displayedSlots.length) {
+      setHorasLibres([]);
+      setUnavailable([]);
+      setAvailabilityHint('No hay disponibilidad para esta fecha (centro cerrado).');
+      setLoadingAvailability(false);
+      return;
+    }
 
     setLoadingAvailability(true);
     setAvailabilityHint('');
@@ -354,7 +380,7 @@ export default function Contratar() {
     } catch (e) {
       console.error('Error disponibilidad', e);
       setHorasLibres([]);
-      setUnavailable(getDisplayedHourSlots());
+      setUnavailable(getDisplayedHourSlots(fecha));
       setAvailabilityHint('❌ No se pudo cargar la disponibilidad. Inténtalo de nuevo.');
       if (hora) setHora('');
     } finally {
@@ -817,10 +843,11 @@ export default function Contratar() {
                   f = ymd(d);
 
                   const dow = d.getDay();
-                  const isWeekend = dow === 0 || dow === 6;
+                  // Domingo: cerrado. Sábado: permitido (pero con horas limitadas en el selector).
+                  const isClosedDay = dow === 0;
                   const isPast = f < todayYMD();
 
-                  disabled = isWeekend || isPast;
+                  disabled = isClosedDay || isPast;
                   isSelected = f === fecha;
                 }
 

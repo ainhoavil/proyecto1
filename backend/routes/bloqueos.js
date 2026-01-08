@@ -2,6 +2,7 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
+import { notifyReservationRejected } from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -25,6 +26,9 @@ async function ensureBloqueosSchema() {
     if (!cols.includes("id")) stmts.push("ALTER TABLE bloqueos ADD COLUMN id TEXT");
     if (!cols.includes("trainer_id")) stmts.push("ALTER TABLE bloqueos ADD COLUMN trainer_id TEXT");
     if (!cols.includes("created_at")) stmts.push("ALTER TABLE bloqueos ADD COLUMN created_at TEXT");
+    // En el proyecto ya se usa "is_all_day" en otros endpoints; mantenemos compatibilidad.
+    if (!cols.includes("is_all_day")) stmts.push("ALTER TABLE bloqueos ADD COLUMN is_all_day INTEGER DEFAULT 0");
+    // Algunos patches antiguos añadían "all_day". Si existe, lo seguimos soportando.
     if (!cols.includes("all_day")) stmts.push("ALTER TABLE bloqueos ADD COLUMN all_day INTEGER DEFAULT 0");
     for (const sql of stmts) {
       try {
@@ -78,10 +82,137 @@ function normHora(h) {
   return s.slice(0, 5);
 }
 
+
+/* ===================== Auto-rechazo de reservas por bloqueo (admin) ===================== */
+
+let _reservasColsPromise = null;
+async function getReservasCols() {
+  if (_reservasColsPromise) return _reservasColsPromise;
+  _reservasColsPromise = query("PRAGMA table_info(reservas)")
+    .then((rows) => (Array.isArray(rows) ? rows.map((r) => r.name) : []))
+    .catch(() => []);
+  return _reservasColsPromise;
+}
+
+function pickFirstExisting(cols, candidates) {
+  const set = new Set((cols || []).map((c) => String(c).toLowerCase()));
+  for (const c of candidates) {
+    if (set.has(String(c).toLowerCase())) return c;
+  }
+  return null;
+}
+
+function parseJSONSafe(value, fallback) {
+  try {
+    if (value == null || value === "") return fallback;
+    const v = typeof value === "string" ? JSON.parse(value) : value;
+    return v && typeof v === "object" ? v : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+async function autoRejectConflictingReservations({
+  fecha,
+  hora,
+  allDay,
+  scope,
+  trainerId,
+  note = "Auto-rechazada por bloqueo",
+} = {}) {
+  try {
+    const cols = await getReservasCols();
+    const statusCol = pickFirstExisting(cols, ["status"]);
+    const fechaCol = pickFirstExisting(cols, ["fecha", "date"]);
+    const horaCol = pickFirstExisting(cols, ["hora", "time"]);
+    const trainerCol = pickFirstExisting(cols, ["trainer_id", "entrenador_id", "trainerId", "trainer_id"]);
+    const paqueteCol = pickFirstExisting(cols, ["paquete_id", "paqueteId", "package_id"]);
+
+    if (!statusCol || !fechaCol) return { count: 0, ids: [] };
+
+    let sql = `SELECT id,
+      ${paqueteCol ? `${paqueteCol} AS paqueteId,` : "NULL AS paqueteId,"}
+      ${statusCol} AS status
+      ${trainerCol ? `, ${trainerCol} AS trainerId` : "" }
+      FROM reservas
+      WHERE ${fechaCol} = ?
+        AND ${statusCol} IN ('pending','pending_user','confirmed')`;
+
+    const params = [fecha];
+
+    if (!allDay && horaCol) {
+      sql += ` AND ${horaCol} = ?`;
+      params.push(hora);
+    }
+
+    // Scope: global (todos) o por trainer
+    if (String(scope || "").toLowerCase() !== "global" && trainerCol) {
+      sql += ` AND ${trainerCol} = ?`;
+      params.push(String(trainerId || ""));
+    }
+
+    const rows = await query(sql, params);
+    const ids = (rows || []).map((r) => String(r.id)).filter(Boolean);
+    if (!ids.length) return { count: 0, ids: [] };
+
+    for (const r of rows) {
+      const reservaId = String(r.id || "");
+      if (!reservaId) continue;
+
+      // 1) Marcar reserva como rechazada
+      try {
+        await query(
+          `UPDATE reservas
+             SET status='rejected',
+                 admin_note=?,
+                 updated_at=?
+           WHERE id=?`,
+          [note, nowISO(), reservaId]
+        );
+      } catch (e) {
+        console.error("autoReject: update reserva", reservaId, e);
+        continue;
+      }
+
+      // 2) Ajuste de saldo en paquetes (best-effort)
+      const paqueteId = r.paqueteId != null ? String(r.paqueteId) : "";
+      if (paqueteId) {
+        try {
+          const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [paqueteId]);
+          if (pRows?.length) {
+            const saldo = parseJSONSafe(pRows[0].saldo, { total: 1, usadas: 0, pendientes: 0 });
+            saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+            await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+              JSON.stringify(saldo),
+              nowISO(),
+              paqueteId,
+            ]);
+          }
+        } catch (e) {
+          console.error("autoReject: update paquete", paqueteId, e);
+        }
+      }
+
+      // 3) Email best-effort
+      try {
+        void notifyReservationRejected(reservaId, { note });
+      } catch (_) {}
+    }
+
+    return { count: ids.length, ids };
+  } catch (e) {
+    console.error("autoRejectConflictingReservations", e);
+    return { count: 0, ids: [] };
+  }
+}
+
 function normalizeBlockRow(row) {
   if (!row) return row;
   const r = { ...row };
+  if (r.is_all_day != null) r.is_all_day = Number(r.is_all_day) ? 1 : 0;
   if (r.all_day != null) r.all_day = Number(r.all_day) ? 1 : 0;
+  // Conveniencia para frontend
+  if (r.allDay == null) r.allDay = Boolean(Number(r.is_all_day ?? r.all_day ?? 0));
   if (r.hora == null) r.hora = "";
   return r;
 }
@@ -90,16 +221,22 @@ function buildSelectCols(cols) {
   const hasId = cols.includes("id");
   const hasTrainer = cols.includes("trainer_id");
   const hasCreatedAt = cols.includes("created_at");
+  const hasIsAllDay = cols.includes("is_all_day");
   const hasAllDay = cols.includes("all_day");
+  const allDayCol = hasIsAllDay ? "is_all_day" : hasAllDay ? "all_day" : null;
 
   const selectCols = [];
   if (hasId) selectCols.push("id");
   selectCols.push("fecha", "hora");
   if (hasTrainer) selectCols.push("trainer_id");
-  if (hasAllDay) selectCols.push("all_day");
+  if (allDayCol) {
+    // Normalizamos a "is_all_day" hacia el frontend
+    if (allDayCol === "is_all_day") selectCols.push("is_all_day");
+    else selectCols.push("all_day AS is_all_day");
+  }
   if (hasCreatedAt) selectCols.push("created_at");
 
-  return { selectCols, hasId, hasTrainer, hasCreatedAt, hasAllDay };
+  return { selectCols, hasId, hasTrainer, hasCreatedAt, allDayCol };
 }
 
 /**
@@ -118,7 +255,7 @@ router.get(
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
 
       const cols = await getBloqueosCols();
-      const { selectCols, hasTrainer, hasAllDay } = buildSelectCols(cols);
+      const { selectCols, hasTrainer, allDayCol } = buildSelectCols(cols);
 
       const params = [fecha];
       let sql = `SELECT ${selectCols.join(", ")} FROM bloqueos WHERE fecha = ?`;
@@ -130,8 +267,8 @@ router.get(
         params.push(trainerId);
       }
 
-      const orderAllDay = hasAllDay
-        ? "CASE WHEN all_day = 1 THEN 0 ELSE 1 END"
+      const orderAllDay = allDayCol
+        ? `CASE WHEN ${allDayCol} = 1 THEN 0 ELSE 1 END`
         : "CASE WHEN hora IS NULL OR hora = '' THEN 0 ELSE 1 END";
 
       sql += ` ORDER BY ${orderAllDay} ASC, hora ASC`;
@@ -157,10 +294,10 @@ router.get(
     try {
       await ensureBloqueosSchema();
       const cols = await getBloqueosCols();
-      const { selectCols, hasAllDay } = buildSelectCols(cols);
+      const { selectCols, allDayCol } = buildSelectCols(cols);
 
-      const orderAllDay = hasAllDay
-        ? "CASE WHEN all_day = 1 THEN 0 ELSE 1 END"
+      const orderAllDay = allDayCol
+        ? `CASE WHEN ${allDayCol} = 1 THEN 0 ELSE 1 END`
         : "CASE WHEN hora IS NULL OR hora = '' THEN 0 ELSE 1 END";
 
       const rows = await query(
@@ -190,7 +327,7 @@ router.get(
       if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
 
       const cols = await getBloqueosCols();
-      const { selectCols, hasTrainer, hasAllDay } = buildSelectCols(cols);
+      const { selectCols, hasTrainer, allDayCol } = buildSelectCols(cols);
 
       const params = [fecha];
       let sql = `SELECT ${selectCols.join(", ")} FROM bloqueos WHERE fecha = ?`;
@@ -203,8 +340,8 @@ router.get(
         }
       }
 
-      const orderAllDay = hasAllDay
-        ? "CASE WHEN all_day = 1 THEN 0 ELSE 1 END"
+      const orderAllDay = allDayCol
+        ? `CASE WHEN ${allDayCol} = 1 THEN 0 ELSE 1 END`
         : "CASE WHEN hora IS NULL OR hora = '' THEN 0 ELSE 1 END";
 
       sql += ` ORDER BY ${orderAllDay} ASC, hora ASC`;
@@ -225,18 +362,19 @@ async function createBloqueo(req, res) {
     const fecha = normFecha(req.body?.fecha ?? req.body?.date ?? req.body?.dia);
     const allDay = isAllDayBody(req.body);
     const hora = allDay ? "" : normHora(req.body?.hora ?? req.body?.time);
+    // Solo aplica para admin: "global" o "trainer" (cualquier valor != global se interpreta como por adiestrador)
+    const scope = String(req.body?.scope || "global").toLowerCase();
 
     if (!fecha) return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
     if (!allDay && !hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
 
     const cols = await getBloqueosCols();
-    const { hasTrainer, hasId, hasCreatedAt, hasAllDay } = buildSelectCols(cols);
+    const { hasTrainer, hasId, hasCreatedAt, allDayCol } = buildSelectCols(cols);
 
     // Trainer ID (solo si la tabla lo soporta)
     let trainerId = null;
     if (hasTrainer) {
       if (isAdminReq(req)) {
-        const scope = String(req.body?.scope || "").toLowerCase();
         const tid = String(req.body?.trainerId ?? req.body?.trainer_id ?? "").trim();
         trainerId = scope === "global" || !tid ? null : tid;
       } else {
@@ -257,9 +395,9 @@ async function createBloqueo(req, res) {
         dupParams.push(String(trainerId));
       }
     }
-    if (hasAllDay) {
+    if (allDayCol) {
       // si es día completo, lo consideramos duplicado si hay otro día completo para ese scope
-      dupSql += " AND all_day = ?";
+      dupSql += ` AND ${allDayCol} = ?`;
       dupParams.push(allDay ? 1 : 0);
     }
     const dup = await query(dupSql, dupParams);
@@ -284,8 +422,8 @@ async function createBloqueo(req, res) {
     // IMPORTANTE: para día completo guardamos "" (no NULL) para esquemas legacy con NOT NULL
     params.push(allDay ? "" : hora);
 
-    if (hasAllDay) {
-      insertCols.push("all_day");
+    if (allDayCol) {
+      insertCols.push(allDayCol);
       values.push("?");
       params.push(allDay ? 1 : 0);
     }
@@ -307,7 +445,24 @@ async function createBloqueo(req, res) {
       params
     );
 
-    res.status(201).json({ ok: true });
+    // Si el admin crea un bloqueo, y ya existían reservas para ese día/hora (o día completo),
+    // las rechazamos automáticamente (incluye confirmadas).
+    let autoRejected = { count: 0, ids: [] };
+    if (isAdminReq(req)) {
+      const scopeNorm = scope || "global";
+      autoRejected = await autoRejectConflictingReservations({
+        fecha,
+        hora,
+        allDay,
+        scope: scopeNorm,
+        trainerId: scopeNorm === "global" ? null : trainerId,
+        note: allDay
+          ? "Auto-rechazada por bloqueo (día completo)"
+          : "Auto-rechazada por bloqueo (hora)",
+      });
+    }
+
+    res.status(201).json({ ok: true, autoRejected: autoRejected.count });
   } catch (e) {
     console.error("POST /bloqueos", e);
     res.status(500).json({ error: "No se pudo crear el bloqueo" });
@@ -363,18 +518,17 @@ router.delete(
       if (!allDay && !hora) return res.status(400).json({ error: "Falta hora (HH:MM)" });
 
       const cols = await getBloqueosCols();
-      const hasTrainer = cols.includes("trainer_id");
-      const hasAllDay = cols.includes("all_day");
+      const { hasTrainer, allDayCol } = buildSelectCols(cols);
 
       const delHora = allDay ? "" : hora;
       const params = [fecha, delHora];
       let sql = "DELETE FROM bloqueos WHERE fecha = ? AND hora = ?";
 
-      if (hasAllDay) {
-        sql += " AND all_day = ?";
+      if (allDayCol) {
+        sql += ` AND ${allDayCol} = ?`;
         params.push(allDay ? 1 : 0);
       } else if (allDay) {
-        // sin columna all_day, lo tratamos como "hora vacía"
+        // sin columna de día completo, lo tratamos como "hora vacía"
       }
 
       if (hasTrainer) {
