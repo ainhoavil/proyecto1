@@ -13,6 +13,36 @@ function padHHMM(x) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+function dayOfWeekFromFecha(fecha) {
+  if (!fecha) return null;
+  const [Y, M, D] = String(fecha).split("-").map(Number);
+  if (!Y || !M || !D) return null;
+  return new Date(Y, (M || 1) - 1, D).getDay(); // 0=domingo ... 6=sábado
+}
+
+function isReservaSlotAllowed(fecha, hora) {
+  const dow = dayOfWeekFromFecha(fecha);
+  if (dow === 0) {
+    return { ok: false, reason: "NO_SUNDAY", msg: "No se puede reservar los domingos" };
+  }
+
+  if (dow === 6) {
+    const [hRaw, mRaw = "0"] = String(hora || "00:00").split(":");
+    const h = Number(hRaw);
+    const m = Number(mRaw);
+    // Última hora permitida: 13:00
+    if (Number.isFinite(h) && (h > 13 || (h === 13 && Number.isFinite(m) && m > 0))) {
+      return {
+        ok: false,
+        reason: "SAT_AFTER_13",
+        msg: "Los sábados la última hora de reserva es a las 13:00",
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 function overlaps(startA, durA, startB, durB) {
   const toMin = (hhmm) => {
     const [h, m] = String(hhmm || "00:00").split(":").map(Number);
@@ -100,6 +130,12 @@ router.post(
 
       if (!clienteId || !servicioId || !fecha || !hora) {
         return res.status(400).json({ error: "Faltan campos (cliente/servicio/fecha/hora)" });
+      }
+
+      // Regla de negocio: no reservas domingos; sábados última hora 13:00
+      const allowedSlot = isReservaSlotAllowed(fecha, hora);
+      if (!allowedSlot.ok) {
+        return res.status(400).json({ error: allowedSlot.msg || "Hora no permitida" });
       }
 
       // 1) email del cliente

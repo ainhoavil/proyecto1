@@ -7,6 +7,29 @@ function todayYMD() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function dayOfWeekFromYMD(ymd) {
+  const [y, m, d] = String(ymd || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d).getDay(); // 0=domingo ... 6=sábado
+}
+
+function getDisplayedHourSlots(ymd) {
+  const dow = dayOfWeekFromYMD(ymd);
+  if (dow === 0) return []; // domingo cerrado
+  if (dow === 6) return HOURS.filter((h) => h <= 13); // sábado: última hora 13
+  return HOURS;
+}
+
+function isPastFechaHora(fecha, hora) {
+  const [y, m, d] = String(fecha || "").split("-").map(Number);
+  const [hh, mm = "0"] = String(hora || "00:00").split(":");
+  const h = Number(hh);
+  const mi = Number(mm);
+  if (!y || !m || !d || !Number.isFinite(h)) return false;
+  const dt = new Date(y, m - 1, d, h, Number.isFinite(mi) ? mi : 0);
+  return dt.getTime() < Date.now();
+}
+
 function statusLabel(status) {
   const s = canonStatus(status);
   if (s === "pending") return "Pendiente (centro)";
@@ -47,7 +70,7 @@ function labelAutorNota(n) {
       ? "Centro"
       : role === "trainer" || role === "adiestrador"
         ? "Adiestrador"
-        : role === "user" || role === "cliente"
+        : role === "user" || role === "cliente" || role === "client"
           ? "Cliente"
           : "";
   const who =
@@ -79,6 +102,18 @@ export default function TrainerAgenda() {
   // Modo de click en slots
   const [mode, setMode] = useState("create"); // "create" | "block"
   const [selectedHora, setSelectedHora] = useState(""); // "HH:MM" seleccionado en el panel de horas
+
+  // Horas visibles según reglas de negocio (domingo cerrado, sábado hasta 13)
+  const displayedHours = useMemo(() => getDisplayedHourSlots(fecha), [fecha]);
+
+  // Si cambio de fecha y la hora seleccionada ya no es válida, la limpiamos
+  useEffect(() => {
+    if (!selectedHora) return;
+    const hh = Number(String(selectedHora).split(":")[0]);
+    if (!Number.isFinite(hh) || !displayedHours.includes(hh)) {
+      setSelectedHora("");
+    }
+  }, [fecha, displayedHours, selectedHora]);
 
   // ✅ Inbox / list de reservas del adiestrador
   const [misReservas, setMisReservas] = useState([]);
@@ -429,6 +464,18 @@ const [notesError, setNotesError] = useState("");
     return arr;
   }, [misReservas]);
 
+  const { reservasPasadasConfirmadas, reservasNoPasadas } = useMemo(() => {
+    const past = [];
+    const cur = [];
+    for (const r of Array.isArray(misReservasOrdenadas) ? misReservasOrdenadas : []) {
+      const st = canonStatus(r?.status || "");
+      const isPast = st === "confirmed" && isPastFechaHora(r?.fecha, r?.hora);
+      if (isPast) past.push(r);
+      else cur.push(r);
+    }
+    return { reservasPasadasConfirmadas: past, reservasNoPasadas: cur };
+  }, [misReservasOrdenadas]);
+
   /* ======================== Render ============================ */
 
   const noticeStyle = useMemo(() => {
@@ -528,7 +575,7 @@ async function addReservaNote() {
     const r = await http(`/api/reservas/${notesReserva.id}/notes`, {
       method: "POST",
       auth: true,
-      body: { text },
+      data: { text },
     });
     const arr = Array.isArray(r?.items) ? r.items : [];
     setNotesItems(arr);
@@ -536,6 +583,25 @@ async function addReservaNote() {
   } catch (e) {
     console.error("No se pudo guardar la nota", e);
     setNotesError(serverErrMsg(e, "No se pudo guardar la nota"));
+  } finally {
+    setNotesLoading(false);
+  }
+}
+
+async function deleteReservaNote(noteId) {
+  if (!notesReserva?.id) return;
+  if (!noteId) return;
+  try {
+    setNotesLoading(true);
+    setNotesError("");
+    await http(`/api/reservas/${notesReserva.id}/notes/${noteId}`, {
+      method: "DELETE",
+      auth: true,
+    });
+    setNotesItems((prev) => (Array.isArray(prev) ? prev.filter((n) => String(n?.id) !== String(noteId)) : []));
+  } catch (e) {
+    console.error("No se pudo borrar la nota", e);
+    setNotesError(serverErrMsg(e, "No se pudo borrar la nota"));
   } finally {
     setNotesLoading(false);
   }
@@ -734,7 +800,8 @@ async function addReservaNote() {
         </div>
 
         <div className="slots-grid">
-          {HOURS.map((h) => {
+          {displayedHours.length ? (
+            displayedHours.map((h) => {
             const hh = String(h).padStart(2, "0");
             const hora = `${hh}:00`;
             const r = reservaPorHora(hora);
@@ -773,7 +840,12 @@ async function addReservaNote() {
                 {hora}
               </button>
             );
-          })}
+            })
+          ) : (
+            <div style={{ padding: 10, opacity: 0.8, fontSize: 13 }}>
+              Este día no admite reservas (domingo cerrado / sábado solo hasta las 13:00).
+            </div>
+          )}
         </div>
 
         <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
@@ -927,10 +999,33 @@ async function addReservaNote() {
         ) : notesItems.length ? (
           notesItems.map((n) => (
             <div key={n.id} style={{ padding: "8px 6px", borderBottom: "1px solid #f2f2f2" }}>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, opacity: 0.8 }}>
-                <span>{labelAutorNota(n)}</span>
-                <span>·</span>
-                <span>{n.createdAt || ""}</span>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontSize: 12,
+                  opacity: 0.85,
+                }}
+              >
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <span>{labelAutorNota(n)}</span>
+                  <span>·</span>
+                  <span>{humanDate(n.createdAt)}</span>
+                </div>
+                {n?.canDelete ? (
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    style={{ padding: "4px 8px", fontSize: 12 }}
+                    disabled={notesLoading}
+                    onClick={() => deleteReservaNote(n.id)}
+                  >
+                    Eliminar
+                  </button>
+                ) : null}
               </div>
               <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{n.text}</div>
             </div>
@@ -977,65 +1072,123 @@ async function addReservaNote() {
         <div style={{ marginTop: 10 }}>
           {loadingMisReservas ? (
             <p style={{ fontSize: 13, color: "#8f6b53" }}>Cargando…</p>
-          ) : misReservasOrdenadas.length ? (
+          ) : reservasNoPasadas.length || reservasPasadasConfirmadas.length ? (
             <div>
-              {misReservasOrdenadas.slice(0, 50).map((r) => {
-                const statusCanon = canonStatus(r.status || "");
-                const badgeRaw = (statusCanon || String(r.status || "").toLowerCase()).replaceAll("_", "-");
-                const badgeCls = `badge badge-${badgeRaw}`;
-                const perros = perrosTexto(r.perro);
-                return (
-                  <div
-                    key={r.id}
-                    style={{
-                      background: "#fff7f0",
-                      border: "1px solid #f0d7c7",
-                      borderRadius: 16,
-                      padding: 12,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: "#3a312b" }}>
-                          {r.fecha} · {r.hora} · {getServicioTitulo(r)}
+              {/* Próximas / pendientes */}
+              {reservasNoPasadas.length ? (
+                <div>
+                  {reservasNoPasadas.slice(0, 50).map((r) => {
+                    const statusCanon = canonStatus(r.status || "");
+                    const badgeRaw = (statusCanon || String(r.status || "").toLowerCase()).replaceAll("_", "-");
+                    const badgeCls = `badge badge-${badgeRaw}`;
+                    const perros = perrosTexto(r.perro);
+                    return (
+                      <div
+                        key={r.id}
+                        style={{
+                          background: "#fff7f0",
+                          border: "1px solid #f0d7c7",
+                          borderRadius: 16,
+                          padding: 12,
+                          marginBottom: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, color: "#3a312b" }}>
+                              {r.fecha} · {r.hora} · {getServicioTitulo(r)}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
+                              {r.email || "—"}{perros ? ` · Perros: ${perros}` : ""}
+                            </div>
+                          </div>
+                          <span className={badgeCls}>{statusLabel(r.status)}</span>
                         </div>
-                        <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
-                          {r.email || "—"}{perros ? ` · Perros: ${perros}` : ""}
+
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                          <button
+                            className="btn-primary"
+                            type="button"
+                            disabled={!puedeChat(r.status) || openingChatId === r.id}
+                            onClick={() => handleOpenChat(r)}
+                          >
+                            {openingChatId === r.id ? "Abriendo chat…" : "Abrir chat"}
+                          </button>
+
+                          {r.fecha && (
+                            <button
+                              className="btn-ghost"
+                              type="button"
+                              onClick={() => setFecha(String(r.fecha).slice(0, 10))}
+                            >
+                              Ver en agenda
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <span className={badgeCls}>{statusLabel(r.status)}</span>
-                    </div>
+                    );
+                  })}
 
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-                      <button
-                        className="btn-primary"
-                        type="button"
-                        disabled={!puedeChat(r.status) || openingChatId === r.id}
-                        onClick={() => handleOpenChat(r)}
-                      >
-                        {openingChatId === r.id ? "Abriendo chat…" : "Abrir chat"}
-                      </button>
-
-                      {r.fecha && (
-                        <button
-                          className="btn-ghost"
-                          type="button"
-                          onClick={() => setFecha(String(r.fecha).slice(0, 10))}
-                        >
-                          Ver en agenda
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {misReservasOrdenadas.length > 50 && (
-                <p style={{ fontSize: 12, color: "#a08168" }}>
-                  Mostrando 50 de {misReservasOrdenadas.length}.
-                </p>
+                  {reservasNoPasadas.length > 50 && (
+                    <p style={{ fontSize: 12, color: "#a08168" }}>
+                      Mostrando 50 de {reservasNoPasadas.length}.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p style={{ fontSize: 13, color: "#8f6b53" }}>No tienes reservas próximas o pendientes.</p>
               )}
+
+              {/* Reservas pasadas (confirmadas) */}
+              {reservasPasadasConfirmadas.length ? (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#3a312b", marginBottom: 8 }}>
+                    Reservas pasadas (confirmadas)
+                  </div>
+
+                  {reservasPasadasConfirmadas.map((r) => {
+                    const perros = perrosTexto(r.perro);
+                    return (
+                      <div
+                        key={r.id}
+                        style={{
+                          background: "#fffdfb",
+                          border: "1px solid #f0d7c7",
+                          borderRadius: 16,
+                          padding: 12,
+                          marginBottom: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, color: "#3a312b" }}>
+                              {r.fecha} · {r.hora} · {getServicioTitulo(r)}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#8f6b53", marginTop: 2 }}>
+                              {r.email || "—"}{perros ? ` · Perros: ${perros}` : ""}
+                            </div>
+                          </div>
+                          <span className="badge badge-confirmed">Confirmada</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           ) : (
             <p style={{ fontSize: 13, color: "#8f6b53" }}>No hay reservas.</p>

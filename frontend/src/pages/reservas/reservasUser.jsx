@@ -80,6 +80,14 @@ function renderPerro(perro) {
   return String(perro);
 }
 
+function labelAutorNota(n) {
+  const rawRole = String(n?.authorRole || n?.author || "").toLowerCase().trim();
+  const role = rawRole === "trainer" ? "adiestrador" : rawRole === "user" || rawRole === "cliente" ? "client" : rawRole;
+  const roleLabel = role === "admin" ? "Centro" : role === "adiestrador" ? "Adiestrador" : role === "client" ? "Cliente" : rawRole || "Autor";
+  const who = String(n?.authorName || n?.authorEmail || "").trim();
+  return who ? `${roleLabel} (${who})` : roleLabel;
+}
+
 function statusLabel(status) {
   const s = String(status || "").toLowerCase();
   if (s === "pending" || s === "pendiente") return "Pendiente centro";
@@ -261,7 +269,7 @@ function ReservaCard({
                 <div key={n.id} className="reservas-notes__item">
                   <div>
                     <div className="reservas-notes__meta">
-                      <b>{n.author || "Centro"}</b>{" "}
+                      <b>{labelAutorNota(n)}</b>{" "}
                       {n.createdAt && (
                         <span>
                           ·{" "}
@@ -276,7 +284,7 @@ function ReservaCard({
                     </div>
                     <div className="reservas-notes__text">{n.text || n.nota}</div>
                   </div>
-                  {onDeleteNote && (
+                  {onDeleteNote && n?.canDelete ? (
                     <button
                       className="btn-ghost"
                       onClick={() => onDeleteNote(n.id)}
@@ -284,7 +292,7 @@ function ReservaCard({
                     >
                       🗑
                     </button>
-                  )}
+                  ) : null}
                 </div>
               ))}
             </div>

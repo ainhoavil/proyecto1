@@ -59,6 +59,35 @@ function perrosTexto(perroField) {
   }
 }
 
+function dayOfWeekFromYMD(ymd) {
+  const [y, m, d] = String(ymd || '').split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d).getDay(); // 0=domingo, 6=sábado
+}
+
+function getDisplayedHourSlots(ymd) {
+  const dow = dayOfWeekFromYMD(ymd);
+  if (dow === 0) return [];
+  if (dow === 6) return HOURS.filter((h) => Number(h) <= 13);
+  return HOURS;
+}
+
+function isPastFechaHora(fecha, hora) {
+  const [y, m, d] = String(fecha || '').split('-').map(Number);
+  const [hh, mm = 0] = String(hora || '00:00').split(':').map(Number);
+  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return false;
+  const dt = new Date(y, m - 1, d, hh, mm);
+  return dt.getTime() < Date.now();
+}
+
+function labelAutorNota(n) {
+  const rawRole = String(n?.authorRole || n?.author || '').toLowerCase().trim();
+  const role = rawRole === 'trainer' ? 'adiestrador' : rawRole === 'user' || rawRole === 'cliente' ? 'client' : rawRole;
+  const roleLabel = role === 'admin' ? 'Centro' : role === 'adiestrador' ? 'Adiestrador' : role === 'client' ? 'Cliente' : rawRole || 'Autor';
+  const who = String(n?.authorName || n?.authorEmail || '').trim();
+  return who ? `${roleLabel} (${who})` : roleLabel;
+}
+
 /* ===================== Componente ===================== */
 
 export default function ReservasAdmin() {
@@ -92,8 +121,12 @@ export default function ReservasAdmin() {
 
   const loadNotes = async (id) => {
     try {
-      const rows = await http(`/api/reservas/${id}/notes`, { auth: true });
-      const arr = Array.isArray(rows) ? rows : [];
+      const data = await http(`/api/reservas/${id}/notes`, { auth: true });
+      const arr = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+        ? data
+        : [];
       setNotesByRes((p) => ({
         ...p,
         [id]: [...arr].reverse(),
@@ -112,16 +145,18 @@ export default function ReservasAdmin() {
     const txt = (noteDraftByRes[id] || '').trim();
     if (!txt) return;
     try {
-      const n = await http(`/api/reservas/${id}/notes`, {
+      const data = await http(`/api/reservas/${id}/notes`, {
         method: 'POST',
         data: { text: txt },
         auth: true,
       });
       setNoteDraftByRes((p) => ({ ...p, [id]: '' }));
-      setNotesByRes((p) => ({
-        ...p,
-        [id]: [...(p[id] || []), n],
-      }));
+      const arr = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+        ? data
+        : [];
+      setNotesByRes((p) => ({ ...p, [id]: [...arr].reverse() }));
       showSuccess('Nota añadida');
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo añadir la nota'));
@@ -325,6 +360,21 @@ export default function ReservasAdmin() {
     }
     return '09:00';
   });
+
+  const quickDisplayedHours = useMemo(() => getDisplayedHourSlots(quickFecha), [quickFecha]);
+
+  useEffect(() => {
+    // Si cambia la fecha a un día cerrado o cambia el filtro de horas, ajusta la hora seleccionada
+    if (!quickDisplayedHours.length) {
+      if (quickHora) setQuickHora('');
+      return;
+    }
+
+    const hh = Number(String(quickHora || '').split(':')[0]);
+    if (!Number.isFinite(hh) || !quickDisplayedHours.includes(hh)) {
+      setQuickHora(`${String(quickDisplayedHours[0]).padStart(2, '0')}:00`);
+    }
+  }, [quickFecha, quickDisplayedHours, quickHora]);
 
   const [quickEmail, setQuickEmail] = useState('');
   const [quickDogs, setQuickDogs] = useState([]);
@@ -626,6 +676,7 @@ const bloquear = async () => {
     const pendingAdminConfirm = [];
     const pendingUserAccept = [];
     const confirmed = [];
+    const pastConfirmed = [];
     const cancelled = [];
 
     for (const r of adminList) {
@@ -638,7 +689,8 @@ const bloquear = async () => {
         if (origin === 'admin') pendingUserAccept.push(r);
         else pendingAdminConfirm.push(r);
       } else if (s === 'confirmed' || s === 'confirmada') {
-        confirmed.push(r);
+        if (isPastFechaHora(r?.fecha, r?.hora)) pastConfirmed.push(r);
+        else confirmed.push(r);
       } else if (
         ['cancelled', 'rejected', 'deleted', 'cancelada', 'rechazada', 'eliminada'].includes(s)
       ) {
@@ -657,6 +709,7 @@ const bloquear = async () => {
       pendingAdminConfirm: sortByDT(pendingAdminConfirm),
       pendingUserAccept: sortByDT(pendingUserAccept),
       confirmed: sortByDT(confirmed),
+      pastConfirmed: sortByDT(pastConfirmed),
       cancelled: sortByDT(cancelled),
     };
   }, [adminList]);
@@ -720,7 +773,10 @@ const blocksDayView = useMemo(() => {
               value={quickHora}
               onChange={(e) => setQuickHora(e.target.value)}
             >
-              {HOURS.map((h) => {
+              {!quickDisplayedHours.length && (
+                <option value="">Cerrado (no reservas)</option>
+              )}
+              {quickDisplayedHours.map((h) => {
                 const t =
                   typeof h === 'number'
                     ? `${String(h).padStart(2, '0')}:00`
@@ -843,7 +899,11 @@ const blocksDayView = useMemo(() => {
           <div
             style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
           >
-            <button className="btn-primary" onClick={reservarParaEmail}>
+            <button
+              className="btn-primary"
+              onClick={reservarParaEmail}
+              disabled={!quickEmail || !quickServicio || !quickFecha || !quickHora}
+            >
               Crear reserva
             </button>
           </div>
@@ -905,7 +965,10 @@ const blocksDayView = useMemo(() => {
           value={quickHora}
           onChange={(e) => setQuickHora(e.target.value)}
         >
-          {HOURS.map((h) => {
+          {!quickDisplayedHours.length && (
+            <option value="">Cerrado (no reservas)</option>
+          )}
+          {quickDisplayedHours.map((h) => {
             const t =
               typeof h === 'number'
                 ? `${String(h).padStart(2, '0')}:00`
@@ -943,7 +1006,11 @@ const blocksDayView = useMemo(() => {
     )}
 
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-      <button className="btn-danger" onClick={crearBloqueoAvanzado}>
+      <button
+        className="btn-danger"
+        onClick={crearBloqueoAvanzado}
+        disabled={!quickFecha || (blockType === "hour" && !quickHora)}
+      >
         Crear bloqueo
       </button>
       <button className="btn-ghost" onClick={() => loadBloqueosDiaAdmin(quickFecha)}>
@@ -1057,9 +1124,16 @@ const blocksDayView = useMemo(() => {
               actions: false,
             },
             {
-              title: 'Confirmadas',
+              title: 'Confirmadas (próximas)',
               items: adminBuckets.confirmed,
               actions: true, // aquí el admin puede rechazar
+            },
+            {
+              title: 'Reservas pasadas',
+              items: adminBuckets.pastConfirmed,
+              actions: false,
+              readOnly: true,
+              allowDelete: true,
             },
             {
               title: 'Canceladas / Rechazadas',
@@ -1088,14 +1162,9 @@ const blocksDayView = useMemo(() => {
                       rawStatus === 'pendiente_usuario' ||
                       rawStatus === 'confirmed' ||
                       rawStatus === 'confirmada';
-                    const canDelete = [
-                      'cancelled',
-                      'cancelada',
-                      'rejected',
-                      'rechazada',
-                      'deleted',
-                      'eliminada',
-                    ].includes(rawStatus);
+                    const canDelete =
+                      !!group.allowDelete ||
+                      ['cancelled', 'cancelada', 'rejected', 'rechazada', 'deleted', 'eliminada'].includes(rawStatus);
 
                     return (
                       <li key={r.id} className="reserva-item">
@@ -1114,26 +1183,30 @@ const blocksDayView = useMemo(() => {
                           {r.status}
                         </div>
 
-                        <div
-                          style={{
-                            gridColumn: '1 / -1',
-                            display: 'flex',
-                            gap: 8,
-                            alignItems: 'center',
-                            marginTop: 6,
-                          }}
-                        >
-                          <button
-                            className="btn-ghost"
-                            onClick={() => toggleNotes(r)}
+                        {!group.readOnly && (
+                          <div
+                            style={{
+                              gridColumn: '1 / -1',
+                              display: 'flex',
+                              gap: 8,
+                              alignItems: 'center',
+                              marginTop: 6,
+                            }}
                           >
-                            📝 Notas{' '}
-                            {notes.length ? `(${notes.length})` : ''}
-                          </button>
-                        </div>
+                            <button
+                              className="btn-ghost"
+                              onClick={() => toggleNotes(r)}
+                            >
+                              📝 Notas{' '}
+                              {notes.length ? `(${notes.length})` : ''}
+                            </button>
+                          </div>
+                        )}
 
-                        {/* Asignación manual de adiestrador */}
-                        <div
+                        {!group.readOnly && (
+                          <>
+                            {/* Asignación manual de adiestrador */}
+                            <div
                           style={{
                             gridColumn: '1 / -1',
                             display: 'flex',
@@ -1212,9 +1285,11 @@ const blocksDayView = useMemo(() => {
                               return `Adiestrador: ${trainerNameById.get(tid) || tid}`;
                             })()}
                           </span>
-                        </div>
+                            </div>
+                          </>
+                        )}
 
-                        {isOpen && (
+                        {!group.readOnly && isOpen && (
                           <div
                             className="notes-box"
                             style={{
@@ -1264,11 +1339,7 @@ const blocksDayView = useMemo(() => {
                                         gridColumn: '1 / span 2',
                                       }}
                                     >
-                                      <b>
-                                        {n.author === 'admin'
-                                          ? 'Adiestrador'
-                                          : 'Usuario'}
-                                      </b>{' '}
+                                      <b>{labelAutorNota(n)}</b>{' '}
                                       · {relativeTime(n.createdAt)}
                                     </div>
                                     <div
