@@ -151,12 +151,20 @@ router.get("/by-email", verifyToken, requireAdmin, async (req, res) => {
     if (!email) return res.status(400).json({ error: "Falta email" });
 
     const u = await query(
-      `SELECT id, email FROM usuarios WHERE lower(email) = lower(?) LIMIT 1`,
+      `SELECT id, email, rol FROM usuarios WHERE lower(email) = lower(?) LIMIT 1`,
       [email]
     );
 
     const userId = u?.[0]?.id || null;
     if (!userId) return res.json({ userId: null, items: [] });
+
+    // Evitar exponer perros de adiestradores desde este endpoint (solo clientes)
+    // Nota: en este proyecto los adiestradores también pueden tener perros propios,
+    // pero el uso de /by-email es para crear reservas a clientes.
+    const rol = String(u?.[0]?.rol || "").toLowerCase().trim();
+    if (rol === "adiestrador" || rol === "trainer") {
+      return res.json({ userId, items: [], reason: 'trainer' });
+    }
 
     const rows = await query(
       `SELECT id, user_id AS userId, nombre, raza, nacimiento, castrado, notas,

@@ -708,6 +708,10 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
   const [pendingFile, setPendingFile] = useStateReact(null);
   const [workingImg, setWorkingImg] = useStateReact(false);
 
+  // ⚠️ Este componente está fuera del scope de `ui` del componente principal.
+  // Necesita su propia instancia para confirmaciones/toasts.
+  const ui = useUi();
+
   const handleChange = (field) => (e) => {
     const value =
       e.target.type === 'checkbox' ? e.target.checked : e.target.value;

@@ -65,10 +65,13 @@ export default function PerfilPage() {
   const [trainerMsg, setTrainerMsg] = useState("");
   const [specInput, setSpecInput] = useState("");
 
- const isTrainer = useMemo(() => {
-  const r = (me?.rol || me?.role || "").toString().toLowerCase().trim();
-  return r === "adiestrador";
-}, [me]);
+  const roleLower = useMemo(
+    () => (me?.rol || me?.role || "").toString().toLowerCase().trim(),
+    [me]
+  );
+
+  const isTrainer = useMemo(() => roleLower === "adiestrador", [roleLower]);
+  const isAdmin = useMemo(() => roleLower === "admin", [roleLower]);
   // ===== perros =====
   const [perros, setPerros] = useState([]);
   const [savingDog, setSavingDog] = useState(false);
@@ -198,9 +201,12 @@ const loadMe = async () => {
     // DEBUG (déjalo hasta que lo veas bien)
     console.log("[auth/me] raw:", data);
     console.log("[auth/me] normalized role:", role);
+
+    return role;
   } catch (e) {
     console.log("[auth/me] error:", e);
     setMe(null);
+    return null;
   }
 };
 
@@ -278,8 +284,16 @@ if (roleFromProfile) {
   useEffect(() => {
     if (!authReady) return;
     (async () => {
-      await loadMe();
+      const role = await loadMe();
       await loadProfile();
+
+      // Admin: en este proyecto solo debería poder cambiar contraseña desde este apartado.
+      if (String(role || "").toLowerCase().trim() === "admin") {
+        setPerros([]);
+        setCreatingDog(false);
+        return;
+      }
+
       await loadDogs();
     })();
   }, [authReady]);
@@ -664,14 +678,21 @@ if (roleFromProfile) {
         <header className="perfil-header">
           <div className="perfil-eyebrow">SESIÓN INICIADA</div>
           <h1 className="perfil-title">Mi perfil</h1>
-          <p className="perfil-lead">
-            Gestiona tus datos personales y la información de tus perros. Estos datos se compartirán
-            con los centros cuando hagas una reserva.
-          </p>
+          {isAdmin ? (
+            <p className="perfil-lead">
+              Desde aquí puedes actualizar tu contraseña de acceso.
+            </p>
+          ) : (
+            <p className="perfil-lead">
+              Gestiona tus datos personales y la información de tus perros. Estos datos se compartirán
+              con los centros cuando hagas una reserva.
+            </p>
+          )}
         </header>
 
         {/* DATOS USUARIO */}
-        <section className="perfil-card perfil-card--user">
+        {!isAdmin && (
+          <section className="perfil-card perfil-card--user">
           <h2 className="perfil-card__title">Datos del usuario</h2>
 
           <div className="perfil-user-grid">
@@ -763,10 +784,11 @@ if (roleFromProfile) {
               </div>
             </div>
           </div>
-        </section>
+          </section>
+        )}
 
         {/* PERFIL ADIESTRADOR (solo rol adiestrador) */}
-        {isTrainer && (
+        {!isAdmin && isTrainer && (
           <section className="perfil-card perfil-card--trainer">
             <h2 className="perfil-card__title">Perfil de adiestrador</h2>
 
@@ -915,7 +937,8 @@ if (roleFromProfile) {
         </section>
 
         {/* MIS PERROS */}
-        <section className="perfil-card perfil-card--dogs">
+        {!isAdmin && (
+          <section className="perfil-card perfil-card--dogs">
           <div className="perfil-dogs-header">
             <h2 className="perfil-card__title">Mis perros</h2>
             {!creatingDog && (
@@ -1057,22 +1080,27 @@ if (roleFromProfile) {
               </ul>
             </div>
           )}
-        </section>
+          </section>
+        )}
 
 
-{/* ELIMINAR CUENTA */}
-<section className="perfil-card perfil-card--danger">
-  <h2 className="perfil-card__title">Eliminar cuenta</h2>
-  <p className="perfil-muted">
-    Esto eliminará tu cuenta y tus credenciales de acceso. Esta acción no se puede deshacer.
-  </p>
-  <div className="perfil-actions">
-    <button className="btn-danger" onClick={onDeleteAccount} disabled={deletingAccount}>
-      {deletingAccount ? "Eliminando…" : "Eliminar mi cuenta"}
-    </button>
-    {accountMsg && <span className="perfil-msg">{accountMsg}</span>}
-  </div>
-</section>        {/* Modal eliminar */}
+        {/* ELIMINAR CUENTA */}
+        {!isAdmin && (
+          <section className="perfil-card perfil-card--danger">
+            <h2 className="perfil-card__title">Eliminar cuenta</h2>
+            <p className="perfil-muted">
+              Esto eliminará tu cuenta y tus credenciales de acceso. Esta acción no se puede deshacer.
+            </p>
+            <div className="perfil-actions">
+              <button className="btn-danger" onClick={onDeleteAccount} disabled={deletingAccount}>
+                {deletingAccount ? "Eliminando…" : "Eliminar mi cuenta"}
+              </button>
+              {accountMsg && <span className="perfil-msg">{accountMsg}</span>}
+            </div>
+          </section>
+        )}
+
+        {/* Modal eliminar */}
         {modal.open && (
           <div className="perfil-modal" onClick={() => !modal.loading && closeModal()}>
             <div className="perfil-modal__content" onClick={(e) => e.stopPropagation()}>

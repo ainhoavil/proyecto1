@@ -265,6 +265,15 @@ export default function ReservasAdmin() {
     return m;
   }, [trainers]);
 
+  const trainerEmailSet = useMemo(() => {
+    const s = new Set();
+    for (const t of Array.isArray(trainers) ? trainers : []) {
+      const em = String(t?.email || '').trim().toLowerCase();
+      if (em) s.add(em);
+    }
+    return s;
+  }, [trainers]);
+
   const ensureAvailableTrainers = async (r) => {
     const rid = first(r?.id, r?._id, r?.uuid, null);
     if (!rid) return;
@@ -314,6 +323,8 @@ export default function ReservasAdmin() {
       clearNotice();
       const qs = new URLSearchParams({
         limit: String(adminLimit || 300),
+        // Reservas pasadas: queremos traer TODAS (no solo confirmadas)
+        status: 'all',
         ...(adminFilterEmail ? { email: adminFilterEmail.trim() } : {}),
       });
       const data = await http(`/api/reservas?${qs.toString()}`, { auth: true });
@@ -415,6 +426,8 @@ export default function ReservasAdmin() {
   const [blockTrainerId, setBlockTrainerId] = useState('');
   const [blocksDay, setBlocksDay] = useState([]);
   const [loadingBlocksDay, setLoadingBlocksDay] = useState(false);
+  const [blocksList, setBlocksList] = useState([]); // lista global (futuros)
+  const [loadingBlocksList, setLoadingBlocksList] = useState(false);
 
   useEffect(() => {
   let alive = true;
@@ -437,8 +450,17 @@ export default function ReservasAdmin() {
       setQuickDogs(arr);
       setQuickDogIds([]);
 
+      // Si el email corresponde a un adiestrador, no permitimos reservas por este flujo.
+      const isTrainerEmail =
+        (r && String(r.reason || '').toLowerCase() === 'trainer') ||
+        trainerEmailSet.has(String(email).toLowerCase());
+
       if (!arr.length) {
-        setQuickDogsWarn("No puede crear reservas para este usuario porque no tiene ningún perro registrado.");
+        setQuickDogsWarn(
+          isTrainerEmail
+            ? "Este email pertenece a un adiestrador. Para crear una reserva, introduce el email de un cliente con perros registrados."
+            : "No puede crear reservas para este usuario porque no tiene ningún perro registrado."
+        );
       } else {
         setQuickDogsWarn("");
       }
@@ -455,7 +477,7 @@ export default function ReservasAdmin() {
     alive = false;
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [quickEmail]);
+}, [quickEmail, trainerEmailSet]);
 
 
 // ---------- Helpers API (fallback de endpoints) ----------
@@ -538,6 +560,43 @@ const loadBloqueosDiaAdmin = async (fecha) => {
   }
 };
 
+// Lista de bloqueos futuros (admin) para vista global.
+const loadBloqueosListAdmin = async () => {
+  setLoadingBlocksList(true);
+  try {
+    const data = await tryHttpCandidates([
+      { path: '/api/bloqueos/admin/list', opts: { method: 'GET' } },
+      { path: '/api/reservas/bloqueos', opts: { method: 'GET' } },
+    ]);
+
+    const arr = normList(data?.items || data?.bloqueos || data?.blocks || data || []);
+    const normalized = arr.map(normalizeBlock).filter((x) => x.fecha);
+
+    // Orden: fecha asc (cercano -> lejano), día completo primero, hora asc.
+    const sorted = [...normalized].sort((a, b) => {
+      if (a.fecha !== b.fecha) return String(a.fecha).localeCompare(String(b.fecha));
+      const aAll = a?.allDay ? 0 : 1;
+      const bAll = b?.allDay ? 0 : 1;
+      if (aAll !== bAll) return aAll - bAll;
+      const ta = a?.allDay ? -1 : parseMin(a?.hora) ?? 1e9;
+      const tb = b?.allDay ? -1 : parseMin(b?.hora) ?? 1e9;
+      if (ta !== tb) return ta - tb;
+      const aScope = a?.isGlobal ? 0 : 1;
+      const bScope = b?.isGlobal ? 0 : 1;
+      if (aScope !== bScope) return aScope - bScope;
+      return String(a?.trainerId || '').localeCompare(String(b?.trainerId || ''));
+    });
+
+    setBlocksList(sorted);
+  } catch (e) {
+    setBlocksList([]);
+    showError(serverErrMsg(e, 'No se pudieron cargar los bloqueos (lista)'));
+    setTraceErr({ action: 'GET bloqueos admin list', error: serializeErr(e) });
+  } finally {
+    setLoadingBlocksList(false);
+  }
+};
+
 const crearBloqueoAvanzado = async () => {
   const fecha = String(quickFecha || '').trim();
   if (!fecha) {
@@ -581,6 +640,7 @@ const crearBloqueoAvanzado = async () => {
 
     showSuccess(type === 'allDay' ? 'Día bloqueado' : 'Hora bloqueada');
     await loadBloqueosDiaAdmin(fecha);
+    await loadBloqueosListAdmin();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo crear el bloqueo'));
@@ -625,6 +685,7 @@ const eliminarBloqueoAdmin = async (b) => {
 
     showSuccess('Bloqueo eliminado');
     await loadBloqueosDiaAdmin(fecha);
+    await loadBloqueosListAdmin();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo eliminar el bloqueo'));
@@ -648,6 +709,7 @@ const bloquear = async () => {
     ]);
     showSuccess('Hora bloqueada');
     await loadBloqueosDiaAdmin(quickFecha);
+    await loadBloqueosListAdmin();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
@@ -662,7 +724,13 @@ const bloquear = async () => {
     }
 
     if (!quickDogs.length) {
-      showError('No puede crear reservas para este usuario porque no tiene ningún perro registrado.');
+      // Si el email es de un adiestrador, el endpoint /perros/by-email devuelve vacío a propósito.
+      const isTrainerEmail = trainerEmailSet.has(String(quickEmail || '').trim().toLowerCase());
+      showError(
+        isTrainerEmail
+          ? 'Ese email pertenece a un adiestrador. Introduce el email de un cliente con perros registrados.'
+          : 'No puede crear reservas para este usuario porque no tiene ningún perro registrado.'
+      );
       return;
     }
     if (!quickDogIds.length) {
@@ -706,12 +774,18 @@ const bloquear = async () => {
     const pendingAdminConfirm = [];
     const pendingUserAccept = [];
     const confirmed = [];
-    const pastConfirmed = [];
+    const pastAll = [];
     const cancelled = [];
 
     for (const r of adminList) {
       const s = String(r.status || '').toLowerCase();
       const origin = String(r.origin || '').toLowerCase();
+
+      // Todo lo pasado va a "Reservas pasadas" (independiente del status)
+      if (isPastFechaHora(r?.fecha, r?.hora)) {
+        pastAll.push(r);
+        continue;
+      }
 
       if (s === 'pending_user' || s === 'pendiente_usuario') {
         pendingUserAccept.push(r);
@@ -719,8 +793,7 @@ const bloquear = async () => {
         if (origin === 'admin') pendingUserAccept.push(r);
         else pendingAdminConfirm.push(r);
       } else if (s === 'confirmed' || s === 'confirmada') {
-        if (isPastFechaHora(r?.fecha, r?.hora)) pastConfirmed.push(r);
-        else confirmed.push(r);
+        confirmed.push(r);
       } else if (
         ['cancelled', 'rejected', 'deleted', 'cancelada', 'rechazada', 'eliminada'].includes(s)
       ) {
@@ -739,7 +812,7 @@ const bloquear = async () => {
       pendingAdminConfirm: sortByDT(pendingAdminConfirm),
       pendingUserAccept: sortByDT(pendingUserAccept),
       confirmed: sortByDT(confirmed),
-      pastConfirmed: sortByDT(pastConfirmed),
+      past: sortByDT(pastAll),
       cancelled: sortByDT(cancelled),
     };
   }, [adminList]);
@@ -797,12 +870,18 @@ const blocksDayView = useMemo(() => {
   });
 }, [blocksDay, quickFecha]);
 
+const blocksListView = useMemo(() => {
+  const arr = Array.isArray(blocksList) ? blocksList : [];
+  return arr;
+}, [blocksList]);
+
 
   useEffect(() => {
     loadServicios();
     loadTrainers();
     cargarAdminList();
     loadBloqueosDiaAdmin(quickFecha);
+    loadBloqueosListAdmin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -973,7 +1052,7 @@ const blocksDayView = useMemo(() => {
             <button
               className="btn-primary"
               onClick={reservarParaEmail}
-              disabled={!quickEmail || !quickServicio || !quickFecha || !quickHora}
+              disabled={!quickEmail || !servicioId || !quickFecha || !quickHora || !!quickDogsWarn || (quickDogs.length > 0 && quickDogIds.length === 0)}
             >
               Crear reserva
             </button>
@@ -1138,6 +1217,58 @@ const blocksDayView = useMemo(() => {
       </div>
     )}
   </div>
+
+  <div style={{ marginTop: 14 }}>
+    <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
+      Lista de bloqueos futuros (ordenados por fecha/hora)
+    </div>
+
+    {loadingBlocksList ? (
+      <div className="empty">Cargando…</div>
+    ) : !blocksListView.length ? (
+      <div className="empty">No hay bloqueos futuros.</div>
+    ) : (
+      <div style={{ display: 'grid', gap: 8 }}>
+        {blocksListView.map((b, idx) => {
+          const labelHora = b.allDay ? 'Día completo' : b.hora || '—';
+          const scopeLabel = b.isGlobal
+            ? 'Global'
+            : trainerNameById.get(b.trainerId) || b.trainerId || 'Adiestrador';
+          const key = b.id || `${b.fecha}-${b.hora}-${b.trainerId}-${idx}`;
+          return (
+            <div
+              key={key}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                border: '1px solid #e6e6e6',
+                borderRadius: 14,
+                padding: '8px 10px',
+                background: '#fff',
+              }}
+              title={b.id ? `id: ${b.id}` : ''}
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <b>{b.fecha}</b>
+                <span>{labelHora}</span>
+                <span style={{ opacity: 0.8 }}>· {scopeLabel}</span>
+              </div>
+              <button
+                className="btn-ghost"
+                onClick={() => eliminarBloqueoAdmin(b)}
+                title="Eliminar bloqueo"
+                style={{ padding: '2px 10px' }}
+              >
+                Eliminar
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
 </section>
       {/* Listas por estado */}
       <section style={{ marginTop: 24 }}>
@@ -1202,8 +1333,8 @@ const blocksDayView = useMemo(() => {
               actions: true, // aquí el admin puede rechazar
             },
             {
-              title: 'Reservas pasadas',
-              items: adminBuckets.pastConfirmed,
+              title: 'Reservas pasadas (todas)',
+              items: adminBuckets.past,
               actions: false,
               readOnly: true,
               allowDelete: true,
