@@ -1,6 +1,7 @@
 import express from "express";
 import { query } from "../db.js";
 import { verifyToken } from "../middleware/auth.js";
+import { notifyReservationNoteAdded } from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -291,6 +292,10 @@ router.post("/:id/notes", verifyToken, async (req, res) => {
        VALUES (?, ?, ?, ?, ?)`,
       [reservaId, authorUid, authorEmail, authorRole, text]
     );
+
+    // Email de notificación (al otro lado de la conversación)
+    const authorKind = authorRole === "client" ? "user" : "admin";
+    void notifyReservationNoteAdded({ reservaId, author: authorKind, text });
 
     // Devuelve la lista actualizada (simple y robusto)
     const rows = await query(

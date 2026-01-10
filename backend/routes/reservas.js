@@ -13,6 +13,7 @@ import {
 import { validateReservationSlot, filterHourSlotsForFecha } from "../utils/openingHours.js";
 import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
 import {
+  notifyReservationCenterApproved,
   notifyReservationCenterConfirmed,
   notifyReservationUserConfirmed,
   notifyReservationRejected,
@@ -1137,7 +1138,9 @@ router.get(
 
 /* ===================== Acciones directas (Admin / Adiestrador) ===================== */
 
-// PATCH /api/reservas/:id/confirm  (CONFIRMA EL CENTRO → confirmed)
+// PATCH /api/reservas/:id/confirm
+// - Si la reserva la creó el cliente (origin != admin/trainer) ⇒ confirmed (final)
+// - Si la reserva la creó el centro (origin = admin/trainer) ⇒ pending_user (requiere aceptación del cliente)
 router.patch(
   "/:id/confirm",
   verifyToken,
@@ -1146,17 +1149,35 @@ router.patch(
     try {
       const { id } = req.params;
       const { note = "" } = req.body || {};
+
+      if (!id) return res.status(400).json({ error: "Falta id" });
+
+      const rRows = await query(
+        `SELECT id, origin, status FROM reservas WHERE id=? LIMIT 1`,
+        [id]
+      );
+      if (!rRows?.length) return res.status(404).json({ error: "Reserva no encontrada" });
+
+      const origin = String(rRows[0]?.origin || "").toLowerCase();
+      const isStaffOrigin = origin === "admin" || origin === "trainer";
+      const nextStatus = isStaffOrigin ? "pending_user" : "confirmed";
+
       await query(
         `UPDATE reservas
-          SET status='confirmed',
+          SET status=?,
               admin_note=COALESCE(?,admin_note),
               updated_at=?
         WHERE id=?`,
-        [note, nowISO(), id]
+        [nextStatus, note, nowISO(), id]
       );
 
-      // Email al cliente: el centro ha confirmado (pendiente de aceptación del usuario)
-      void notifyReservationCenterConfirmed(id, { note });
+      if (isStaffOrigin) {
+        // Email al cliente: el centro ha creado/aprobado y requiere confirmación
+        void notifyReservationCenterConfirmed(id, { note });
+      } else {
+        // Email al cliente: reserva confirmada (sin requerir confirmación adicional)
+        void notifyReservationCenterApproved(id, { note });
+      }
       res.json({ ok: true });
     } catch (e) {
       console.error("PATCH /reservas/:id/confirm", e);

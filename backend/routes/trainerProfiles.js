@@ -4,6 +4,57 @@ import { verifyToken, allowRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
+/* ===================== schema (trainer_profiles) ===================== */
+
+let _trainerProfilesSchemaReady = false;
+let _trainerProfilesSchemaPromise = null;
+
+async function ensureTrainerProfilesSchema() {
+  if (_trainerProfilesSchemaReady) return;
+  if (_trainerProfilesSchemaPromise) return _trainerProfilesSchemaPromise;
+
+  _trainerProfilesSchemaPromise = (async () => {
+    // Base table
+    await query(`
+      CREATE TABLE IF NOT EXISTS trainer_profiles (
+        trainer_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        bio TEXT,
+        photo_url TEXT,
+        experience_years INTEGER,
+        specialties TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    `);
+
+    // Backfill missing columns in older DBs
+    const cols = await query("PRAGMA table_info(trainer_profiles)");
+    const names = new Set((cols || []).map((c) => c.name));
+
+    const addCol = async (name, type) => {
+      if (names.has(name)) return;
+      await query(`ALTER TABLE trainer_profiles ADD COLUMN ${name} ${type}`);
+      names.add(name);
+    };
+
+    await addCol("display_name", "TEXT");
+    await addCol("bio", "TEXT");
+    await addCol("photo_url", "TEXT");
+    await addCol("experience_years", "INTEGER");
+    await addCol("specialties", "TEXT");
+    await addCol("created_at", "TEXT");
+    await addCol("updated_at", "TEXT");
+
+    _trainerProfilesSchemaReady = true;
+  })().finally(() => {
+    // allow retry if something transient failed
+    if (!_trainerProfilesSchemaReady) _trainerProfilesSchemaPromise = null;
+  });
+
+  return _trainerProfilesSchemaPromise;
+}
+
 /* ===================== helpers ===================== */
 const parseSpecialties = (raw) => {
   if (!raw) return [];
@@ -49,6 +100,7 @@ router.get(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
+      await ensureTrainerProfilesSchema();
       const trainerId = String(req.user?.id || req.user?.uid || "");
       if (!trainerId) {
         return res.status(401).json({ error: "No autorizado" });
@@ -122,6 +174,7 @@ router.post(
   allowRoles(["adiestrador", "admin"]),
   async (req, res) => {
     try {
+      await ensureTrainerProfilesSchema();
       const trainerId = String(req.user?.id || req.user?.uid || "");
       if (!trainerId) {
         return res.status(401).json({ error: "No autorizado" });
@@ -187,6 +240,7 @@ router.post(
 
 router.get("/:id/profile", async (req, res) => {
   try {
+    await ensureTrainerProfilesSchema();
     const { id } = req.params;
 
     const rows = await query(

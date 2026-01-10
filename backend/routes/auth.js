@@ -585,6 +585,7 @@ router.post("/google", async (req, res) => {
     );
 
     let user = rows[0] || null;
+    let created = false;
 
     // 2) Crear si no existe
     if (!user) {
@@ -613,6 +614,7 @@ router.post("/google", async (req, res) => {
         email,
         password_hash: emptyHash,
       };
+      created = true;
 
       // Asegura rol/perfil en tabla usuarios
       await ensureUsuariosRow({ uid, email, rol: rolBootstrap, passwordHash: "" });
@@ -654,6 +656,11 @@ router.post("/google", async (req, res) => {
     if (isBootstrapAdmin(email)) rol = "admin";
 
     const token = signToken({ uid: user.uid, email, rol });
+
+    // ✅ Bienvenida: solo cuando se crea por primera vez con Google
+    if (created) {
+      void sendWelcomeEmail({ to: email, name: nombre || undefined, role: rol });
+    }
     return res.json({
       token,
       uid: user.uid,

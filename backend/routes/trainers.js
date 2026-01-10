@@ -5,6 +5,54 @@ import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
 
 const router = express.Router();
 
+/* ===================== schema (trainer_profiles) ===================== */
+
+let _trainerProfilesSchemaReady = false;
+let _trainerProfilesSchemaPromise = null;
+
+async function ensureTrainerProfilesSchema() {
+  if (_trainerProfilesSchemaReady) return;
+  if (_trainerProfilesSchemaPromise) return _trainerProfilesSchemaPromise;
+
+  _trainerProfilesSchemaPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS trainer_profiles (
+        trainer_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        bio TEXT,
+        photo_url TEXT,
+        experience_years INTEGER,
+        specialties TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    `);
+
+    const cols = await query("PRAGMA table_info(trainer_profiles)");
+    const names = new Set((cols || []).map((c) => c.name));
+
+    const addCol = async (name, type) => {
+      if (names.has(name)) return;
+      await query(`ALTER TABLE trainer_profiles ADD COLUMN ${name} ${type}`);
+      names.add(name);
+    };
+
+    await addCol("display_name", "TEXT");
+    await addCol("bio", "TEXT");
+    await addCol("photo_url", "TEXT");
+    await addCol("experience_years", "INTEGER");
+    await addCol("specialties", "TEXT");
+    await addCol("created_at", "TEXT");
+    await addCol("updated_at", "TEXT");
+
+    _trainerProfilesSchemaReady = true;
+  })().finally(() => {
+    if (!_trainerProfilesSchemaReady) _trainerProfilesSchemaPromise = null;
+  });
+
+  return _trainerProfilesSchemaPromise;
+}
+
 /* ============================================================
    Helpers disponibilidad (bloqueos/reservas) por adiestrador
 ============================================================ */
@@ -71,6 +119,7 @@ router.get(
   allowRoles(["admin", "client", "user", "adiestrador"]),
   async (req, res) => {
     try {
+      await ensureTrainerProfilesSchema();
       const { servicioId, modalidad } = req.query;
       const mod = modalidad ? String(modalidad) : null;
 
@@ -174,6 +223,7 @@ router.get(
   allowRoles(["admin"]),
   async (req, res) => {
     try {
+      await ensureTrainerProfilesSchema();
       const { fecha, hora, durationMin = 60, servicioId, modalidad, reservaId } = req.query;
       if (!fecha || !hora) {
         return res.status(400).json({ error: "Faltan fecha/hora" });
@@ -649,6 +699,7 @@ router.get(
 ============================================================ */
 router.get("/public", async (_req, res) => {
   try {
+    await ensureTrainerProfilesSchema();
     const rows = await query(`
       SELECT
         au.id AS trainerId,

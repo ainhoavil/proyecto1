@@ -282,6 +282,31 @@ export async function notifyReservationCenterConfirmed(reservaId, { note } = {})
   });
 }
 
+// El centro confirma una reserva creada por el cliente (confirmación final, sin pedir más acciones)
+export async function notifyReservationCenterApproved(reservaId, { note } = {}) {
+  await safeRun("notifyReservationCenterApproved", async () => {
+    const r = await getReservaById(reservaId);
+    if (!r) return;
+
+    const appName = process.env.APP_NAME || "DogForm";
+    const clientEmail = normEmail(r.email);
+    if (!clientEmail) return;
+
+    const n = short(note || r.adminNote, 240);
+    const extra = n ? [`Nota del centro: ${n}`] : [];
+
+    await sendReservationEmail({
+      to: clientEmail,
+      subject: `${appName} · Reserva confirmada`,
+      title: "Reserva confirmada",
+      intro: "El centro ha confirmado tu reserva.",
+      lines: [...buildReservaLines(r), ...extra].filter(Boolean),
+      actionPath: "/reservas",
+      actionText: "Ver mis reservas",
+    });
+  });
+}
+
 export async function notifyReservationUserConfirmed(reservaId) {
   await safeRun("notifyReservationUserConfirmed", async () => {
     const r = await getReservaById(reservaId);
