@@ -74,9 +74,6 @@ export default function Footer() {
 
         {/* REDES SOCIALES */}
         <div className="df-footer__social">
-          <a href="#" className="df-footer__social-pill" aria-label="LinkedIn">
-            in
-          </a>
           <a href="#" className="df-footer__social-pill" aria-label="Instagram">
             ig
           </a>

@@ -1,6 +1,6 @@
-/* ================================
-   PÁGINA REGISTRO DOGFORM
-================================ */
+/* ================================ 
+   PÁGINA REGISTRO DOGFORM 
+================================ */ 
 
 .register-page {
   background-color: #f6efe8;
@@ -164,7 +164,8 @@
 }
 
 
-.form-grid input {
+.form-grid input,
+.form-grid select {
   border-radius: 8px;
   border: 1px solid #f1d4c2;
   padding: 8px 10px;
@@ -176,6 +177,40 @@
     border-color: #f37f3b;
     box-shadow: 0 0 0 1px rgba(243, 127, 59, 0.35);
   }
+}
+
+
+/* Utilidades del grid */
+.full {
+  grid-column: 1 / -1;
+}
+
+.subhead {
+  margin: 8px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3a312b;
+}
+
+
+/* Validación inline por campo */
+.field-error {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #b83232;
+}
+
+.field-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #8d7c70;
+}
+
+.is-invalid {
+  border-color: #f39b9b !important;
+  box-shadow: 0 0 0 1px rgba(243, 155, 155, 0.4);
 }
 
 /* Filas de contraseña con botón Ver/Ocultar */
@@ -277,52 +312,53 @@
 
 /* Card derecha (info) */
 
+.register-card--info {
+  padding: 28px;
+}
+
 .register-info-title {
-  font-size: 15px;
+  margin: 0 0 12px;
+  font-size: 16px;
   font-weight: 600;
   color: #3a312b;
-  margin: 0 0 10px;
+  letter-spacing: 0.2px;
 }
 
 .register-info-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin: 0 0 16px;
+  padding-left: 1.1rem;
+  list-style: disc;
   font-size: 13px;
   color: #5f5146;
-}
 
-.register-info-list li {
-  position: relative;
-  padding-left: 14px;
-}
+  li {
+    margin: 8px 0;
+    line-height: 1.45;
 
-.register-info-list li::before {
-  content: "•";
-  position: absolute;
-  left: 0;
-  top: 0;
-  color: #f37f3b;
-}
-
-.register-help {
-  font-size: 12px;
-  color: #7f6e62;
-  margin-top: 6px;
-
-  a {
-    color: #c35a26;
-    text-decoration: none;
-
-    &:hover {
-      text-decoration: underline;
+    &::marker {
+      color: rgba(243, 127, 59, 0.55);
     }
   }
 }
 
+.register-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7f6e62;
+
+  a {
+    color: #c35a26;
+    font-weight: 600;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+  }
+}
 /* Responsive */
 
 @media (max-width: 900px) {

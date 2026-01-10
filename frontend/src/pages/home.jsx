@@ -1,3 +1,4 @@
+// frontend/src/pages/home.jsx
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { http } from "../helpers/http";
@@ -45,6 +46,10 @@ function Home() {
 
   // Si no está logueado -> /login, si lo está -> /contratar
   const reservarTo = isAuthenticated ? "/contratar" : "/login";
+
+  // CTA final: si está logueado -> /perfil, si no -> /login
+  const ctaAccountTo = isAuthenticated ? "/perfil" : "/login";
+  const ctaAccountLabel = isAuthenticated ? "Ver perfil" : "Acceder / Registro";
 
   return (
     <div className="home">
@@ -294,8 +299,8 @@ function Home() {
             </div>
 
             <div className="cta-box__actions">
-              <Link to="/login" className="btn btn--primary btn--light-on">
-                Acceder / Registro
+              <Link to={ctaAccountTo} className="btn btn--primary btn--light-on">
+                {ctaAccountLabel}
               </Link>
               <Link to={serviciosTo} className="btn btn--ghost btn--light-on">
                 Ver todos los servicios

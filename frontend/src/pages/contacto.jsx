@@ -1,3 +1,4 @@
+// frontend/src/pages/contacto.jsx
 import { useState } from "react";
 import { http } from "../helpers/http";
 
@@ -37,7 +38,8 @@ function Contacto() {
     const mensajeClean = String(mensaje || "").trim();
     const telefonoRaw = String(telefono || "").trim();
     const tipoServicioClean = String(tipoServicio || "").trim();
-    const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || "").trim().toLowerCase());
+    const isValidEmail = (v) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || "").trim().toLowerCase());
 
     const digits = telefonoRaw.replace(/\D/g, "");
     const phoneNorm =
@@ -259,7 +261,11 @@ function Contacto() {
 
             <div className="contact-info-block">
               <h3>EMAIL</h3>
-              <p>hola@dogform.es</p>
+              <p>
+                <a className="contact-link" href="mailto:hola@dogform.es">
+                  hola@dogform.es
+                </a>
+              </p>
             </div>
 
             <div className="contact-info-block">
@@ -272,7 +278,16 @@ function Contacto() {
             </div>
 
             <div className="contact-map">
-              <div className="contact-map__img" />
+              <div className="contact-map__embed">
+                <iframe
+                  className="contact-map__iframe"
+                  src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3037.4548554571847!2d-3.7101503234929045!3d40.420925955383105!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0xd42287c9b29ea7b%3A0xd0f89f647486f429!2sGran%20V%C3%ADa%2C%2047%2C%20Centro%2C%2028013%20Madrid!5e0!3m2!1ses!2ses!4v1768055032964!5m2!1ses!2ses"
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Mapa DogForm"
+                />
+              </div>
             </div>
           </aside>
         </div>

@@ -150,11 +150,6 @@ export default function Admin() {
             🐕 Adiestradores
           </button>
         </div>
-
-        <p className="admin__note">
-          Nota: “Chats” y “Contacto” se han retirado del navbar en rol admin. Si más adelante se
-          necesitan, se pueden reubicar aquí como accesos del panel.
-        </p>
       </div>
 
       <div className="tab-content">
@@ -169,7 +164,7 @@ export default function Admin() {
 
 /* ==================== PESTAÑA USUARIOS ==================== */
 function UsersTab() {
-  const ui = useUi(); // ✅ FIX: ui existe dentro del tab
+  const ui = useUi(); 
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -196,7 +191,6 @@ function UsersTab() {
 
   useEffect(() => {
     loadUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const changeRole = async (uid, newRole) => {
@@ -450,9 +444,9 @@ function UsersTab() {
   );
 }
 
-/* ==================== PESTAÑA SERVICIOS (NO SE USA AHORA) ==================== */
+/* ==================== PESTAÑA SERVICIOS ==================== */
 function ServiciosTab() {
-  const ui = useUi(); // ✅ por si algún día activas este tab
+  const ui = useUi(); 
   const [servicios, setServicios] = useState([]);
   const [nuevo, setNuevo] = useState({
     title: '',
@@ -595,6 +589,9 @@ function AdiestradoresTab() {
     nacimiento: '',
     castrado: false,
     notas: '',
+    avatarURL: '',
+    avatarFile: null,
+    avatarPreview: '',
   });
 
   const [editingDogId, setEditingDogId] = useState(null);
@@ -604,6 +601,9 @@ function AdiestradoresTab() {
     nacimiento: '',
     castrado: false,
     notas: '',
+    avatarURL: '',
+    avatarFile: null,
+    avatarPreview: '',
   });
 
   const refresh = async () => {
@@ -663,6 +663,63 @@ function AdiestradoresTab() {
     return absUrl(url);
   };
 
+
+  const safeRevokeObjectUrl = (maybeUrl) => {
+    try {
+      if (typeof maybeUrl === 'string' && maybeUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(maybeUrl);
+      }
+    } catch {}
+  };
+
+  const uploadDogPhoto = async (file) => {
+    if (!file) throw new Error('No hay archivo');
+
+    const form = new FormData();
+    form.append('file', file);
+
+    const res = await http('/upload-db', {
+      method: 'POST',
+      data: form,
+      auth: true,
+      timeoutMs: 60000,
+    });
+
+    const url = res?.url || res?.path;
+    if (!url) throw new Error('No se recibió URL de imagen');
+
+    return absUrl(url);
+  };
+
+  const pickCreateDogAvatar = (file) => {
+    setCreateDog((prev) => {
+      safeRevokeObjectUrl(prev.avatarPreview);
+      if (!file) return { ...prev, avatarFile: null, avatarPreview: '' };
+      return { ...prev, avatarFile: file, avatarPreview: URL.createObjectURL(file) };
+    });
+  };
+
+  const clearCreateDogAvatar = () => {
+    setCreateDog((prev) => {
+      safeRevokeObjectUrl(prev.avatarPreview);
+      return { ...prev, avatarURL: '', avatarFile: null, avatarPreview: '' };
+    });
+  };
+
+  const pickEditDogAvatar = (file) => {
+    setEditDog((prev) => {
+      safeRevokeObjectUrl(prev.avatarPreview);
+      if (!file) return { ...prev, avatarFile: null, avatarPreview: '' };
+      return { ...prev, avatarFile: file, avatarPreview: URL.createObjectURL(file) };
+    });
+  };
+
+  const clearEditDogAvatar = () => {
+    setEditDog((prev) => {
+      safeRevokeObjectUrl(prev.avatarPreview);
+      return { ...prev, avatarURL: '', avatarFile: null, avatarPreview: '' };
+    });
+  };
   const pickPhoto = (trainerId, file) => {
     if (!file) {
       setField(trainerId, { photoFile: null, photoPreview: '' });
@@ -749,6 +806,9 @@ function AdiestradoresTab() {
       nacimiento: '',
       castrado: false,
       notas: '',
+      avatarURL: '',
+      avatarFile: null,
+      avatarPreview: '',
     });
     setEditingDogId(null);
     setEditDog({
@@ -757,6 +817,9 @@ function AdiestradoresTab() {
       nacimiento: '',
       castrado: false,
       notas: '',
+      avatarURL: '',
+      avatarFile: null,
+      avatarPreview: '',
     });
     setDogActionLoading(false);
   };
@@ -828,13 +891,18 @@ function AdiestradoresTab() {
 
     setDogActionLoading(true);
     try {
+      let avatarURL = String(createDog.avatarURL || '').trim();
+      if (createDog.avatarFile) {
+        avatarURL = await uploadDogPhoto(createDog.avatarFile);
+      }
+
       await http(`/api/perros/admin/user/${trainerId}`, {
         method: 'POST',
         auth: true,
-        data: payload,
+        data: { ...payload, avatarURL },
       });
       ui.notify({ type: 'success', message: 'Perro creado.' });
-      setCreateDog({ nombre: '', raza: '', nacimiento: '', castrado: false, notas: ''});
+      setCreateDog({ nombre: '', raza: '', nacimiento: '', castrado: false, notas: '', avatarURL: '', avatarFile: null, avatarPreview: '' });
       setCreateOpen(false);
       await loadDogs(trainerId);
     } catch (e) {
@@ -860,12 +928,15 @@ function AdiestradoresTab() {
       nacimiento: String(pickDogField(d, ['nacimiento', 'birth', 'fechaNacimiento'], '')).trim(),
       castrado: toBool(pickDogField(d, ['castrado', 'neutered'], false)),
       notas: String(pickDogField(d, ['notas', 'notes'], '')).trim(),
+      avatarURL: String(pickDogField(d, ['avatarURL', 'avatar_url', 'avatar', 'photoUrl'], '')).trim(),
+      avatarFile: null,
+      avatarPreview: '',
     });
   };
 
   const cancelEditDog = () => {
     setEditingDogId(null);
-    setEditDog({ nombre: '', raza: '', nacimiento: '', castrado: false, notas: ''});
+    setEditDog({ nombre: '', raza: '', nacimiento: '', castrado: false, notas: '', avatarURL: '', avatarFile: null, avatarPreview: '' });
   };
 
   const submitEditDog = async () => {
@@ -892,10 +963,15 @@ function AdiestradoresTab() {
 
     setDogActionLoading(true);
     try {
+      let avatarURL = String(editDog.avatarURL || '').trim();
+      if (editDog.avatarFile) {
+        avatarURL = await uploadDogPhoto(editDog.avatarFile);
+      }
+
       await http(`/api/perros/admin/${dogId}`, {
         method: 'PUT',
         auth: true,
-        data: payload,
+        data: { ...payload, avatarURL },
       });
       ui.notify({ type: 'success', message: 'Perro actualizado.' });
       cancelEditDog();
@@ -1195,7 +1271,53 @@ function AdiestradoresTab() {
                           </label>
 
                           <label style={{ gridColumn: '1 / -1' }}>
-                            Notas (opcional)
+                            Foto (opcional)
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                              {createDog.avatarPreview || createDog.avatarURL ? (
+                                <img
+                                  src={createDog.avatarPreview || absUrl(createDog.avatarURL)}
+                                  alt="Foto del perro"
+                                  style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1px solid #eee' }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: 64,
+                                    height: 64,
+                                    borderRadius: 10,
+                                    border: '1px dashed #ddd',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    color: '#777',
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  Sin foto
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => pickCreateDogAvatar(e.target.files?.[0] || null)}
+                                />
+                                {(createDog.avatarPreview || createDog.avatarURL) && (
+                                  <button
+                                    type="button"
+                                    className="btn-ghost"
+                                    onClick={clearCreateDogAvatar}
+                                    disabled={dogActionLoading}
+                                  >
+                                    Quitar foto
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </label>
+
+                                  <label style={{ gridColumn: '1 / -1' }}>
+                                    Notas (opcional)
                             <textarea
                               rows={3}
                               value={createDog.notas}
@@ -1354,6 +1476,98 @@ function AdiestradoresTab() {
                                     />
                                     Castrado
                                   </label>
+
+                                  <label style={{ gridColumn: '1 / -1' }}>
+                                    Foto (opcional)
+                                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                                      {editDog.avatarPreview || editDog.avatarURL ? (
+                                        <img
+                                          src={editDog.avatarPreview || absUrl(editDog.avatarURL)}
+                                          alt="Foto del perro"
+                                          style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1px solid #eee' }}
+                                        />
+                                      ) : (
+                                        <div
+                                          style={{
+                                            width: 64,
+                                            height: 64,
+                                            borderRadius: 10,
+                                            border: '1px dashed #ddd',
+                                            display: 'grid',
+                                            placeItems: 'center',
+                                            color: '#777',
+                                            fontSize: 12,
+                                          }}
+                                        >
+                                          Sin foto
+                                        </div>
+                                      )}
+
+                                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          onChange={(e) => pickEditDogAvatar(e.target.files?.[0] || null)}
+                                        />
+                                        {(editDog.avatarPreview || editDog.avatarURL) && (
+                                          <button
+                                            type="button"
+                                            className="btn-ghost"
+                                            onClick={clearEditDogAvatar}
+                                            disabled={dogActionLoading}
+                                          >
+                                            Quitar foto
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </label>
+
+                          <label style={{ gridColumn: '1 / -1' }}>
+                            Foto (opcional)
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                              {createDog.avatarPreview || createDog.avatarURL ? (
+                                <img
+                                  src={createDog.avatarPreview || absUrl(createDog.avatarURL)}
+                                  alt="Foto del perro"
+                                  style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1px solid #eee' }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: 64,
+                                    height: 64,
+                                    borderRadius: 10,
+                                    border: '1px dashed #ddd',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    color: '#777',
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  Sin foto
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => pickCreateDogAvatar(e.target.files?.[0] || null)}
+                                />
+                                {(createDog.avatarPreview || createDog.avatarURL) && (
+                                  <button
+                                    type="button"
+                                    className="btn-ghost"
+                                    onClick={clearCreateDogAvatar}
+                                    disabled={dogActionLoading}
+                                  >
+                                    Quitar foto
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </label>
 
                                   <label style={{ gridColumn: '1 / -1' }}>
                                     Notas (opcional)

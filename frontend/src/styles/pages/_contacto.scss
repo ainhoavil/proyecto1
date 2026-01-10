@@ -1,3 +1,4 @@
+// frontend/src/styles/pages/_contacto.scss
 /* ==========================
    PÁGINA CONTACTO DOGFORM
 ========================== */
@@ -246,21 +247,35 @@
   margin: 0 0 4px;
 }
 
+.contact-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+
+  &:hover {
+    color: #3a312b;
+  }
+}
+
 /* Mapa */
 
 .contact-map {
   margin-top: 12px;
 }
 
-.contact-map__img {
+.contact-map__embed {
   border-radius: 18px;
   border: 1px solid #f1d4c2;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  /* Pon aquí tu imagen de mapa real */
-  background-image: url("/img/contact-map.png");
-  height: 220px;
+  overflow: hidden;
+  background-color: #fdf2e9;
+  height: 300px;
+}
+
+.contact-map__iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
 }
 
 /* RESPONSIVE */

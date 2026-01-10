@@ -714,31 +714,6 @@ const eliminarBloqueoAdmin = async (b) => {
   }
 };
 
-// Bloqueo rápido (compat): bloquea una hora global usando los datos actuales
-const bloquear = async () => {
-  try {
-    await tryHttpCandidates([
-      { path: '/api/reservas/bloqueos', opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora } } },
-      {
-        path: '/api/bloqueos/admin',
-        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, trainer_id: null, scope: 'global' } },
-      },
-      {
-        path: '/api/bloqueos',
-        opts: { method: 'POST', data: { fecha: quickFecha, hora: quickHora, trainerId: null, trainer_id: null, scope: 'global' } },
-      },
-    ]);
-    showSuccess('Hora bloqueada');
-    setBlocksDayLoaded(true);
-    await loadBloqueosDiaAdmin(quickFecha);
-    if (showBlocksList) await loadBloqueosListAdmin();
-    await cargarAdminList();
-  } catch (e) {
-    showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
-    setTraceErr({ action: 'POST bloquear (rápido)', error: serializeErr(e) });
-  }
-};
-
   const reservarParaEmail = async () => {
     if (!/\S+@\S+\.\S+/.test(quickEmail)) {
       showError('Email inválido');
@@ -1002,13 +977,15 @@ const blocksListView = useMemo(() => {
             </select>
           </label>
           <label>
-            Adiestrador (opcional)
+            Adiestrador
             <select
               value={quickTrainerId}
               onChange={(e) => setQuickTrainerId(e.target.value)}
               disabled={loadingTrainers}
             >
-              <option value="">Sin adiestrador seleccionado</option>
+              <option value="" disabled>
+                Selecciona un adiestrador
+              </option>
               {trainers.map((t) => {
                 const tid = first(t?.uid, t?.id, t?._id);
                 const name = t?.displayName || t?.nombre || t?.email || String(tid);
@@ -1020,13 +997,6 @@ const blocksListView = useMemo(() => {
               })}
             </select>
           </label>
-          <div
-            style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
-          >
-            <button className="btn-danger" onClick={bloquear}>
-              Bloquear hora
-            </button>
-          </div>
           <label>
             Email (reservar para…)
             <input
@@ -1086,7 +1056,7 @@ const blocksListView = useMemo(() => {
             <button
               className="btn-primary"
               onClick={reservarParaEmail}
-              disabled={!quickEmail || !servicioId || !quickFecha || !quickHora || !!quickDogsWarn || (quickDogs.length > 0 && quickDogIds.length === 0)}
+              disabled={!quickEmail || !servicioId || !quickFecha || !quickHora || !quickTrainerId || !!quickDogsWarn || (quickDogs.length > 0 && quickDogIds.length === 0)}
             >
               Crear reserva
             </button>

@@ -183,7 +183,6 @@ export default function Login() {
       <div className="access-page__container">
         {/* Cabecera de la página */}
         <header className="access-header">
-          <span className="access-header__eyebrow">ACCESO CLIENTES</span>
           <h1 className="access-header__title">
             Accede o crea tu cuenta en DogForm
           </h1>

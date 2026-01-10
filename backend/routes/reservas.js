@@ -1480,16 +1480,28 @@ router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     const rRows = await query(
-      `SELECT id, paquete_id AS paqueteId, status
-         FROM reservas WHERE id=? LIMIT 1`,
+      `SELECT id,
+              paquete_id AS paqueteId,
+              status,
+              fecha,
+              hora
+         FROM reservas
+        WHERE id=?
+        LIMIT 1`,
       [id]
     );
     if (!rRows.length)
       return res.status(404).json({ error: "Reserva no encontrada" });
+
     const r = rRows[0];
 
     const st = String(r.status || "").toLowerCase();
+    const esPasada = isPast(r.fecha, r.hora);
+
+    // Regla solicitada: el admin puede eliminar reservas pasadas.
+    // Mantiene también la regla anterior (canceladas/rechazadas/eliminadas).
     const puedeBorrar =
+      esPasada ||
       st === "cancelled" ||
       st === "cancelada" ||
       st === "rejected" ||
@@ -1499,11 +1511,63 @@ router.delete("/:id", verifyToken, requireAdmin, async (req, res) => {
 
     if (!puedeBorrar) {
       return res.status(400).json({
-        error: "Solo se pueden borrar reservas canceladas o rechazadas",
+        error:
+          "Solo se pueden borrar reservas pasadas o reservas canceladas/rechazadas",
       });
     }
 
-    await query(`DELETE FROM reservas WHERE id=?`, [id]);
+    const stAjustaPaquete = [
+      "pending",
+      "pendiente",
+      "pending_user",
+      "pendiente_usuario",
+      "confirmed",
+      "confirmada",
+    ].includes(st);
+
+    if (r.paqueteId) {
+      await tx(async () => {
+        // Ajuste de paquete (mantener saldo coherente con reservas)
+        if (stAjustaPaquete) {
+          const pRows = await query(`SELECT id, saldo FROM paquetes WHERE id=? LIMIT 1`, [
+            r.paqueteId,
+          ]);
+          if (pRows.length) {
+            const saldo = parseJSONSafe(pRows[0].saldo, {
+              total: 1,
+              usadas: 0,
+              pendientes: 0,
+            });
+            saldo.pendientes = Math.max(0, Number(saldo.pendientes || 0) - 1);
+            await query(`UPDATE paquetes SET saldo=?, updated_at=? WHERE id=?`, [
+              JSON.stringify(saldo),
+              nowISO(),
+              r.paqueteId,
+            ]);
+          }
+        }
+
+        // Limpieza de notas (si existen)
+        try {
+          await query(`DELETE FROM reserva_notes WHERE reserva_id=?`, [id]);
+        } catch {}
+        try {
+          await query(`DELETE FROM reserva_notas WHERE reserva_id=?`, [id]);
+        } catch {}
+
+        await query(`DELETE FROM reservas WHERE id=?`, [id]);
+      });
+    } else {
+      // Limpieza de notas (si existen)
+      try {
+        await query(`DELETE FROM reserva_notes WHERE reserva_id=?`, [id]);
+      } catch {}
+      try {
+        await query(`DELETE FROM reserva_notas WHERE reserva_id=?`, [id]);
+      } catch {}
+
+      await query(`DELETE FROM reservas WHERE id=?`, [id]);
+    }
 
     res.json({ ok: true, id });
   } catch (e) {

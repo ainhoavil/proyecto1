@@ -13,12 +13,8 @@ export default function Register() {
   const [perroNombre, setPerroNombre] = useState("");
   const [perroTamano, setPerroTamano] = useState("");
 
-  const [intereses, setIntereses] = useState({
-    adiestramiento: false,
-    paseos: false,
-    educacion: false,
-    conducta: false,
-  });
+  // Interés principal (desplegable)
+  const [interes, setInteres] = useState("");
 
   const [pass, setPass] = useState("");
   const [pass2, setPass2] = useState("");
@@ -26,12 +22,26 @@ export default function Register() {
   const [showPass2, setShowPass2] = useState(false);
 
   const [aceptaTerminos, setAceptaTerminos] = useState(false);
-  const [aceptaTips, setAceptaTips] = useState(false);
 
+  // Solo para errores del backend / Google (no validaciones de campos)
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  
+  // Para mostrar errores por campo según se va rellenando
+  const [touched, setTouched] = useState({
+    nombre: false,
+    apellidos: false,
+    email: false,
+    telefono: false,
+    pass: false,
+    pass2: false,
+    terminos: false,
+  });
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+
+  const touch = (k) => setTouched((p) => (p[k] ? p : { ...p, [k]: true }));
+  const showFieldError = (k) => submitAttempted || touched[k];
+
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
   const countLetters = (v) => {
@@ -60,7 +70,7 @@ export default function Register() {
     return hasLetter && hasNumber;
   };
 
-const location = useLocation();
+  const location = useLocation();
   const navigate = useNavigate();
   const { loginSuccess } = useAuth();
 
@@ -113,6 +123,8 @@ const location = useLocation();
 
           // Para registrar con Google también exigimos aceptación de términos
           if (!termsRef.current) {
+            touch("terminos");
+            setSubmitAttempted(true);
             setError("Debes aceptar los términos y condiciones para continuar.");
             return;
           }
@@ -175,24 +187,39 @@ const location = useLocation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-    const nombreOk = countLetters(nombre) >= 2;
+  // Validaciones
+  const nombreOk = countLetters(nombre) >= 2;
   const apellidosOk = countLetters(apellidos) >= 2;
   const emailOk = EMAIL_RE.test(String(email || "").trim());
   const phoneOk = isValidEsPhone(telefono);
   const passOk = isStrongPassword(pass);
   const passMatch = pass === pass2 && pass2.length > 0;
 
-  const missing = [];
-  if (!nombreOk) missing.push("Nombre: mínimo 2 letras.");
-  if (!apellidosOk) missing.push("Apellidos: mínimo 2 letras.");
-  if (!emailOk) missing.push("Email: formato inválido.");
-  if (!phoneOk) missing.push("Teléfono: obligatorio y debe tener 9 dígitos (puedes incluir +34).");
-  if (!passOk) missing.push("Contraseña: mínimo 8 caracteres e incluir letras y números.");
-  if (!passMatch) missing.push("Las contraseñas deben coincidir.");
-  if (!aceptaTerminos) missing.push("Debes aceptar los términos y condiciones.");
+  const fieldErrors = {
+    nombre: nombreOk ? "" : "Nombre: mínimo 2 letras.",
+    apellidos: apellidosOk ? "" : "Apellidos: mínimo 2 letras.",
+    email: emailOk ? "" : "Email: formato inválido.",
+    telefono: phoneOk
+      ? ""
+      : "Teléfono: obligatorio y debe tener 9 dígitos (puedes incluir +34).",
+    pass: passOk
+      ? ""
+      : "Contraseña: mínimo 8 caracteres e incluir letras y números.",
+    pass2: passMatch ? "" : "Las contraseñas deben coincidir.",
+    terminos: aceptaTerminos ? "" : "Debes aceptar los términos y condiciones.",
+  };
 
+  const missing = Object.values(fieldErrors).filter(Boolean);
   const canSubmit = !loading && missing.length === 0;
 
+  const invalidClass = (k) =>
+    showFieldError(k) && fieldErrors[k] ? "is-invalid" : "";
+  const InvalidMsg = ({ k }) =>
+    showFieldError(k) && fieldErrors[k] ? (
+      <div className="field-error" role="alert">
+        {fieldErrors[k]}
+      </div>
+    ) : null;
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -201,9 +228,27 @@ const location = useLocation();
     setError("");
 
     if (missing.length) {
-      setError("Revisa el formulario: " + missing[0]);
+      setSubmitAttempted(true);
+      setTouched((p) => ({
+        ...p,
+        nombre: true,
+        apellidos: true,
+        email: true,
+        telefono: true,
+        pass: true,
+        pass2: true,
+        terminos: true,
+      }));
       return;
     }
+
+    // convertimos el desplegable a la estructura que espera el backend
+    const intereses = {
+      adiestramiento: interes === "adiestramiento",
+      paseos: interes === "paseos",
+      educacion: interes === "educacion",
+      conducta: interes === "conducta",
+    };
 
     setLoading(true);
     try {
@@ -218,7 +263,6 @@ const location = useLocation();
           perroNombre: perroNombre.trim(),
           perroTamano: perroTamano.trim(),
           intereses,
-          aceptaTips,
         },
       });
 
@@ -251,7 +295,6 @@ const location = useLocation();
     <div className="register-page">
       <div className="register-container">
         <header className="register-header">
-          <span className="register-eyebrow">CREAR CUENTA</span>
           <h1 className="register-title">Crea tu cuenta en DogForm</h1>
           <p className="register-lead">
             Empieza a gestionar reservas, seguimiento y comunicación con el
@@ -264,13 +307,18 @@ const location = useLocation();
             <div className="register-tabs">
               <Link
                 to={
-                  nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : "/login"
+                  nextParam
+                    ? `/login?next=${encodeURIComponent(nextParam)}`
+                    : "/login"
                 }
                 className="register-tab"
               >
                 Acceder
               </Link>
-              <button className="register-tab register-tab--active" type="button">
+              <button
+                className="register-tab register-tab--active"
+                type="button"
+              >
                 Crear cuenta
               </button>
             </div>
@@ -295,42 +343,71 @@ const location = useLocation();
                   <label>
                     Nombre
                     <input
+                      className={invalidClass("nombre")}
+                      aria-invalid={invalidClass("nombre") ? "true" : "false"}
                       value={nombre}
-                      onChange={(e) => setNombre(e.target.value)}
+                      onChange={(e) => {
+                        setNombre(e.target.value);
+                        touch("nombre");
+                      }}
+                      onBlur={() => touch("nombre")}
                       placeholder="Tu nombre"
                       required
                     />
+                    <InvalidMsg k="nombre" />
                   </label>
 
                   <label>
                     Apellidos
                     <input
+                      className={invalidClass("apellidos")}
+                      aria-invalid={invalidClass("apellidos") ? "true" : "false"}
                       value={apellidos}
-                      onChange={(e) => setApellidos(e.target.value)}
+                      onChange={(e) => {
+                        setApellidos(e.target.value);
+                        touch("apellidos");
+                      }}
+                      onBlur={() => touch("apellidos")}
                       placeholder="Tus apellidos"
+                      required
                     />
+                    <InvalidMsg k="apellidos" />
                   </label>
 
                   <label>
                     Correo electrónico
                     <input
                       type="email"
+                      className={invalidClass("email")}
+                      aria-invalid={invalidClass("email") ? "true" : "false"}
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        touch("email");
+                      }}
+                      onBlur={() => touch("email")}
                       placeholder="tu-email@ejemplo.com"
                       required
                     />
+                    <InvalidMsg k="email" />
                   </label>
 
                   <label>
                     Teléfono (obligatorio)
                     <input
                       type="tel"
+                      className={invalidClass("telefono")}
+                      aria-invalid={invalidClass("telefono") ? "true" : "false"}
                       value={telefono}
-                      onChange={(e) => setTelefono(e.target.value)}
+                      onChange={(e) => {
+                        setTelefono(e.target.value);
+                        touch("telefono");
+                      }}
+                      onBlur={() => touch("telefono")}
                       placeholder="+34 600 123 456"
                       required
                     />
+                    <InvalidMsg k="telefono" />
                   </label>
 
                   <label>
@@ -364,65 +441,33 @@ const location = useLocation();
                     </select>
                   </label>
 
-                  <div className="full">
-                    <p className="subhead">¿Qué te interesa?</p>
-                    <div className="checks">
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={intereses.adiestramiento}
-                          onChange={() =>
-                            setIntereses((p) => ({
-                              ...p,
-                              adiestramiento: !p.adiestramiento,
-                            }))
-                          }
-                        />
-                        Adiestramiento
-                      </label>
-
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={intereses.paseos}
-                          onChange={() =>
-                            setIntereses((p) => ({ ...p, paseos: !p.paseos }))
-                          }
-                        />
-                        Paseos
-                      </label>
-
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={intereses.educacion}
-                          onChange={() =>
-                            setIntereses((p) => ({ ...p, educacion: !p.educacion }))
-                          }
-                        />
-                        Educación
-                      </label>
-
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={intereses.conducta}
-                          onChange={() =>
-                            setIntereses((p) => ({ ...p, conducta: !p.conducta }))
-                          }
-                        />
-                        Conducta
-                      </label>
-                    </div>
-                  </div>
+                  <label>
+                    ¿Qué te interesa? (opcional)
+                    <select
+                      value={interes}
+                      onChange={(e) => setInteres(e.target.value)}
+                    >
+                      <option value="">Selecciona</option>
+                      <option value="adiestramiento">Adiestramiento</option>
+                      <option value="paseos">Paseos</option>
+                      <option value="educacion">Educación</option>
+                      <option value="conducta">Conducta</option>
+                    </select>
+                  </label>
 
                   <label>
                     Contraseña
                     <div className="password-row">
                       <input
                         type={showPass1 ? "text" : "password"}
+                        className={invalidClass("pass")}
+                        aria-invalid={invalidClass("pass") ? "true" : "false"}
                         value={pass}
-                        onChange={(e) => setPass(e.target.value)}
+                        onChange={(e) => {
+                          setPass(e.target.value);
+                          touch("pass");
+                        }}
+                        onBlur={() => touch("pass")}
                         placeholder="Mínimo 8 caracteres (letras y números)"
                         required
                       />
@@ -434,19 +479,27 @@ const location = useLocation();
                         {showPass1 ? "Ocultar" : "Ver"}
                       </button>
                     </div>
-                  </label>
 
-                  <p className="muted" style={{ marginTop: "-6px", marginBottom: "10px" }}>
-                    La contraseña debe tener mínimo 8 caracteres e incluir letras y números.
-                  </p>
+                    <div className="field-hint">
+                      Mínimo 8 caracteres e incluir letras y números.
+                    </div>
+
+                    <InvalidMsg k="pass" />
+                  </label>
 
                   <label>
                     Repetir contraseña
                     <div className="password-row">
                       <input
                         type={showPass2 ? "text" : "password"}
+                        className={invalidClass("pass2")}
+                        aria-invalid={invalidClass("pass2") ? "true" : "false"}
                         value={pass2}
-                        onChange={(e) => setPass2(e.target.value)}
+                        onChange={(e) => {
+                          setPass2(e.target.value);
+                          touch("pass2");
+                        }}
+                        onBlur={() => touch("pass2")}
                         placeholder="Repite tu contraseña"
                         required
                       />
@@ -458,6 +511,7 @@ const location = useLocation();
                         {showPass2 ? "Ocultar" : "Ver"}
                       </button>
                     </div>
+                    <InvalidMsg k="pass2" />
                   </label>
 
                   <div className="full">
@@ -467,20 +521,21 @@ const location = useLocation();
                       <input
                         type="checkbox"
                         checked={aceptaTerminos}
-                        onChange={(e) => setAceptaTerminos(e.target.checked)}
+                        onChange={(e) => {
+                          setAceptaTerminos(e.target.checked);
+                          touch("terminos");
+                        }}
                         required
                       />
-                      Acepto los términos y condiciones y la política de privacidad.
+                      Acepto los términos y condiciones y la política de
+                      privacidad.
                     </label>
 
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={aceptaTips}
-                        onChange={(e) => setAceptaTips(e.target.checked)}
-                      />
-                      Quiero recibir recomendaciones y consejos para el cuidado de mi perro.
-                    </label>
+                    {showFieldError("terminos") && fieldErrors.terminos && (
+                      <div className="field-error" role="alert">
+                        {fieldErrors.terminos}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -496,24 +551,13 @@ const location = useLocation();
                   />
                 </div>
 
-                <button type="submit" className="btn-primary" disabled={!canSubmit}>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={!canSubmit}
+                >
                   {loading ? "Creando…" : "Crear cuenta y continuar"}
                 </button>
-
-                {!canSubmit && !loading && (
-                  <div className="register-requirements" role="alert">
-                    <p className="muted" style={{ marginTop: "10px" }}>
-                      No puedes registrarte todavía. Revisa:
-                    </p>
-                    <ul style={{ marginTop: "6px" }}>
-                      {missing.map((m, idx) => (
-                        <li key={idx} className="muted">
-                          {m}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
 
                 <p className="muted">
                   ¿Ya tienes cuenta?{" "}
@@ -532,17 +576,16 @@ const location = useLocation();
           </section>
 
           <aside className="register-card register-card--info">
-            <h3 className="register-info-title">Lo que obtienes con tu cuenta</h3>
+            <h3 className="register-info-title">Lo que puedes hacer con tu cuenta</h3>
             <ul className="register-info-list">
-              <li>Reserva y gestiona servicios fácilmente.</li>
-              <li>Consulta historial y seguimiento del adiestramiento.</li>
-              <li>Comunicación directa con el equipo.</li>
-              <li>Acceso rápido a materiales y recomendaciones.</li>
+              <li>Reservar servicios (adiestramiento, educación y paseos) en segundos.</li>
+              <li>Gestionar tus reservas y consultar tu historial.</li>
+              <li>Contactar con el equipo para dudas y coordinación.</li>
             </ul>
 
             <p className="register-help">
-              Si tienes cualquier duda durante el registro, escríbenos a{" "}
-              <a href="mailto:hola@dogform.es">hola@dogform.es</a> o por WhatsApp al{" "}
+              ¿Necesitas ayuda? Escríbenos a{" "}
+              <a href="mailto:hola@dogform.es">dogformtraining@gmail.com</a> o por WhatsApp al{" "}
               <a href="tel:+34600123456">+34 600 123 456</a>.
             </p>
           </aside>
