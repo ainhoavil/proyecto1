@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
 import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
+import { notifyReservationCenterConfirmed } from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -261,6 +262,11 @@ router.post(
           WHERE id = ? LIMIT 1`,
         [id]
       );
+
+      if (status === "pending_user") {
+        // Email al cliente: debe aceptar/rechazar la reserva creada por el centro/adiestrador
+        void notifyReservationCenterConfirmed(id);
+      }
 
       res.status(201).json(rows[0] || { id });
     } catch (e) {

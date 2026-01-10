@@ -12,6 +12,11 @@ const boolToInt = (v) => (v ? 1 : 0);
 const u2n = (v) => (v === undefined ? null : v);
 const getUserId = (u = {}) => u.uid || u.id || u.sub || null;
 
+async function userExists(userId) {
+  const rows = await query(`SELECT 1 FROM usuarios WHERE id = ? LIMIT 1`, [userId]);
+  return rows.length > 0;
+}
+
 function toIsoDate(val) {
   if (!val) return null;
   const s = String(val).trim();
@@ -301,6 +306,102 @@ router.delete("/:id", verifyToken, allowRoles(["client", "adiestrador"]), async 
 
 /* =================== RUTAS ADMIN OPCIONALES =================== */
 
+/* =====================================================
+   ADMIN CRUD (sin romper rutas existentes)
+
+   GET    /api/perros/admin/user/:userId   → lista perros del userId
+   POST   /api/perros/admin/user/:userId   → crea perro para userId
+   PUT    /api/perros/admin/:dogId         → actualiza perro por id
+   DELETE /api/perros/admin/:dogId         → borra perro por id
+
+   Nota: el endpoint existente GET /api/perros/user/:userId se mantiene
+   para usos adiestrador/admin. Estos endpoints son específicos para admin.
+====================================================== */
+
+// GET → perros del usuario indicado (admin)
+router.get("/admin/user/:userId", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const okUser = await userExists(userId);
+    if (!okUser) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    const rows = await query(
+      `SELECT id, user_id AS userId, nombre, raza, nacimiento, castrado, notas,
+              COALESCE(avatar_url, avatarURL) AS avatarURL,
+              archived,
+              created_at AS createdAt, updated_at AS updatedAt
+         FROM ${TABLE}
+        WHERE user_id = ?
+          AND COALESCE(archived,0) = 0
+        ORDER BY nombre COLLATE NOCASE ASC`,
+      [userId]
+    );
+
+    res.json({ items: rows.map((r) => ({ ...r, castrado: !!r.castrado })) });
+  } catch (e) {
+    console.error("GET /perros/admin/user/:userId:", e);
+    res.status(500).json({ error: "No se pudo listar perros del usuario" });
+  }
+});
+
+// POST → crear perro para el usuario indicado (admin)
+router.post("/admin/user/:userId", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "Falta userId" });
+
+    const okUser = await userExists(userId);
+    if (!okUser) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    const d = toDB(req.body || {});
+    if (!d.nombre?.trim()) return res.status(400).json({ error: "El nombre es obligatorio" });
+    if (!d.raza?.trim()) return res.status(400).json({ error: "La raza/tamaño es obligatoria" });
+    if (!d.nacimiento) return res.status(400).json({ error: "La fecha de nacimiento es obligatoria o inválida" });
+
+    const id = uuidv4();
+    const now = nowIso();
+    const col = avatarCol();
+
+    await query(
+      `INSERT INTO ${TABLE}
+       (id, user_id, nombre, raza, nacimiento, castrado, notas, ${col}, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        userId,
+        d.nombre.trim(),
+        d.raza.trim(),
+        d.nacimiento,
+        d.castrado ? 1 : 0,
+        (d.notas || "").trim(),
+        (d.avatarURL || "").trim(),
+        now,
+        now,
+      ]
+    );
+
+    res.status(201).json({
+      item: {
+        id,
+        userId,
+        nombre: d.nombre.trim(),
+        raza: d.raza.trim(),
+        nacimiento: d.nacimiento,
+        castrado: !!d.castrado,
+        notas: d.notas || "",
+        avatarURL: d.avatarURL || "",
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+  } catch (e) {
+    console.error("POST /perros/admin/user/:userId:", e);
+    res.status(500).json({ error: "No se pudo crear" });
+  }
+});
+
 // GET → todos los perros con su dueño
 router.get("/admin/all", verifyToken, requireAdmin, async (_req, res) => {
   try {
@@ -323,12 +424,126 @@ router.get("/admin/all", verifyToken, requireAdmin, async (_req, res) => {
 // DELETE /api/perros/admin/purge → borrar archivados (si quedaran)
 router.delete("/admin/purge", verifyToken, requireAdmin, async (_req, res) => {
   try {
-    const info = await query(`DELETE FROM ${TABLE} WHERE archived = 1`);
-    res.json({ ok: true, purged: info.length || 0 });
+    const before = await query(
+      `SELECT COUNT(1) AS n FROM ${TABLE} WHERE COALESCE(archived,0) = 1`
+    );
+    const purged = Number(before?.[0]?.n || 0);
+    await query(`DELETE FROM ${TABLE} WHERE COALESCE(archived,0) = 1`);
+    res.json({ ok: true, purged });
   } catch (e) {
     console.error("DELETE /perros/admin/purge:", e);
     res.status(500).json({ error: "No se pudo purgar" });
   }
 });
+
+	// PUT → actualizar perro por id (admin)
+	// Nota (Express 5 / path-to-regexp v6): no usar el patrón :param(regex) en la ruta,
+	// porque puede romper el arranque del servidor. Validamos dentro del handler si hace falta.
+router.put(
+	  "/admin/:dogId",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const dogId = String(req.params.dogId || "").trim();
+      if (!dogId) return res.status(400).json({ error: "Falta dogId" });
+
+	      // Hardening: si alguien intenta usar rutas reservadas con PUT
+	      if (dogId === "all" || dogId === "purge") {
+	        return res.status(404).json({ error: "No encontrado" });
+	      }
+
+      // Hardening: si se envían campos requeridos, no pueden ir vacíos
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "nombre")) {
+        const v = String(req.body?.nombre ?? "").trim();
+        if (!v) return res.status(400).json({ error: "El nombre es obligatorio" });
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "raza")) {
+        const v = String(req.body?.raza ?? "").trim();
+        if (!v) return res.status(400).json({ error: "La raza/tamaño es obligatoria" });
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "nacimiento")) {
+        const raw = req.body?.nacimiento;
+        const hasValue = raw !== undefined && raw !== null && String(raw).trim() !== "";
+        if (hasValue) {
+          const iso = toIsoDate(raw);
+          if (!iso) return res.status(400).json({ error: "Fecha de nacimiento inválida" });
+        }
+      }
+
+      const exists = await query(`SELECT 1 FROM ${TABLE} WHERE id = ? LIMIT 1`, [dogId]);
+      if (!exists.length) return res.status(404).json({ error: "No encontrado" });
+
+      const d = toDB(req.body || {});
+      const now = nowIso();
+      const col = avatarCol();
+
+      await query(
+        `UPDATE ${TABLE}
+           SET nombre = COALESCE(?, nombre),
+               raza = COALESCE(?, raza),
+               nacimiento = COALESCE(?, nacimiento),
+               castrado = COALESCE(?, castrado),
+               notas = COALESCE(?, notas),
+               ${col} = COALESCE(?, ${col}),
+               updated_at = ?
+         WHERE id = ?`,
+        [
+          u2n(d.nombre?.trim()),
+          u2n(d.raza?.trim()),
+          u2n(d.nacimiento),
+          d.castrado == null ? null : boolToInt(!!d.castrado),
+          u2n(d.notas?.trim()),
+          u2n((d.avatarURL || "").trim()),
+          now,
+          dogId,
+        ]
+      );
+
+      const rows = await query(
+        `SELECT id, user_id AS userId, nombre, raza, nacimiento, castrado, notas,
+                COALESCE(avatar_url, avatarURL) AS avatarURL,
+                archived,
+                created_at AS createdAt, updated_at AS updatedAt
+           FROM ${TABLE}
+          WHERE id = ?
+          LIMIT 1`,
+        [dogId]
+      );
+
+      res.json({ item: { ...rows[0], castrado: !!rows[0].castrado } });
+    } catch (e) {
+      console.error("PUT /perros/admin/:dogId:", e);
+      res.status(500).json({ error: "No se pudo actualizar" });
+    }
+  }
+);
+
+	// DELETE → borrar perro por id (admin)
+	// Nota (Express 5 / path-to-regexp v6): no usar el patrón :param(regex) en la ruta.
+router.delete(
+	  "/admin/:dogId",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const dogId = String(req.params.dogId || "").trim();
+      if (!dogId) return res.status(400).json({ error: "Falta dogId" });
+
+	      if (dogId === "all" || dogId === "purge") {
+	        return res.status(404).json({ error: "No encontrado" });
+	      }
+
+      const exists = await query(`SELECT 1 FROM ${TABLE} WHERE id = ? LIMIT 1`, [dogId]);
+      if (!exists.length) return res.status(404).json({ error: "No encontrado" });
+
+      await query(`DELETE FROM ${TABLE} WHERE id = ?`, [dogId]);
+      res.json({ ok: true, deleted: dogId });
+    } catch (e) {
+      console.error("DELETE /perros/admin/:dogId:", e);
+      res.status(500).json({ error: "No se pudo eliminar" });
+    }
+  }
+);
 
 export default router;

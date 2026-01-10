@@ -9,6 +9,64 @@ const router = express.Router();
 let _trainerProfilesSchemaReady = false;
 let _trainerProfilesSchemaPromise = null;
 
+/* ===================== table info helpers ===================== */
+
+const _colsCache = new Map();
+
+function _colName(row) {
+  return String(row?.name ?? row?.NAME ?? row?.Name ?? "").trim();
+}
+
+async function getCols(tableName) {
+  if (_colsCache.has(tableName)) return _colsCache.get(tableName);
+  try {
+    const cols = await query(`PRAGMA table_info(${tableName})`);
+    const names = Array.isArray(cols) ? cols.map(_colName).filter(Boolean) : [];
+    _colsCache.set(tableName, names);
+    return names;
+  } catch {
+    _colsCache.set(tableName, []);
+    return [];
+  }
+}
+
+function pickFirst(cols, candidates = []) {
+  const set = new Set((cols || []).map((c) => String(c).toLowerCase()));
+  for (const c of candidates) {
+    if (set.has(String(c).toLowerCase())) return c;
+  }
+  return null;
+}
+
+function nullableTextExpr(alias, col) {
+  if (!col) return null;
+  return `NULLIF(${alias}.${col}, '')`;
+}
+
+async function ensureUsersProfileColumnsSoft() {
+  // No debe romper el endpoint si la tabla "users" no existe o tiene un esquema distinto.
+  // Intentamos añadir columnas "nombre/notas/foto" como fallback, pero ignoramos errores.
+  const cols = await getCols("users");
+  if (!cols.length) return;
+
+  const names = new Set(cols.map((c) => String(c).toLowerCase()));
+  const tryAdd = async (name, type) => {
+    if (names.has(String(name).toLowerCase())) return;
+    try {
+      await query(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+      names.add(String(name).toLowerCase());
+      // refresca cache
+      _colsCache.set("users", Array.from(names));
+    } catch {
+      // ignore
+    }
+  };
+
+  await tryAdd("nombre", "TEXT");
+  await tryAdd("notas", "TEXT");
+  await tryAdd("foto", "TEXT");
+}
+
 async function ensureTrainerProfilesSchema() {
   if (_trainerProfilesSchemaReady) return;
   if (_trainerProfilesSchemaPromise) return _trainerProfilesSchemaPromise;
@@ -29,22 +87,30 @@ async function ensureTrainerProfilesSchema() {
     `);
 
     // Backfill missing columns in older DBs
-    const cols = await query("PRAGMA table_info(trainer_profiles)");
-    const names = new Set((cols || []).map((c) => c.name));
+    const cols = await getCols("trainer_profiles");
+    const names = new Set(cols.map((c) => String(c).toLowerCase()));
 
-    const addCol = async (name, type) => {
-      if (names.has(name)) return;
-      await query(`ALTER TABLE trainer_profiles ADD COLUMN ${name} ${type}`);
-      names.add(name);
+    const tryAddCol = async (name, type) => {
+      if (names.has(String(name).toLowerCase())) return;
+      try {
+        await query(`ALTER TABLE trainer_profiles ADD COLUMN ${name} ${type}`);
+        names.add(String(name).toLowerCase());
+        _colsCache.set("trainer_profiles", Array.from(names));
+      } catch {
+        // ignore (duplicate column, etc.)
+      }
     };
 
-    await addCol("display_name", "TEXT");
-    await addCol("bio", "TEXT");
-    await addCol("photo_url", "TEXT");
-    await addCol("experience_years", "INTEGER");
-    await addCol("specialties", "TEXT");
-    await addCol("created_at", "TEXT");
-    await addCol("updated_at", "TEXT");
+    await tryAddCol("display_name", "TEXT");
+    await tryAddCol("bio", "TEXT");
+    await tryAddCol("photo_url", "TEXT");
+    await tryAddCol("experience_years", "INTEGER");
+    await tryAddCol("specialties", "TEXT");
+    await tryAddCol("created_at", "TEXT");
+    await tryAddCol("updated_at", "TEXT");
+
+    // Soft fallback for very old schemas
+    await ensureUsersProfileColumnsSoft();
 
     _trainerProfilesSchemaReady = true;
   })().finally(() => {
@@ -56,6 +122,7 @@ async function ensureTrainerProfilesSchema() {
 }
 
 /* ===================== helpers ===================== */
+
 const parseSpecialties = (raw) => {
   if (!raw) return [];
   try {
@@ -65,13 +132,14 @@ const parseSpecialties = (raw) => {
     return [String(raw)];
   }
 };
+
 /* ====== perros (mis perros -> perros de trabajo en perfil público) ====== */
 let _perrosCols = null;
 async function getPerrosCols() {
   if (_perrosCols) return _perrosCols;
   try {
     const cols = await query("PRAGMA table_info(perros)");
-    _perrosCols = cols.map((c) => c.name);
+    _perrosCols = Array.isArray(cols) ? cols.map(_colName).filter(Boolean) : [];
   } catch {
     _perrosCols = [];
   }
@@ -86,13 +154,14 @@ async function getPerrosAvatarCol() {
 }
 
 /* ============================================================
-   GET /api/trainers/:id/profile
-   PERFIL PÚBLICO (SIN AUTH)
+   GET /api/trainers/me/profile
+   PERFIL PRIVADO (adiestrador / admin)
 
    PRIORIDAD DE DATOS:
    1) trainer_profiles
-   2) users (perfil usuario)
-   3) email
+   2) usuarios (si tiene columnas de perfil)
+   3) users (si existe y es compatible)
+   4) email
 ============================================================ */
 router.get(
   "/me/profile",
@@ -101,35 +170,62 @@ router.get(
   async (req, res) => {
     try {
       await ensureTrainerProfilesSchema();
-      const trainerId = String(req.user?.id || req.user?.uid || "");
-      if (!trainerId) {
-        return res.status(401).json({ error: "No autorizado" });
-      }
 
-      const rows = await query(
-        `
+      const trainerId = String(req.user?.id || req.user?.uid || "");
+      if (!trainerId) return res.status(401).json({ error: "No autorizado" });
+
+      const usuariosCols = await getCols("usuarios");
+      const auNameCol = pickFirst(usuariosCols, ["nombre", "name", "display_name", "full_name"]);
+      const auNotesCol = pickFirst(usuariosCols, ["notas", "notes", "bio", "descripcion", "description"]);
+      const auPhotoCol = pickFirst(usuariosCols, ["foto", "photo_url", "avatar_url", "avatarURL", "photo", "avatar"]);
+
+      const usersCols = await getCols("users");
+      const upJoinCol = pickFirst(usersCols, ["uid", "id", "user_id"]);
+      const upNameCol = pickFirst(usersCols, ["nombre", "name", "display_name", "full_name"]);
+      const upNotesCol = pickFirst(usersCols, ["notas", "notes", "bio", "descripcion", "description"]);
+      const upPhotoCol = pickFirst(usersCols, ["foto", "photo_url", "avatar_url", "avatarURL", "photo", "avatar"]);
+
+      const hasUsersJoin = Boolean(upJoinCol && (upNameCol || upNotesCol || upPhotoCol));
+
+      const displayNameExprParts = [
+        nullableTextExpr("tp", "display_name"),
+        nullableTextExpr("au", auNameCol),
+        hasUsersJoin ? nullableTextExpr("up", upNameCol) : null,
+        "au.email",
+      ].filter(Boolean);
+
+      const bioExprParts = [
+        nullableTextExpr("tp", "bio"),
+        nullableTextExpr("au", auNotesCol),
+        hasUsersJoin ? nullableTextExpr("up", upNotesCol) : null,
+        "''",
+      ].filter(Boolean);
+
+      const photoExprParts = [
+        nullableTextExpr("tp", "photo_url"),
+        nullableTextExpr("au", auPhotoCol),
+        hasUsersJoin ? nullableTextExpr("up", upPhotoCol) : null,
+        "''",
+      ].filter(Boolean);
+
+      const sql = `
         SELECT
           au.id AS trainerId,
-
-          COALESCE(NULLIF(tp.display_name, ''), NULLIF(up.nombre, ''), au.email) AS displayName,
-          COALESCE(NULLIF(tp.bio, ''), NULLIF(up.notas, ''), '') AS bio,
-          COALESCE(NULLIF(tp.photo_url, ''), NULLIF(up.foto, ''), '') AS photoUrl,
-
+          COALESCE(${displayNameExprParts.join(", ")}) AS displayName,
+          COALESCE(${bioExprParts.join(", ")}) AS bio,
+          COALESCE(${photoExprParts.join(", ")}) AS photoUrl,
           tp.experience_years AS experienceYears,
           tp.specialties AS specialties,
-
           CASE WHEN tp.trainer_id IS NULL THEN 0 ELSE 1 END AS exists
-
         FROM usuarios au
         LEFT JOIN trainer_profiles tp
           ON tp.trainer_id = au.id
-        LEFT JOIN users up
-          ON up.uid = au.id
+        ${hasUsersJoin ? `LEFT JOIN users up ON up.${upJoinCol} = au.id` : ""}
         WHERE au.id = ?
         LIMIT 1
-        `,
-        [trainerId]
-      );
+      `;
+
+      const rows = await query(sql, [trainerId]);
 
       if (!rows.length) {
         return res.json({
@@ -236,61 +332,76 @@ router.post(
   }
 );
 
-
-
+/* ============================================================
+   GET /api/trainers/:id/profile
+   PERFIL PÚBLICO (SIN AUTH)
+============================================================ */
 router.get("/:id/profile", async (req, res) => {
   try {
     await ensureTrainerProfilesSchema();
     const { id } = req.params;
 
-    const rows = await query(
-      `
+    const usuariosCols = await getCols("usuarios");
+    const auNameCol = pickFirst(usuariosCols, ["nombre", "name", "display_name", "full_name"]);
+    const auNotesCol = pickFirst(usuariosCols, ["notas", "notes", "bio", "descripcion", "description"]);
+    const auPhotoCol = pickFirst(usuariosCols, ["foto", "photo_url", "avatar_url", "avatarURL", "photo", "avatar"]);
+
+    const usersCols = await getCols("users");
+    const upJoinCol = pickFirst(usersCols, ["uid", "id", "user_id"]);
+    const upNameCol = pickFirst(usersCols, ["nombre", "name", "display_name", "full_name"]);
+    const upNotesCol = pickFirst(usersCols, ["notas", "notes", "bio", "descripcion", "description"]);
+    const upPhotoCol = pickFirst(usersCols, ["foto", "photo_url", "avatar_url", "avatarURL", "photo", "avatar"]);
+
+    const hasUsersJoin = Boolean(upJoinCol && (upNameCol || upNotesCol || upPhotoCol));
+
+    const displayNameExprParts = [
+      nullableTextExpr("tp", "display_name"),
+      nullableTextExpr("au", auNameCol),
+      hasUsersJoin ? nullableTextExpr("up", upNameCol) : null,
+      "au.email",
+    ].filter(Boolean);
+
+    const bioExprParts = [
+      nullableTextExpr("tp", "bio"),
+      nullableTextExpr("au", auNotesCol),
+      hasUsersJoin ? nullableTextExpr("up", upNotesCol) : null,
+      "''",
+    ].filter(Boolean);
+
+    const photoExprParts = [
+      nullableTextExpr("tp", "photo_url"),
+      nullableTextExpr("au", auPhotoCol),
+      hasUsersJoin ? nullableTextExpr("up", upPhotoCol) : null,
+      "''",
+    ].filter(Boolean);
+
+    const sql = `
       SELECT
         au.id AS trainerId,
         au.email AS email,
-
-        -- nombre público
-        COALESCE(
-          NULLIF(tp.display_name, ''),
-          NULLIF(up.nombre, ''),
-          au.email
-        ) AS displayName,
-
-        -- bio
-        COALESCE(
-          NULLIF(tp.bio, ''),
-          NULLIF(up.notas, ''),
-          ''
-        ) AS bio,
-
-        -- foto
-        COALESCE(
-          NULLIF(tp.photo_url, ''),
-          NULLIF(up.foto, ''),
-          ''
-        ) AS photoUrl,
-
+        COALESCE(${displayNameExprParts.join(", ")}) AS displayName,
+        COALESCE(${bioExprParts.join(", ")}) AS bio,
+        COALESCE(${photoExprParts.join(", ")}) AS photoUrl,
         tp.experience_years AS experienceYears,
         tp.specialties AS specialties
-
       FROM usuarios au
       LEFT JOIN trainer_profiles tp
         ON tp.trainer_id = au.id
-      LEFT JOIN users up
-        ON up.uid = au.id
+      ${hasUsersJoin ? `LEFT JOIN users up ON up.${upJoinCol} = au.id` : ""}
       WHERE au.id = ?
         AND au.rol = 'adiestrador'
       LIMIT 1
-      `,
-      [String(id)]
-    );
+    `;
+
+    const rows = await query(sql, [String(id)]);
 
     if (!rows.length) {
       return res.status(404).json({ error: "Adiestrador no encontrado" });
     }
 
     const r = rows[0];
-    // En el perfil público, "perros de trabajo" son los mismos perros que el adiestrador gestiona en "Mis perros".
+
+    // "Perros de trabajo" = perros del adiestrador
     const avatarCol = await getPerrosAvatarCol();
     const perrosCols = await getPerrosCols();
     const hasArchived = perrosCols.includes("archived");
@@ -315,7 +426,6 @@ router.get("/:id/profile", async (req, res) => {
       raza: d.raza,
       avatarUrl: d.avatarUrl || "",
     }));
-
 
     res.json({
       trainerId: r.trainerId,
@@ -347,6 +457,7 @@ router.post(
   allowRoles(["admin"]),
   async (req, res) => {
     try {
+      await ensureTrainerProfilesSchema();
       const trainerId = String(req.params.id || "");
       if (!trainerId) return res.status(400).json({ error: "Datos inválidos" });
 
@@ -420,12 +531,5 @@ router.post(
     }
   }
 );
-
-/* ============================================================
-   GET /api/trainers/me/profile
-   PERFIL PRIVADO (adiestrador / admin)
-   → también con fallback a users
-============================================================ */
-
 
 export default router;

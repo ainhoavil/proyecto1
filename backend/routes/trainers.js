@@ -53,6 +53,85 @@ async function ensureTrainerProfilesSchema() {
   return _trainerProfilesSchemaPromise;
 }
 
+
+/* ===================== users fallback (safe joins) ===================== */
+
+const _colsCache = new Map();
+
+function _colName(row) {
+  return String(row?.name ?? row?.NAME ?? row?.Name ?? "").trim();
+}
+
+async function getCols(tableName) {
+  if (_colsCache.has(tableName)) return _colsCache.get(tableName);
+  try {
+    const cols = await query(`PRAGMA table_info(${tableName})`);
+    const names = Array.isArray(cols) ? cols.map(_colName).filter(Boolean) : [];
+    _colsCache.set(tableName, names);
+    return names;
+  } catch {
+    _colsCache.set(tableName, []);
+    return [];
+  }
+}
+
+function pickFirst(cols, candidates = []) {
+  const set = new Set((cols || []).map((c) => String(c).toLowerCase()));
+  for (const c of candidates) {
+    if (set.has(String(c).toLowerCase())) return c;
+  }
+  return null;
+}
+
+function nullableTextExpr(alias, col) {
+  if (!col) return null;
+  return `NULLIF(${alias}.${col}, '')`;
+}
+
+async function getTrainerExprConfig() {
+  const usuariosCols = await getCols("usuarios");
+  const auNameCol = pickFirst(usuariosCols, ["nombre", "name", "display_name", "full_name"]);
+  const auNotesCol = pickFirst(usuariosCols, ["notas", "notes", "bio", "descripcion", "description"]);
+  const auPhotoCol = pickFirst(usuariosCols, ["foto", "photo_url", "avatar_url", "avatarURL", "photo", "avatar"]);
+
+  const usersCols = await getCols("users");
+  const upJoinCol = pickFirst(usersCols, ["uid", "id", "user_id"]);
+  const upNameCol = pickFirst(usersCols, ["nombre", "name", "display_name", "full_name"]);
+  const upNotesCol = pickFirst(usersCols, ["notas", "notes", "bio", "descripcion", "description"]);
+  const upPhotoCol = pickFirst(usersCols, ["foto", "photo_url", "avatar_url", "avatarURL", "photo", "avatar"]);
+
+  const hasUsersJoin = Boolean(upJoinCol && (upNameCol || upNotesCol || upPhotoCol));
+
+  const displayNameParts = [
+    nullableTextExpr("tp", "display_name"),
+    nullableTextExpr("au", auNameCol),
+    hasUsersJoin ? nullableTextExpr("up", upNameCol) : null,
+    "au.email",
+  ].filter(Boolean);
+
+  const bioParts = [
+    nullableTextExpr("tp", "bio"),
+    nullableTextExpr("au", auNotesCol),
+    hasUsersJoin ? nullableTextExpr("up", upNotesCol) : null,
+    "''",
+  ].filter(Boolean);
+
+  const photoParts = [
+    nullableTextExpr("tp", "photo_url"),
+    nullableTextExpr("au", auPhotoCol),
+    hasUsersJoin ? nullableTextExpr("up", upPhotoCol) : null,
+    "''",
+  ].filter(Boolean);
+
+  return {
+    joinSql: hasUsersJoin ? `LEFT JOIN users up ON up.${upJoinCol} = au.id` : "",
+    displayNameExpr: `COALESCE(${displayNameParts.join(", ")})`,
+    bioExpr: `COALESCE(${bioParts.join(", ")})`,
+    photoExpr: `COALESCE(${photoParts.join(", ")})`,
+  };
+}
+
+
 /* ============================================================
    Helpers disponibilidad (bloqueos/reservas) por adiestrador
 ============================================================ */
@@ -120,6 +199,7 @@ router.get(
   async (req, res) => {
     try {
       await ensureTrainerProfilesSchema();
+      const expr = await getTrainerExprConfig();
       const { servicioId, modalidad } = req.query;
       const mod = modalidad ? String(modalidad) : null;
 
@@ -129,16 +209,11 @@ router.get(
           SELECT
             au.id AS uid,
             au.email AS email,
-            COALESCE(
-              NULLIF(tp.display_name, ''),
-              NULLIF(up.nombre, ''),
-              au.email
-            ) AS displayName
+            ${expr.displayNameExpr} AS displayName
           FROM usuarios au
           LEFT JOIN trainer_profiles tp
             ON tp.trainer_id = au.id
-          LEFT JOIN users up
-            ON up.uid = au.id
+          ${expr.joinSql}
           WHERE au.rol = 'adiestrador'
           ORDER BY displayName ASC, au.email ASC
           `
@@ -160,18 +235,13 @@ router.get(
           SELECT DISTINCT
             au.id AS uid,
             au.email AS email,
-            COALESCE(
-              NULLIF(tp.display_name, ''),
-              NULLIF(up.nombre, ''),
-              au.email
-            ) AS displayName
+            ${expr.displayNameExpr} AS displayName
           FROM usuarios au
           JOIN trainer_servicios ts
             ON ts.trainer_id = au.id
           LEFT JOIN trainer_profiles tp
             ON tp.trainer_id = au.id
-          LEFT JOIN users up
-            ON up.uid = au.id
+          ${expr.joinSql}
           WHERE au.rol = 'adiestrador'
             AND ts.enabled = 1
             AND ts.servicio_id = ?
@@ -224,6 +294,7 @@ router.get(
   async (req, res) => {
     try {
       await ensureTrainerProfilesSchema();
+      const expr = await getTrainerExprConfig();
       const { fecha, hora, durationMin = 60, servicioId, modalidad, reservaId } = req.query;
       if (!fecha || !hora) {
         return res.status(400).json({ error: "Faltan fecha/hora" });
@@ -700,28 +771,18 @@ router.get(
 router.get("/public", async (_req, res) => {
   try {
     await ensureTrainerProfilesSchema();
+    const expr = await getTrainerExprConfig();
+
     const rows = await query(`
       SELECT
         au.id AS trainerId,
         au.email AS email,
 
-        COALESCE(
-          NULLIF(tp.display_name, ''),
-          NULLIF(up.nombre, ''),
-          au.email
-        ) AS displayName,
+        ${expr.displayNameExpr} AS displayName,
 
-        COALESCE(
-          NULLIF(tp.bio, ''),
-          NULLIF(up.notas, ''),
-          ''
-        ) AS bio,
+        ${expr.bioExpr} AS bio,
 
-        COALESCE(
-          NULLIF(tp.photo_url, ''),
-          NULLIF(up.foto, ''),
-          ''
-        ) AS photoUrl,
+        ${expr.photoExpr} AS photoUrl,
 
         tp.experience_years AS experienceYears,
         tp.specialties AS specialties
@@ -729,8 +790,7 @@ router.get("/public", async (_req, res) => {
       FROM usuarios au
       LEFT JOIN trainer_profiles tp
         ON tp.trainer_id = au.id
-      LEFT JOIN users up
-        ON up.uid = au.id
+      ${expr.joinSql}
 
       WHERE au.rol = 'adiestrador'
       ORDER BY displayName ASC, au.email ASC

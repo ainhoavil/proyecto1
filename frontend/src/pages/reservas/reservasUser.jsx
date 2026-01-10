@@ -163,21 +163,27 @@ function renderPerro(perro) {
 
 function statusLabel(status) {
   const s = String(status || "").toLowerCase();
-  if (s === "pending" || s === "pendiente") return "Pendiente centro";
+
+  if (s === "pending" || s === "pendiente" || s === "pending_center") {
+    return "Pendiente por el centro";
+  }
+  if (s === "pending_user" || s === "pendiente_usuario") {
+    return "Pendiente por ti";
+  }
   if (s === "confirmed" || s === "confirmada") return "Confirmada";
   if (s === "cancelled" || s === "cancelada") return "Cancelada";
   if (s === "rejected" || s === "rechazada") return "Rechazada";
-  if (s === "pending_user") return "Pendiente centro";
+
   return s || "Estado";
 }
 
 function statusClass(status) {
   const s = String(status || "").toLowerCase();
-  if (s === "pending" || s === "pendiente") return "badge badge-pending";
+  if (s === "pending" || s === "pendiente" || s === "pending_center") return "badge badge-pending";
+  if (s === "pending_user" || s === "pendiente_usuario") return "badge badge-pending";
   if (s === "confirmed" || s === "confirmada") return "badge badge-confirmed";
   if (s === "cancelled" || s === "cancelada") return "badge badge-cancelled";
   if (s === "rejected" || s === "rechazada") return "badge badge-rejected";
-  if (s === "pending_user") return "badge badge-pending";
   return "badge";
 }
 
@@ -208,24 +214,32 @@ function ReservaCard({
 }) {
   const rid = reservaIdOf(r);
   const normalizedStatus = String(r?.status || "").toLowerCase();
+  const origin = String(r?.origin || "").toLowerCase();
+  const staffOrigin = origin === "admin" || origin === "trainer";
+
+  // Compatibilidad: algunas reservas antiguas creadas por staff pueden venir como status=pending.
+  const needsUserConfirm =
+    normalizedStatus === "pending_user" ||
+    ((normalizedStatus === "pending" || normalizedStatus === "pendiente") &&
+      staffOrigin);
+
+  const displayStatus = needsUserConfirm ? "pending_user" : normalizedStatus;
 
   const puedeCancelar =
-    normalizedStatus === "pending" ||
-    normalizedStatus === "pendiente" ||
-    normalizedStatus === "confirmada" ||
-    normalizedStatus === "confirmed" ||
-    normalizedStatus === "pending_user";
+    displayStatus === "pending" ||
+    displayStatus === "pendiente" ||
+    displayStatus === "confirmada" ||
+    displayStatus === "confirmed" ||
+    displayStatus === "pending_user";
 
-  const puedeAceptarRechazar =
-    normalizedStatus === "pending_user" &&
-    (r?.canUserConfirm === true || r?.userConfirmRequired === true);
+  const puedeAceptarRechazar = displayStatus === "pending_user";
 
   const puedeChat =
-    normalizedStatus === "confirmed" ||
-    normalizedStatus === "confirmada" ||
-    normalizedStatus === "pending" ||
-    normalizedStatus === "pendiente" ||
-    normalizedStatus === "pending_user";
+    displayStatus === "confirmed" ||
+    displayStatus === "confirmada" ||
+    displayStatus === "pending" ||
+    displayStatus === "pendiente" ||
+    displayStatus === "pending_user";
 
   const countNotas =
     typeof r?.notesCount === "number"
@@ -283,7 +297,7 @@ function ReservaCard({
         </div>
 
         <div style={{ textAlign: "right" }}>
-          <span className={statusClass(r?.status)}>{statusLabel(r?.status)}</span>
+          <span className={statusClass(displayStatus)}>{statusLabel(displayStatus)}</span>
         </div>
       </div>
 
@@ -479,6 +493,14 @@ export default function ReservasUser() {
 
     return reservasEnriched.filter((r) => {
       const perroStr = typeof r?.perro === "string" ? r.perro : renderPerro(r?.perro);
+      const statusRaw = String(r?.status || "").toLowerCase();
+      const origin = String(r?.origin || "").toLowerCase();
+      const staffOrigin = origin === "admin" || origin === "trainer";
+      const needsUserConfirm =
+        statusRaw === "pending_user" ||
+        ((statusRaw === "pending" || statusRaw === "pendiente") && staffOrigin);
+      const statusForSearch = statusLabel(needsUserConfirm ? "pending_user" : statusRaw);
+
       const campos = [
         r?.servicioTitulo,
         r?.servicioId,
@@ -486,7 +508,7 @@ export default function ReservasUser() {
         r?.trainerName,
         r?.fecha,
         r?.hora,
-        statusLabel(r?.status),
+        statusForSearch,
       ];
       return campos.some((v) => String(v || "").toLowerCase().includes(filtro));
     });
@@ -513,7 +535,12 @@ export default function ReservasUser() {
     () =>
       reservasFiltradas.filter((r) => {
         const s = String(r?.status || "").toLowerCase();
-        return s === "pending" || s === "pendiente";
+        const origin = String(r?.origin || "").toLowerCase();
+        const staffOrigin = origin === "admin" || origin === "trainer";
+
+        // Pendiente de confirmación del centro: reservas solicitadas por el cliente (origin no staff)
+        if (s === "pending" || s === "pendiente") return !staffOrigin;
+        return false;
       }),
     [reservasFiltradas]
   );
@@ -522,7 +549,16 @@ export default function ReservasUser() {
     () =>
       reservasFiltradas.filter((r) => {
         const s = String(r?.status || "").toLowerCase();
-        return s === "pending_user";
+        const origin = String(r?.origin || "").toLowerCase();
+        const staffOrigin = origin === "admin" || origin === "trainer";
+
+        // Pendiente de confirmación del usuario:
+        // - status pending_user
+        // - compat: status pending + origin staff (reservas creadas por el centro/adiestrador con status antiguo)
+        return (
+          s === "pending_user" ||
+          ((s === "pending" || s === "pendiente") && staffOrigin)
+        );
       }),
     [reservasFiltradas]
   );
@@ -590,13 +626,15 @@ export default function ReservasUser() {
   };
 
   const handleUserDecision = async (r, action) => {
-    const verb = action === "confirm" ? "aceptar" : "rechazar";
+    const isConfirm = action === "confirm";
+    const verb = isConfirm ? "aceptar" : "rechazar";
+
     const ok = await ui.confirm({
       title: "Confirmar acción",
       message: `¿Seguro que quieres ${verb} la reserva del ${r?.fecha} a las ${r?.hora}?`,
       confirmText: "Sí",
       cancelText: "No",
-      danger: false,
+      danger: !isConfirm,
     });
     if (!ok) return;
 
@@ -604,15 +642,23 @@ export default function ReservasUser() {
     if (!rid) return;
 
     try {
-      await http(`/api/reservas/${rid}/user-confirm`, {
-        method: "PATCH",
-        data: { action },
-        auth: true,
-      });
+      if (isConfirm) {
+        await http(`/api/reservas/${rid}/user-confirm`, {
+          method: "PATCH",
+          auth: true,
+        });
+      } else {
+        await http(`/api/reservas/${rid}/user-reject`, {
+          method: "PATCH",
+          data: { reason: "Rechazada por el cliente" },
+          auth: true,
+        });
+      }
       await cargarReservas();
     } catch (e) {
-      console.error("Error actualizando reserva (user-confirm)", e);
-      ui.notify({ type: "error", message: "No se pudo actualizar la reserva." });
+      console.error("Error actualizando reserva (user decision)", e);
+      const msg = e?.data?.error || e?.message || "No se pudo actualizar la reserva.";
+      ui.notify({ type: "error", message: msg });
     }
   };
 
@@ -943,9 +989,11 @@ export default function ReservasUser() {
         )}
       </section>
 
-      {pendientesUsuario.length > 0 && (
-        <section className="reservas-section">
-          <h2>Pendientes (histórico)</h2>
+      <section className="reservas-section">
+        <h2>Pendientes por confirmar por ti</h2>
+        {pendientesUsuario.length === 0 ? (
+          <p className="reservas-empty">No tienes reservas pendientes de tu confirmación.</p>
+        ) : (
           <div className="reservas-list">
             {pendientesUsuario.map((r) => {
               const rid = reservaIdOf(r);
@@ -969,8 +1017,9 @@ export default function ReservasUser() {
               );
             })}
           </div>
-        </section>
-      )}
+        )}
+      </section>
+
 
       <section className="reservas-section">
         <h2>Confirmadas</h2>

@@ -797,7 +797,11 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
     const id = uuidv4();
     const ts = nowISO();
     const pricingJson = pricing ? JSON.stringify(pricing) : null;
-    const status = statusBody || "pending";
+    let status = String(statusBody || "").trim().toLowerCase();
+    // El centro (admin) cuando crea una reserva para un cliente debe dejarla en pending_user por defecto.
+    if (!status) status = "pending_user";
+    if (status === "pendiente") status = "pending";
+    if (status === "pending") status = "pending_user";
 
     await tx(async () => {
       await validateAvailabilityOrThrow();
@@ -837,6 +841,11 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
         ]
       );
     });
+
+    if (status === "pending_user") {
+      // Email al cliente: debe aceptar/rechazar la reserva creada por el centro
+      void notifyReservationCenterConfirmed(id, { note: adminNote || "" });
+    }
 
     res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
@@ -1268,7 +1277,7 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
     const { id } = req.params;
 
     const rRows = await query(
-      `SELECT id, uid, email, status, trainer_id AS trainerId
+      `SELECT id, uid, email, status, origin, trainer_id AS trainerId
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
@@ -1281,7 +1290,14 @@ router.patch("/:id/user-confirm", verifyToken, async (req, res) => {
       (r.email && req.user?.email && r.email === req.user.email);
     if (!isOwner) return res.status(403).json({ error: "Sin permisos" });
 
-    if (String(r.status) !== "pending_user") {
+    const status = String(r.status || "").toLowerCase();
+    const origin = String(r.origin || "").toLowerCase();
+    const needsUserConfirm =
+      status === "pending_user" ||
+      ((status === "pending" || status === "pendiente") &&
+        (origin === "admin" || origin === "trainer"));
+
+    if (!needsUserConfirm) {
       return res.status(400).json({
         error: "La reserva no está pendiente de confirmación por el usuario",
       });
@@ -1313,7 +1329,7 @@ router.patch("/:id/user-reject", verifyToken, async (req, res) => {
     const { reason = "" } = req.body || {};
 
     const rRows = await query(
-      `SELECT id, uid, email, paquete_id AS paqueteId, status, fecha, hora
+      `SELECT id, uid, email, paquete_id AS paqueteId, status, origin, fecha, hora
          FROM reservas WHERE id=? LIMIT 1`,
       [id]
     );
@@ -1326,7 +1342,14 @@ router.patch("/:id/user-reject", verifyToken, async (req, res) => {
       (r.email && req.user?.email && r.email === req.user.email);
     if (!isOwner) return res.status(403).json({ error: "Sin permisos" });
 
-    if (String(r.status) !== "pending_user") {
+    const status = String(r.status || "").toLowerCase();
+    const origin = String(r.origin || "").toLowerCase();
+    const needsUserConfirm =
+      status === "pending_user" ||
+      ((status === "pending" || status === "pendiente") &&
+        (origin === "admin" || origin === "trainer"));
+
+    if (!needsUserConfirm) {
       return res.status(400).json({
         error: "La reserva no está pendiente de confirmación por el usuario",
       });

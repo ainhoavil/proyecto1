@@ -67,6 +67,16 @@ function isPastFechaHora(fecha, hora) {
   return dt.getTime() < Date.now();
 }
 
+
+function parseMin(hhmm) {
+  const s = String(hhmm || '').trim();
+  const [hh, mm = '0'] = s.split(':');
+  const h = Number(hh);
+  const m = Number(mm);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
 function noteIdOf(n) {
   const id = first(n?.id, n?._id, n?.noteId, n?.note_id, n?.uid, n?.pk);
   return id ? String(id) : '';
@@ -424,10 +434,19 @@ export default function ReservasAdmin() {
   const [blockScope, setBlockScope] = useState('global'); // 'global' | 'trainer'
   const [blockType, setBlockType] = useState('hour'); // 'hour' | 'allDay'
   const [blockTrainerId, setBlockTrainerId] = useState('');
+  const [blocksDayLoaded, setBlocksDayLoaded] = useState(false);
+  const [showBlocksList, setShowBlocksList] = useState(false);
   const [blocksDay, setBlocksDay] = useState([]);
   const [loadingBlocksDay, setLoadingBlocksDay] = useState(false);
   const [blocksList, setBlocksList] = useState([]); // lista global (futuros)
   const [loadingBlocksList, setLoadingBlocksList] = useState(false);
+
+  // Si cambia el día seleccionado, reseteamos la vista de bloqueos del día
+  // (se vuelve a cargar al pulsar el botón "Ver bloqueos del día").
+  useEffect(() => {
+    setBlocksDay([]);
+    setBlocksDayLoaded(false);
+  }, [quickFecha]);
 
   useEffect(() => {
   let alive = true;
@@ -550,7 +569,7 @@ const loadBloqueosDiaAdmin = async (fecha) => {
     ]);
 
     const arr = normList(data?.items || data?.bloqueos || data?.blocks || data || []);
-    setBlocksDay(arr.map(normalizeBlock).filter((x) => x.fecha));
+    setBlocksDay(arr.map(normalizeBlock).filter((x) => x.fecha && x.fecha === f));
   } catch (e) {
     setBlocksDay([]);
     showError(serverErrMsg(e, 'No se pudieron cargar los bloqueos del día'));
@@ -639,8 +658,9 @@ const crearBloqueoAvanzado = async () => {
     ]);
 
     showSuccess(type === 'allDay' ? 'Día bloqueado' : 'Hora bloqueada');
+    setBlocksDayLoaded(true);
     await loadBloqueosDiaAdmin(fecha);
-    await loadBloqueosListAdmin();
+    if (showBlocksList) await loadBloqueosListAdmin();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo crear el bloqueo'));
@@ -684,8 +704,9 @@ const eliminarBloqueoAdmin = async (b) => {
     }
 
     showSuccess('Bloqueo eliminado');
+    setBlocksDayLoaded(true);
     await loadBloqueosDiaAdmin(fecha);
-    await loadBloqueosListAdmin();
+    if (showBlocksList) await loadBloqueosListAdmin();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo eliminar el bloqueo'));
@@ -708,8 +729,9 @@ const bloquear = async () => {
       },
     ]);
     showSuccess('Hora bloqueada');
+    setBlocksDayLoaded(true);
     await loadBloqueosDiaAdmin(quickFecha);
-    await loadBloqueosListAdmin();
+    if (showBlocksList) await loadBloqueosListAdmin();
     await cargarAdminList();
   } catch (e) {
     showError(serverErrMsg(e, 'No se pudo bloquear la hora'));
@@ -751,7 +773,7 @@ const bloquear = async () => {
           servicioId,
           modalidad: quickMod,
           trainerId: quickTrainerId ? String(quickTrainerId) : '',
-          status: 'pending',
+          status: 'pending_user',
           perro: (() => {
             const sel = quickDogs.filter((p) => quickDogIds.includes(p.id));
             return JSON.stringify(sel.map((p) => ({ id: p.id, nombre: p.nombre, raza: p.raza, nacimiento: p.nacimiento })));
@@ -875,13 +897,25 @@ const blocksListView = useMemo(() => {
   return arr;
 }, [blocksList]);
 
+  const verBloqueosDia = async () => {
+    setBlocksDayLoaded(true);
+    await loadBloqueosDiaAdmin(quickFecha);
+  };
+
+  const toggleBlocksList = async () => {
+    const next = !showBlocksList;
+    setShowBlocksList(next);
+    if (next) {
+      await loadBloqueosListAdmin();
+    }
+  };
+
+
 
   useEffect(() => {
     loadServicios();
     loadTrainers();
     cargarAdminList();
-    loadBloqueosDiaAdmin(quickFecha);
-    loadBloqueosListAdmin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1163,8 +1197,8 @@ const blocksListView = useMemo(() => {
       >
         Crear bloqueo
       </button>
-      <button className="btn-ghost" onClick={() => loadBloqueosDiaAdmin(quickFecha)}>
-        Ver bloqueos
+      <button className="btn-ghost" onClick={verBloqueosDia}>
+        Ver bloqueos del día
       </button>
     </div>
   </div>
@@ -1177,6 +1211,8 @@ const blocksListView = useMemo(() => {
 
     {loadingBlocksDay ? (
       <div className="empty">Cargando…</div>
+    ) : !blocksDayLoaded ? (
+      <div className="empty">Selecciona un día y pulsa “Ver bloqueos del día”.</div>
     ) : !blocksDayView.length ? (
       <div className="empty">No hay bloqueos para esta fecha.</div>
     ) : (
@@ -1219,9 +1255,19 @@ const blocksListView = useMemo(() => {
   </div>
 
   <div style={{ marginTop: 14 }}>
-    <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
-      Lista de bloqueos futuros (ordenados por fecha/hora)
-    </div>
+    <button
+      className="btn-ghost"
+      onClick={toggleBlocksList}
+      style={{ marginBottom: 6 }}
+    >
+      {showBlocksList ? 'Ocultar lista de bloqueos' : 'Ver lista de bloqueos'}
+    </button>
+
+    {showBlocksList && (
+      <>
+        <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
+          Lista de bloqueos futuros (ordenados por fecha/hora)
+        </div>
 
     {loadingBlocksList ? (
       <div className="empty">Cargando…</div>
@@ -1267,6 +1313,8 @@ const blocksListView = useMemo(() => {
           );
         })}
       </div>
+    )}
+      </>
     )}
   </div>
 </section>

@@ -581,6 +581,31 @@ function AdiestradoresTab() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
+  // ===== Perros por adiestrador (CRUD) =====
+  const [dogsForTrainerId, setDogsForTrainerId] = useState(null); // trainer seleccionado (string)
+  const [dogs, setDogs] = useState([]);
+  const [dogsLoading, setDogsLoading] = useState(false);
+  const [dogsError, setDogsError] = useState('');
+
+  const [dogActionLoading, setDogActionLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createDog, setCreateDog] = useState({
+    nombre: '',
+    raza: '',
+    nacimiento: '',
+    castrado: false,
+    notas: '',
+  });
+
+  const [editingDogId, setEditingDogId] = useState(null);
+  const [editDog, setEditDog] = useState({
+    nombre: '',
+    raza: '',
+    nacimiento: '',
+    castrado: false,
+    notas: '',
+  });
+
   const refresh = async () => {
     setLoading(true);
     setMsg('');
@@ -603,6 +628,7 @@ function AdiestradoresTab() {
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setField = (trainerId, patch) => {
@@ -687,6 +713,237 @@ function AdiestradoresTab() {
     }
   };
 
+  const pickDogField = (dog, keys, fallback = '') => {
+    for (const k of keys) {
+      const v = dog?.[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return fallback;
+  };
+
+  const toBool = (v) => {
+    if (typeof v === 'boolean') return v;
+    const s = String(v ?? '').trim().toLowerCase();
+    if (s === '1' || s === 'true' || s === 'yes' || s === 'si' || s === 'sí') return true;
+    return false;
+  };
+
+  const calcAgeYears = (dateLike) => {
+    const s = String(dateLike || '').trim();
+    if (!s) return null;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+
+    const now = new Date();
+    let years = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) years -= 1;
+    return years < 0 ? null : years;
+  };
+
+  const resetDogForms = () => {
+    setCreateOpen(false);
+    setCreateDog({
+      nombre: '',
+      raza: '',
+      nacimiento: '',
+      castrado: false,
+      notas: '',
+    });
+    setEditingDogId(null);
+    setEditDog({
+      nombre: '',
+      raza: '',
+      nacimiento: '',
+      castrado: false,
+      notas: '',
+    });
+    setDogActionLoading(false);
+  };
+
+  const loadDogs = async (trainerIdRaw) => {
+    const trainerId = String(trainerIdRaw || '').trim();
+    if (!trainerId) return;
+
+    setDogsLoading(true);
+    setDogsError('');
+    try {
+      const res = await http(`/api/perros/admin/user/${trainerId}`, { auth: true });
+      const items = res?.items ?? res?.data?.items ?? res;
+      setDogs(Array.isArray(items) ? items : []);
+    } catch (e) {
+      console.error(e);
+      setDogs([]);
+      setDogsError(
+        e?.data?.error ||
+          e?.data?.message ||
+          e?.message ||
+          'No se pudo cargar la lista de perros.'
+      );
+    } finally {
+      setDogsLoading(false);
+    }
+  };
+
+  const toggleDogs = async (trainerIdRaw) => {
+    const tid = String(trainerIdRaw || '').trim();
+    if (!tid) return;
+
+    // Toggle
+    if (String(dogsForTrainerId) === tid) {
+      setDogsForTrainerId(null);
+      setDogs([]);
+      setDogsError('');
+      resetDogForms();
+      return;
+    }
+
+    setDogsForTrainerId(tid);
+    setDogs([]);
+    setDogsError('');
+    resetDogForms();
+    await loadDogs(tid);
+  };
+
+  const submitCreateDog = async () => {
+    const trainerId = String(dogsForTrainerId || '').trim();
+    if (!trainerId) return;
+
+    const payload = {
+      nombre: String(createDog.nombre || '').trim(),
+      raza: String(createDog.raza || '').trim(),
+      nacimiento: String(createDog.nacimiento || '').trim() || null,
+      castrado: !!createDog.castrado,
+      notas: String(createDog.notas || '').trim(),
+    };
+
+    if (!payload.nombre) {
+      ui.notify({ type: 'error', message: 'El nombre del perro es obligatorio.' });
+      return;
+    }
+    if (!payload.raza) {
+      ui.notify({ type: 'error', message: 'La raza/tamaño del perro es obligatoria.' });
+      return;
+    }
+
+    setDogActionLoading(true);
+    try {
+      await http(`/api/perros/admin/user/${trainerId}`, {
+        method: 'POST',
+        auth: true,
+        data: payload,
+      });
+      ui.notify({ type: 'success', message: 'Perro creado.' });
+      setCreateDog({ nombre: '', raza: '', nacimiento: '', castrado: false, notas: ''});
+      setCreateOpen(false);
+      await loadDogs(trainerId);
+    } catch (e) {
+      console.error(e);
+      ui.notify({
+        type: 'error',
+        message: e?.data?.error || e?.data?.message || e?.message || 'No se pudo crear el perro.',
+      });
+    } finally {
+      setDogActionLoading(false);
+    }
+  };
+
+  const startEditDog = (d) => {
+    const dogId = String(pickDogField(d, ['id', 'dogId', 'uuid'], '')).trim();
+    if (!dogId) return;
+
+    setCreateOpen(false);
+    setEditingDogId(dogId);
+    setEditDog({
+      nombre: String(pickDogField(d, ['nombre', 'name'], '')).trim(),
+      raza: String(pickDogField(d, ['raza', 'breed', 'tipo'], '')).trim(),
+      nacimiento: String(pickDogField(d, ['nacimiento', 'birth', 'fechaNacimiento'], '')).trim(),
+      castrado: toBool(pickDogField(d, ['castrado', 'neutered'], false)),
+      notas: String(pickDogField(d, ['notas', 'notes'], '')).trim(),
+    });
+  };
+
+  const cancelEditDog = () => {
+    setEditingDogId(null);
+    setEditDog({ nombre: '', raza: '', nacimiento: '', castrado: false, notas: ''});
+  };
+
+  const submitEditDog = async () => {
+    const dogId = String(editingDogId || '').trim();
+    const trainerId = String(dogsForTrainerId || '').trim();
+    if (!dogId) return;
+
+    const payload = {
+      nombre: String(editDog.nombre || '').trim(),
+      raza: String(editDog.raza || '').trim(),
+      nacimiento: String(editDog.nacimiento || '').trim() || null,
+      castrado: !!editDog.castrado,
+      notas: String(editDog.notas || '').trim(),
+    };
+
+    if (!payload.nombre) {
+      ui.notify({ type: 'error', message: 'El nombre del perro es obligatorio.' });
+      return;
+    }
+    if (!payload.raza) {
+      ui.notify({ type: 'error', message: 'La raza/tamaño del perro es obligatoria.' });
+      return;
+    }
+
+    setDogActionLoading(true);
+    try {
+      await http(`/api/perros/admin/${dogId}`, {
+        method: 'PUT',
+        auth: true,
+        data: payload,
+      });
+      ui.notify({ type: 'success', message: 'Perro actualizado.' });
+      cancelEditDog();
+      await loadDogs(trainerId);
+    } catch (e) {
+      console.error(e);
+      ui.notify({
+        type: 'error',
+        message:
+          e?.data?.error || e?.data?.message || e?.message || 'No se pudo actualizar el perro.',
+      });
+    } finally {
+      setDogActionLoading(false);
+    }
+  };
+
+  const submitDeleteDog = async (d) => {
+    const dogId = String(pickDogField(d, ['id', 'dogId', 'uuid'], '')).trim();
+    const trainerId = String(dogsForTrainerId || '').trim();
+    if (!dogId) return;
+
+    const nombre = String(pickDogField(d, ['nombre', 'name'], 'este perro'));
+    const ok = await ui.confirm({
+      title: 'Eliminar perro',
+      message: `¿Eliminar ${nombre}? Esta acción no se puede deshacer.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+
+    setDogActionLoading(true);
+    try {
+      await http(`/api/perros/admin/${dogId}`, { method: 'DELETE', auth: true });
+      ui.notify({ type: 'success', message: 'Perro eliminado.' });
+      if (String(editingDogId || '') === dogId) cancelEditDog();
+      await loadDogs(trainerId);
+    } catch (e) {
+      console.error(e);
+      ui.notify({
+        type: 'error',
+        message: e?.data?.error || e?.data?.message || e?.message || 'No se pudo eliminar el perro.',
+      });
+    } finally {
+      setDogActionLoading(false);
+    }
+  };
+
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -702,105 +959,423 @@ function AdiestradoresTab() {
         <p>Cargando...</p>
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
-          {items.map((t) => (
-            <div key={String(t.trainerId)} style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}>
+          {items.map((t) => {
+            const isDogsOpen = String(dogsForTrainerId || '') === String(t.trainerId || '');
+            return (
               <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                }}
+                key={String(t.trainerId)}
+                style={{ border: '1px solid #eee', borderRadius: 10, padding: 12 }}
               >
-                <div>
-                  <strong>{t.displayName || t.email || `#${t.trainerId}`}</strong>
-                  {t.email ? <div style={{ fontSize: 12, color: '#666' }}>{t.email}</div> : null}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <strong>{t.displayName || t.email || `#${t.trainerId}`}</strong>
+                    {t.email ? <div style={{ fontSize: 12, color: '#666' }}>{t.email}</div> : null}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button className="btn-ghost" onClick={() => toggleDogs(t.trainerId)}>
+                      {isDogsOpen ? '🐾 Ocultar perros' : '🐾 Gestionar perros'}
+                    </button>
+                    <button className="btn-primary" onClick={() => guardar(t)}>
+                      Guardar
+                    </button>
+                  </div>
                 </div>
 
-                <button className="btn-primary" onClick={() => guardar(t)}>
-                  Guardar
-                </button>
-              </div>
+                {/* ===== Form perfil adiestrador ===== */}
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: 'grid',
+                    gap: 10,
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  }}
+                >
+                  <label>
+                    Nombre público
+                    <input
+                      value={t.displayName || ''}
+                      onChange={(e) => setField(t.trainerId, { displayName: e.target.value })}
+                    />
+                  </label>
 
-              <div
-                style={{
-                  marginTop: 12,
-                  display: 'grid',
-                  gap: 10,
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                }}
-              >
-                <label>
-                  Nombre público
-                  <input value={t.displayName || ''} onChange={(e) => setField(t.trainerId, { displayName: e.target.value })} />
-                </label>
+                  <div className="admin__photoField" style={{ gridColumn: '1 / -1' }}>
+                    <div className="admin__photoThumbWrap">
+                      {t.photoPreview || t.photoUrl ? (
+                        <img
+                          className="admin__photoThumb"
+                          src={t.photoPreview || getTrainerPhotoSrc(t.photoUrl)}
+                          alt="Foto del adiestrador"
+                        />
+                      ) : (
+                        <div className="admin__photoPlaceholder">Sin foto</div>
+                      )}
+                    </div>
 
-                <div className="admin__photoField" style={{ gridColumn: '1 / -1' }}>
-                  <div className="admin__photoThumbWrap">
-                    {t.photoPreview || t.photoUrl ? (
-                      <img
-                        className="admin__photoThumb"
-                        src={t.photoPreview || getTrainerPhotoSrc(t.photoUrl)}
-                        alt="Foto del adiestrador"
+                    <label className="admin__photoLabel">
+                      Foto (archivo)
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => pickPhoto(t.trainerId, e.target.files?.[0] || null)}
                       />
-                    ) : (
-                      <div className="admin__photoPlaceholder">Sin foto</div>
+                      {t.photoFile ? (
+                        <small>
+                          Archivo seleccionado: {t.photoFile.name}. Se subirá al guardar.
+                        </small>
+                      ) : (
+                        <small>Selecciona un archivo. Se subirá al guardar.</small>
+                      )}
+                    </label>
+
+                    {(t.photoUrl || t.photoPreview) && (
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => clearPhoto(t.trainerId)}
+                      >
+                        Quitar foto
+                      </button>
                     )}
                   </div>
 
-                  <label className="admin__photoLabel">
-                    Foto (archivo)
-                    <input type="file" accept="image/*" onChange={(e) => pickPhoto(t.trainerId, e.target.files?.[0] || null)} />
-                    {t.photoFile ? (
-                      <small>Archivo seleccionado: {t.photoFile.name}. Se subirá al guardar.</small>
-                    ) : (
-                      <small>Selecciona un archivo. Se subirá al guardar.</small>
-                    )}
+                  <label>
+                    Años de experiencia
+                    <input
+                      type="number"
+                      value={t.experienceYears ?? ''}
+                      onChange={(e) =>
+                        setField(t.trainerId, {
+                          experienceYears: e.target.value === '' ? '' : Number(e.target.value),
+                        })
+                      }
+                      min={0}
+                    />
                   </label>
 
-                  {(t.photoUrl || t.photoPreview) && (
-                    <button type="button" className="btn-ghost" onClick={() => clearPhoto(t.trainerId)}>
-                      Quitar foto
-                    </button>
-                  )}
+                  <label style={{ gridColumn: '1 / -1' }}>
+                    Especialidades (separadas por comas)
+                    <input
+                      value={t.specialtiesInput || ''}
+                      onChange={(e) =>
+                        setField(t.trainerId, { specialtiesInput: e.target.value })
+                      }
+                      placeholder="obediencia, socialización, ..."
+                    />
+                  </label>
+
+                  <label style={{ gridColumn: '1 / -1' }}>
+                    Bio
+                    <textarea
+                      value={t.bio || ''}
+                      onChange={(e) => setField(t.trainerId, { bio: e.target.value })}
+                      rows={4}
+                      style={{ resize: 'vertical' }}
+                    />
+                  </label>
                 </div>
 
-                <label>
-                  Años de experiencia
-                  <input
-                    type="number"
-                    value={t.experienceYears ?? ''}
-                    onChange={(e) =>
-                      setField(t.trainerId, {
-                        experienceYears: e.target.value === '' ? '' : Number(e.target.value),
-                      })
-                    }
-                    min={0}
-                  />
-                </label>
+                {/* ===== Perros del adiestrador (CRUD) ===== */}
+                {isDogsOpen && (
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: 12,
+                      border: '1px solid #eee',
+                      borderRadius: 10,
+                      background: '#fafafa',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <h4 style={{ margin: 0 }}>Perros ({dogs.length})</h4>
 
-                <label style={{ gridColumn: '1 / -1' }}>
-                  Especialidades (separadas por comas)
-                  <input
-                    value={t.specialtiesInput || ''}
-                    onChange={(e) => setField(t.trainerId, { specialtiesInput: e.target.value })}
-                    placeholder="obediencia, socialización, ..."
-                  />
-                </label>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          className="btn-ghost"
+                          onClick={() => loadDogs(t.trainerId)}
+                          disabled={dogsLoading || dogActionLoading}
+                          title="Recargar perros"
+                        >
+                          ↻ Recargar perros
+                        </button>
 
-                <label style={{ gridColumn: '1 / -1' }}>
-                  Bio
-                  <textarea
-                    value={t.bio || ''}
-                    onChange={(e) => setField(t.trainerId, { bio: e.target.value })}
-                    rows={4}
-                    style={{ resize: 'vertical' }}
-                  />
-                </label>
+                        <button
+                          className={createOpen ? 'btn-ghost' : 'btn-primary'}
+                          onClick={() => {
+                            cancelEditDog();
+                            setCreateOpen((v) => !v);
+                          }}
+                          disabled={dogsLoading || dogActionLoading}
+                        >
+                          {createOpen ? 'Cerrar' : '+ Añadir perro'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {dogsLoading ? (
+                      <p style={{ marginTop: 10 }}>Cargando perros…</p>
+                    ) : dogsError ? (
+                      <p style={{ marginTop: 10, color: 'crimson' }}>{dogsError}</p>
+                    ) : null}
+
+                    {/* Form crear */}
+                    {createOpen && (
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 12,
+                          border: '1px dashed #ddd',
+                          borderRadius: 10,
+                          background: '#fff',
+                        }}
+                      >
+                        <h5 style={{ margin: 0 }}>Añadir perro</h5>
+
+                        <div
+                          style={{
+                            marginTop: 10,
+                            display: 'grid',
+                            gap: 10,
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            alignItems: 'end',
+                          }}
+                        >
+                          <label>
+                            Nombre
+                            <input
+                              value={createDog.nombre}
+                              onChange={(e) => setCreateDog((p) => ({ ...p, nombre: e.target.value }))}
+                            />
+                          </label>
+
+                          <label>
+                            Raza / tamaño
+                            <input
+                              value={createDog.raza}
+                              onChange={(e) => setCreateDog((p) => ({ ...p, raza: e.target.value }))}
+                            />
+                          </label>
+
+                          <label>
+                            Nacimiento
+                            <input
+                              type="date"
+                              value={createDog.nacimiento || ''}
+                              onChange={(e) =>
+                                setCreateDog((p) => ({ ...p, nacimiento: e.target.value }))
+                              }
+                            />
+                          </label>
+
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={!!createDog.castrado}
+                              onChange={(e) =>
+                                setCreateDog((p) => ({ ...p, castrado: e.target.checked }))
+                              }
+                            />
+                            Castrado
+                          </label>
+
+                          <label style={{ gridColumn: '1 / -1' }}>
+                            Notas (opcional)
+                            <textarea
+                              rows={3}
+                              value={createDog.notas}
+                              onChange={(e) => setCreateDog((p) => ({ ...p, notas: e.target.value }))}
+                              style={{ resize: 'vertical' }}
+                            />
+                          </label>
+<div style={{ display: 'flex', gap: 8, gridColumn: '1 / -1' }}>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={submitCreateDog}
+                              disabled={dogActionLoading}
+                            >
+                              Crear
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-ghost"
+                              onClick={() => setCreateOpen(false)}
+                              disabled={dogActionLoading}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Listado */}
+                    {!dogsLoading && !dogsError && !dogs.length ? (
+                      <p style={{ marginTop: 10, color: '#666' }}>
+                        Este adiestrador no tiene perros registrados.
+                      </p>
+                    ) : null}
+
+                    {!dogsLoading && !dogsError && !!dogs.length && (
+                      <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+                        {dogs.map((d) => {
+                          const dogId = String(pickDogField(d, ['id', 'dogId', 'uuid'], ''));
+                          const nombre = String(pickDogField(d, ['nombre', 'name'], '-'));
+                          const raza = String(pickDogField(d, ['raza', 'breed', 'tipo'], '-'));
+                          const nacimiento = pickDogField(d, ['nacimiento', 'birth', 'fechaNacimiento'], '');
+                          const edad = calcAgeYears(nacimiento);
+                          const castrado = toBool(pickDogField(d, ['castrado', 'neutered'], false));
+                          const notas = String(pickDogField(d, ['notas', 'notes'], ''));
+
+                          const isEditing = String(editingDogId || '') === String(dogId || '');
+
+                          return (
+                            <div
+                              key={dogId || `${nombre}-${raza}`}
+                              style={{
+                                border: '1px solid #e9e9e9',
+                                borderRadius: 10,
+                                padding: 10,
+                                background: '#fff',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                                <div>
+                                  <strong>{nombre}</strong>
+                                  <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
+                                    Raza: {raza}
+                                    {edad != null ? ` · Edad: ${edad} años` : ''}
+                                    {nacimiento ? ` · Nac.: ${String(nacimiento)}` : ''}
+                                    {` · Castrado: ${castrado ? 'Sí' : 'No'}`}
+                                  </div>
+                                  {notas ? (
+                                    <div style={{ marginTop: 6, fontSize: 12, color: '#555' }}>
+                                      <strong>Notas:</strong> {notas}
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {!isEditing ? (
+                                    <>
+                                      <button
+                                        className="btn-ghost"
+                                        onClick={() => startEditDog(d)}
+                                        disabled={dogActionLoading}
+                                      >
+                                        ✏️ Editar
+                                      </button>
+                                      <button
+                                        className="btn-ghost"
+                                        onClick={() => submitDeleteDog(d)}
+                                        disabled={dogActionLoading}
+                                        style={{ color: 'crimson' }}
+                                      >
+                                        🗑️ Eliminar
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        className="btn-primary"
+                                        onClick={submitEditDog}
+                                        disabled={dogActionLoading}
+                                      >
+                                        Guardar cambios
+                                      </button>
+                                      <button
+                                        className="btn-ghost"
+                                        onClick={cancelEditDog}
+                                        disabled={dogActionLoading}
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isEditing && (
+                                <div
+                                  style={{
+                                    marginTop: 10,
+                                    display: 'grid',
+                                    gap: 10,
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                                    alignItems: 'end',
+                                  }}
+                                >
+                                  <label>
+                                    Nombre
+                                    <input
+                                      value={editDog.nombre}
+                                      onChange={(e) => setEditDog((p) => ({ ...p, nombre: e.target.value }))}
+                                    />
+                                  </label>
+
+                                  <label>
+                                    Raza / tamaño
+                                    <input
+                                      value={editDog.raza}
+                                      onChange={(e) => setEditDog((p) => ({ ...p, raza: e.target.value }))}
+                                    />
+                                  </label>
+
+                                  <label>
+                                    Nacimiento
+                                    <input
+                                      type="date"
+                                      value={editDog.nacimiento || ''}
+                                      onChange={(e) => setEditDog((p) => ({ ...p, nacimiento: e.target.value }))}
+                                    />
+                                  </label>
+
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={!!editDog.castrado}
+                                      onChange={(e) => setEditDog((p) => ({ ...p, castrado: e.target.checked }))}
+                                    />
+                                    Castrado
+                                  </label>
+
+                                  <label style={{ gridColumn: '1 / -1' }}>
+                                    Notas (opcional)
+                                    <textarea
+                                      rows={3}
+                                      value={editDog.notas}
+                                      onChange={(e) => setEditDog((p) => ({ ...p, notas: e.target.value }))}
+                                      style={{ resize: 'vertical' }}
+                                    />
+                                  </label>
+</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {!items.length && <p style={{ color: '#666' }}>No hay adiestradores para mostrar.</p>}
         </div>
