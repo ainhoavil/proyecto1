@@ -7,6 +7,35 @@ function todayYMD() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function toDateInputYMD(fechaRaw) {
+  const s = String(fechaRaw || "").trim();
+  if (!s) return "";
+  // YYYY-MM-DD (o ISO que empiece por fecha)
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split("/");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  // Fallback: intentar parsear
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return "";
+}
+
+function epochFromFechaHora(fechaRaw, horaRaw) {
+  const ymd = toDateInputYMD(fechaRaw);
+  if (!ymd) return 0;
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  const [hh, mm = "0"] = String(horaRaw || "00:00").split(":");
+  const h = Number(hh);
+  const mi = Number(mm);
+  if (!y || !m || !d || !Number.isFinite(h)) return 0;
+  const dt = new Date(y, m - 1, d, h, Number.isFinite(mi) ? mi : 0);
+  const t = dt.getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function dayOfWeekFromYMD(ymd) {
   const [y, m, d] = String(ymd || "").split("-").map(Number);
   if (!y || !m || !d) return null;
@@ -21,13 +50,9 @@ function getDisplayedHourSlots(ymd) {
 }
 
 function isPastFechaHora(fecha, hora) {
-  const [y, m, d] = String(fecha || "").split("-").map(Number);
-  const [hh, mm = "0"] = String(hora || "00:00").split(":");
-  const h = Number(hh);
-  const mi = Number(mm);
-  if (!y || !m || !d || !Number.isFinite(h)) return false;
-  const dt = new Date(y, m - 1, d, h, Number.isFinite(mi) ? mi : 0);
-  return dt.getTime() < Date.now();
+  const t = epochFromFechaHora(fecha, hora);
+  if (!t) return false;
+  return t < Date.now();
 }
 
 function statusLabel(status) {
@@ -519,27 +544,48 @@ const [notesError, setNotesError] = useState("");
     setSelectedHora((prev) => (prev === h ? "" : h));
   };
 
-  const misReservasOrdenadas = useMemo(() => {
-    const arr = Array.isArray(misReservas) ? [...misReservas] : [];
-    arr.sort((a, b) => {
-      const fa = `${a.fecha || ""} ${a.hora || ""}`.trim();
-      const fb = `${b.fecha || ""} ${b.hora || ""}`.trim();
-      return fb.localeCompare(fa);
-    });
-    return arr;
-  }, [misReservas]);
-
-  const { reservasPasadasConfirmadas, reservasNoPasadas } = useMemo(() => {
+  const { reservasNoPasadasOrdenadas, reservasPasadasOrdenadas } = useMemo(() => {
+    const upcoming = [];
     const past = [];
-    const cur = [];
-    for (const r of Array.isArray(misReservasOrdenadas) ? misReservasOrdenadas : []) {
-      const st = canonStatus(r?.status || "");
-      const isPast = st === "confirmed" && isPastFechaHora(r?.fecha, r?.hora);
-      if (isPast) past.push(r);
-      else cur.push(r);
+    const base = Array.isArray(misReservas) ? [...misReservas] : [];
+
+    for (const r of base) {
+      const t = epochFromFechaHora(r?.fecha, r?.hora);
+      const isPast = t ? t < Date.now() : false;
+      if (isPast) past.push({ r, t: t || 0 });
+      else upcoming.push({ r, t: t || Number.MAX_SAFE_INTEGER });
     }
-    return { reservasPasadasConfirmadas: past, reservasNoPasadas: cur };
-  }, [misReservasOrdenadas]);
+
+    const prio = (status) => {
+      const s = canonStatus(status);
+      if (s === "confirmed") return 0;
+      if (s === "pending" || s === "pending_user") return 1;
+      if (s === "rejected" || s === "cancelled" || s === "deleted") return 2;
+      return 3;
+    };
+
+    upcoming.sort((a, b) => {
+      const pa = prio(a?.r?.status);
+      const pb = prio(b?.r?.status);
+      if (pa !== pb) return pa - pb;
+      if (a.t !== b.t) return a.t - b.t; // próximas primero (más cercanas)
+      const ia = String(a?.r?.id || "");
+      const ib = String(b?.r?.id || "");
+      return ia.localeCompare(ib);
+    });
+
+    past.sort((a, b) => {
+      if (a.t !== b.t) return b.t - a.t; // más recientes primero
+      const ia = String(a?.r?.id || "");
+      const ib = String(b?.r?.id || "");
+      return ia.localeCompare(ib);
+    });
+
+    return {
+      reservasNoPasadasOrdenadas: upcoming.map((x) => x.r),
+      reservasPasadasOrdenadas: past.map((x) => x.r),
+    };
+  }, [misReservas]);
 
   /* ======================== Render ============================ */
 
@@ -675,7 +721,7 @@ async function deleteReservaNote(noteId) {
 
 
   return (
-    <div>
+    <div id="trainer-agenda-top">
       {notice.text && <div style={noticeStyle}>{notice.text}</div>}
 
       {/* ================= CONTROLES PRINCIPALES ================= */}
@@ -720,9 +766,6 @@ async function deleteReservaNote(noteId) {
             onClick={() => setMode("block")}
           >
             Bloquear
-          </button>
-          <button type="button" className="btn-ghost" onClick={() => refreshDia(fecha)}>
-            Actualizar
           </button>
         </div>
       </div>
@@ -1137,12 +1180,12 @@ async function deleteReservaNote(noteId) {
         <div style={{ marginTop: 10 }}>
           {loadingMisReservas ? (
             <p style={{ fontSize: 13, color: "#8f6b53" }}>Cargando…</p>
-          ) : reservasNoPasadas.length || reservasPasadasConfirmadas.length ? (
+          ) : reservasNoPasadasOrdenadas.length || reservasPasadasOrdenadas.length ? (
             <div>
               {/* Próximas / pendientes */}
-              {reservasNoPasadas.length ? (
+              {reservasNoPasadasOrdenadas.length ? (
                 <div>
-                  {reservasNoPasadas.slice(0, 50).map((r) => {
+                  {reservasNoPasadasOrdenadas.slice(0, 50).map((r) => {
                     const statusCanon = canonStatus(r.status || "");
                     const badgeRaw = (statusCanon || String(r.status || "").toLowerCase()).replaceAll("_", "-");
                     const badgeCls = `badge badge-${badgeRaw}`;
@@ -1187,11 +1230,16 @@ async function deleteReservaNote(noteId) {
                             {openingChatId === r.id ? "Abriendo chat…" : "Abrir chat"}
                           </button>
 
-                          {r.fecha && (
+                          {puedeChat(r.status) && r.fecha && (
                             <button
                               className="btn-ghost"
                               type="button"
-                              onClick={() => setFecha(String(r.fecha).slice(0, 10))}
+                              onClick={() => {
+                                const ymd = toDateInputYMD(r.fecha);
+                                if (ymd) setFecha(ymd);
+                                const el = document.getElementById("trainer-agenda-top");
+                                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }}
                             >
                               Ver en agenda
                             </button>
@@ -1201,9 +1249,9 @@ async function deleteReservaNote(noteId) {
                     );
                   })}
 
-                  {reservasNoPasadas.length > 50 && (
+                  {reservasNoPasadasOrdenadas.length > 50 && (
                     <p style={{ fontSize: 12, color: "#a08168" }}>
-                      Mostrando 50 de {reservasNoPasadas.length}.
+                      Mostrando 50 de {reservasNoPasadasOrdenadas.length}.
                     </p>
                   )}
                 </div>
@@ -1212,13 +1260,16 @@ async function deleteReservaNote(noteId) {
               )}
 
               {/* Reservas pasadas (confirmadas) */}
-              {reservasPasadasConfirmadas.length ? (
+              {reservasPasadasOrdenadas.length ? (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#3a312b", marginBottom: 8 }}>
-                    Reservas pasadas (confirmadas)
+                    Reservas pasadas
                   </div>
 
-                  {reservasPasadasConfirmadas.map((r) => {
+                  {reservasPasadasOrdenadas.map((r) => {
+                    const statusCanon = canonStatus(r.status || "");
+                    const badgeRaw = (statusCanon || String(r.status || "").toLowerCase()).replaceAll("_", "-");
+                    const badgeCls = `badge badge-${badgeRaw}`;
                     const perros = perrosTexto(r.perro);
                     return (
                       <div
@@ -1247,7 +1298,7 @@ async function deleteReservaNote(noteId) {
                               {r.email || "—"}{perros ? ` · Perros: ${perros}` : ""}
                             </div>
                           </div>
-                          <span className="badge badge-confirmed">Confirmada</span>
+                          <span className={badgeCls}>{statusLabel(r.status)}</span>
                         </div>
                       </div>
                     );
