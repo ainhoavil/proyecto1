@@ -166,6 +166,16 @@ export default function ReservasAdmin() {
         ...p,
         [id]: [...arr].reverse(),
       }));
+
+      // Al abrir notas, marcar como leídas (best-effort) y apagar badge
+      http(`/api/reservas/${id}/notes/read`, { method: "POST", auth: true }).catch(() => {});
+      setAdminList((prev) =>
+        (Array.isArray(prev) ? prev : []).map((x) =>
+          String(first(x?.id, x?._id, x?.uuid, x?.reservaId, x?.reserva_id) || "") === String(id)
+            ? { ...x, notesUnreadCount: 0 }
+            : x
+        )
+      );
     } catch (e) {
       setNotesByRes((p) => ({ ...p, [id]: [] }));
       setTraceErr({
@@ -338,7 +348,33 @@ export default function ReservasAdmin() {
       });
       const data = await http(`/api/reservas?${qs.toString()}`, { auth: true });
       const list = normList(data?.items || data?.reservas || data || []);
-      setAdminList(list);
+      
+      // Notas no leídas (badge "Notas (n)")
+      try {
+        const ids = (Array.isArray(list) ? list : [])
+          .map((r) => String(first(r?.id, r?._id, r?.uuid, r?.reservaId, r?.reserva_id) || "").trim())
+          .filter(Boolean);
+
+        if (ids.length) {
+          const resp = await http("/api/reservas/notes/unread-counts", {
+            method: "POST",
+            auth: true,
+            data: { reservaIds: ids },
+          });
+
+          const counts = resp?.counts && typeof resp.counts === "object" ? resp.counts : {};
+          const enriched = (Array.isArray(list) ? list : []).map((r) => {
+            const rid = String(first(r?.id, r?._id, r?.uuid, r?.reservaId, r?.reserva_id) || "").trim();
+            const n = rid ? Number(counts?.[rid] || 0) || 0 : 0;
+            return { ...r, notesUnreadCount: n };
+          });
+          setAdminList(enriched);
+        } else {
+          setAdminList(list);
+        }
+      } catch {
+        setAdminList(list);
+      }
     } catch (e) {
       showError(serverErrMsg(e, 'No se pudo obtener reservas'));
       setTraceErr({
@@ -1414,7 +1450,7 @@ const blocksListView = useMemo(() => {
                               onClick={() => toggleNotes(r)}
                             >
                               📝 Notas{' '}
-                              {notes.length ? `(${notes.length})` : ''}
+                              {(Number(r?.notesUnreadCount || 0) || 0) ? `(${Number(r?.notesUnreadCount || 0) || 0})` : ''}
                             </button>
                           </div>
                         )}

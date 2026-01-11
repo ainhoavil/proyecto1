@@ -246,12 +246,9 @@ function ReservaCard({
       displayStatus === "pending" ||
       displayStatus === "pendiente");
 
-  const countNotas =
-    typeof r?.notesCount === "number"
-      ? r.notesCount
-      : isNotesOpen && Array.isArray(notes)
-      ? notes.length
-      : null;
+  const unreadNotas = Number(r?.notesUnreadCount ?? r?.notes_unread_count ?? 0) || 0;
+
+  const countNotas = unreadNotas > 0 ? unreadNotas : null;
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -444,7 +441,34 @@ export default function ReservasUser() {
     try {
       const data = await http("/api/reservas/mias", { auth: true });
       const arr = Array.isArray(data) ? data : data?.items || [];
-      setReservas(arr);
+
+      // Enriquecer con contadores de notas no leídas (por reserva)
+      try {
+        const ids = arr
+          .map((r) => String(reservaIdOf(r) || "").trim())
+          .filter(Boolean);
+
+        if (ids.length) {
+          const resp = await http("/api/reservas/notes/unread-counts", {
+            method: "POST",
+            auth: true,
+            data: { reservaIds: ids },
+          });
+
+          const counts = resp?.counts && typeof resp.counts === "object" ? resp.counts : {};
+          const enriched = arr.map((r) => {
+            const rid = String(reservaIdOf(r) || "").trim();
+            const n = Number(counts?.[rid] ?? counts?.[String(Number(rid))] ?? 0) || 0;
+            return { ...r, notesUnreadCount: n };
+          });
+          setReservas(enriched);
+        } else {
+          setReservas(arr);
+        }
+      } catch (e2) {
+        console.warn("No se pudieron cargar contadores de notas no leídas:", e2);
+        setReservas(arr);
+      }
     } catch (e) {
       console.error("Error cargando reservas", e);
       setReservas([]);
@@ -719,7 +743,7 @@ export default function ReservasUser() {
     }
   };
 
-  const handleToggleNotes = (r) => {
+  const handleToggleNotes = async (r) => {
     const rid = reservaIdOf(r);
     if (!rid) return;
 
@@ -732,7 +756,17 @@ export default function ReservasUser() {
 
     setOpenNotesId(rid);
     setNewNote("");
-    loadNotes(rid);
+    await loadNotes(rid);
+
+    // Marcar como leídas (best-effort) y refrescar badge
+    try {
+      await http(`/api/reservas/${rid}/notes/read`, { method: "POST", auth: true });
+    } catch {}
+    setReservas((prev) =>
+      Array.isArray(prev)
+        ? prev.map((x) => (reservaIdOf(x) === rid ? { ...x, notesUnreadCount: 0 } : x))
+        : prev
+    );
   };
 
   const handleAddNote = async () => {

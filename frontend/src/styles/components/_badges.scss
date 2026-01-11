@@ -40,3 +40,36 @@
   border-color: $color-danger-border;
   color: $color-danger-text;
 }
+
+/* =========================================================
+   Unread counters (chat / notas)
+   - Diseñado para colocarse junto a botones (ej. "Abrir")
+========================================================= */
+
+.df-unread-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+
+  background: $color-danger-text;
+  color: $color-surface;
+
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.12);
+
+  flex-shrink: 0;
+}
+
+/* Cuando va dentro de un botón (btn-primary/btn-secondary) */
+.df-chat-open-btn .df-unread-pill {
+  margin-left: 10px;
+}

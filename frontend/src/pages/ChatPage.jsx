@@ -206,6 +206,9 @@ export default function ChatPage() {
   // ✅ Mantener experiencia de scroll: solo auto-scroll si el usuario está cerca del fondo
   const stickToBottomRef = useRef(true);
 
+  // ✅ para no spamear el endpoint de "marcar como leído"
+  const lastMarkedRef = useRef("");
+
   const isNearBottom = () => {
     const el = listRef.current;
     if (!el) return true;
@@ -255,6 +258,25 @@ export default function ChatPage() {
     try {
       const data = await http(`/api/chats/${conversationId}/messages`, { auth: true });
       const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+
+      // Marcar como leído (solo si hay mensajes del otro usuario y han cambiado desde la última marca)
+      try {
+        const me = String(myUserId || "").trim();
+        if (me) {
+          const lastOther = [...arr].reverse().find((m) => String(m?.senderId || m?.sender_id || "").trim() && String(m?.senderId || m?.sender_id || "").trim() !== me);
+          const sig = lastOther
+            ? `${String(lastOther.id || "")}:${String(lastOther.createdAt || lastOther.created_at || "")}`
+            : "";
+          if (sig && sig !== lastMarkedRef.current) {
+            lastMarkedRef.current = sig;
+            // best-effort (no bloquea la UI)
+            http(`/api/chats/${conversationId}/read`, { method: "POST", auth: true }).catch(() => {});
+          }
+        }
+      } catch {
+        // ignore
+      }
+
 
       setItems((prev) => {
         const prevLast = prev?.length ? prev[prev.length - 1] : null;

@@ -385,6 +385,37 @@ async function ensureChatSchema() {
 
 let legacyMigrationDone = false;
 
+// READ TRACKING (no leídos)
+let readSchemaPromise = null;
+
+async function ensureChatReadSchema() {
+  if (readSchemaPromise) return readSchemaPromise;
+
+  readSchemaPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS conversation_reads (
+        conversation_id TEXT,
+        user_id TEXT,
+        last_read_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (conversation_id, user_id)
+      )
+    `);
+
+    // Índices útiles (best-effort)
+    try {
+      await query(`CREATE INDEX IF NOT EXISTS idx_conv_reads_user ON conversation_reads("user_id")`);
+    } catch {}
+    try {
+      await query(
+        `CREATE INDEX IF NOT EXISTS idx_conv_reads_conv ON conversation_reads("conversation_id")`
+      );
+    } catch {}
+  })();
+
+  return readSchemaPromise;
+}
+
 async function migrateLegacyConversations() {
   if (legacyMigrationDone) return;
   legacyMigrationDone = true;
@@ -767,6 +798,7 @@ router.get(
   async (req, res) => {
     try {
       await ensureChatSchema();
+      await ensureChatReadSchema();
       await migrateLegacyConversations();
 
       const role = getUserRole(req);
@@ -783,44 +815,95 @@ router.get(
       const { joinSql, selectSql } = buildUserJoinOnAlias("c.otherId", usersMeta);
 
       // Subquery para calcular otherId SIN duplicar placeholders en el JOIN
-      const rows = await query(
-        `
-          SELECT
-            c.id AS conversationId,
-            c.trainer_id AS trainerId,
-            c.client_id AS clientId,
-            c.last_message_at AS lastMessageAt,
-            c.last_message_preview AS lastMessagePreview,
-            c.updated_at AS updatedAt,
-            c.otherId AS otherId,
-            ${selectSql}
-          FROM (
-            SELECT
-              c.*,
-              (CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END) AS otherId
-            FROM conversations c
-            WHERE
-              (
-                c.trainer_id = ?
-                AND (c.deleted_by_trainer_at IS NULL OR c.deleted_by_trainer_at = '')
-              )
-              OR
-              (
-                c.client_id = ?
-                AND (c.deleted_by_client_at IS NULL OR c.deleted_by_client_at = '')
-              )
-          ) c
-          ${joinSql}
-          ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
-          LIMIT 100
-        `,
-        [targetUserId, targetUserId, targetUserId]
-      );
+      
+// Subquery para calcular otherId SIN duplicar placeholders en el JOIN
+const rows = await query(
+  `
+    SELECT
+      c.id AS conversationId,
+      c.trainer_id AS trainerId,
+      c.client_id AS clientId,
+      c.last_message_at AS lastMessageAt,
+      c.last_message_preview AS lastMessagePreview,
+      c.updated_at AS updatedAt,
+      c.otherId AS otherId,
+      ${selectSql},
+      COALESCE((
+        SELECT COUNT(1)
+        FROM messages m
+        WHERE
+          m.conversation_id = c.id
+          AND m.sender_id <> ?
+          AND m.created_at > COALESCE(cr.last_read_at, '1970-01-01T00:00:00.000Z')
+      ), 0) AS unreadCount
+    FROM (
+      SELECT
+        c.*,
+        (CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END) AS otherId
+      FROM conversations c
+      WHERE
+        (
+          c.trainer_id = ?
+          AND (c.deleted_by_trainer_at IS NULL OR c.deleted_by_trainer_at = '')
+        )
+        OR
+        (
+          c.client_id = ?
+          AND (c.deleted_by_client_at IS NULL OR c.deleted_by_client_at = '')
+        )
+    ) c
+    LEFT JOIN conversation_reads cr
+      ON cr.conversation_id = c.id
+     AND cr.user_id = ?
+    ${joinSql}
+    ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
+    LIMIT 100
+  `,
+  [targetUserId, targetUserId, targetUserId, targetUserId, targetUserId]
+);
 
       return res.json({ items: rows });
     } catch (e) {
       console.error("GET /api/chats error:", e);
       return res.status(500).json({ error: "No se pudieron cargar los chats" });
+    }
+  }
+);
+
+router.post(
+  "/:conversationId/read",
+  verifyToken,
+  allowRoles(["admin", "client", "user", "adiestrador"]),
+  async (req, res) => {
+    try {
+      await ensureChatSchema();
+      await ensureChatReadSchema();
+
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ error: "No autorizado" });
+
+      const conversationId = String(req.params.conversationId || "").trim();
+      if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
+
+      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
+
+      const ts = nowISO();
+
+      await query(
+        `
+          INSERT INTO conversation_reads (conversation_id, user_id, last_read_at, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(conversation_id, user_id)
+          DO UPDATE SET last_read_at = excluded.last_read_at, updated_at = excluded.updated_at
+        `,
+        [conversationId, userId, ts, ts]
+      );
+
+      return res.json({ ok: true });
+    } catch (e) {
+      const st = e?.status || 500;
+      console.error("POST /api/chats/:conversationId/read error:", e);
+      return res.status(st).json({ error: e?.message || "No se pudo marcar como leído" });
     }
   }
 );
@@ -832,6 +915,7 @@ router.post(
   async (req, res) => {
     try {
       await ensureChatSchema();
+      await ensureChatReadSchema();
       await migrateLegacyConversations();
 
       const userId = getUserId(req);
@@ -921,6 +1005,7 @@ router.post(
   async (req, res) => {
     try {
       await ensureChatSchema();
+      await ensureChatReadSchema();
       await migrateLegacyConversations();
 
       const userId = getUserId(req);
@@ -956,6 +1041,7 @@ router.post(
   async (req, res) => {
     try {
       await ensureChatSchema();
+      await ensureChatReadSchema();
       await migrateLegacyConversations();
 
       const userId = getUserId(req);

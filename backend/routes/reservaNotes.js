@@ -26,6 +26,36 @@ async function ensureSchema() {
   await query(`CREATE INDEX IF NOT EXISTS idx_reserva_notes_reserva_id ON reserva_notes(reserva_id)`);
 }
 
+
+// ==== Read receipts (notas no leídas) ====
+// Guardamos "última lectura" por (reserva, usuario) para poder calcular cuántas notas nuevas hay
+let readsSchemaReady = false;
+
+async function ensureReadsSchema() {
+  if (readsSchemaReady) return;
+  readsSchemaReady = true;
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS reserva_notes_reads (
+      reserva_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      last_read_at TEXT NOT NULL,
+      PRIMARY KEY (reserva_id, user_id)
+    )
+  `);
+
+  try {
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_reserva_notes_reads_user ON reserva_notes_reads("user_id")`
+    );
+  } catch {}
+  try {
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_reserva_notes_reads_reserva ON reserva_notes_reads("reserva_id")`
+    );
+  } catch {}
+}
+
 async function tableExists(name) {
   try {
     const rows = await query(
@@ -175,6 +205,111 @@ async function hydrateAuthorFields(rows) {
 /* ============================================================
    GET /api/reservas/:id/notes
 ============================================================ */
+
+/* ============================================================
+   Unread notes count + mark as read
+   - POST /api/reservas/notes/unread-counts   { reservaIds: [...] } -> { counts: { [id]: n } }
+   - POST /api/reservas/:id/notes/read        -> marca notas como leídas (para el usuario actual)
+============================================================ */
+
+router.post("/notes/unread-counts", verifyToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    await ensureReadsSchema();
+
+    const uid = String(req.user?.uid || req.user?.id || "").trim();
+    const email = String(req.user?.email || "").trim().toLowerCase();
+    if (!uid && !email) return res.status(401).json({ error: "No autorizado" });
+
+    const raw = req.body?.reservaIds;
+    const ids = Array.from(
+      new Set((Array.isArray(raw) ? raw : []).map((x) => String(x || "").trim()).filter(Boolean))
+    ).slice(0, 300);
+
+    if (!ids.length) return res.json({ counts: {} });
+
+    // seguridad: filtramos a reservas accesibles
+    const allowed = [];
+    for (const rid of ids) {
+      const access = await assertReservaAccess(req, rid);
+      if (access?.ok) allowed.push(rid);
+    }
+
+    if (!allowed.length) return res.json({ counts: {} });
+
+    const placeholders = allowed.map(() => "?").join(",");
+    const rows = await query(
+      `
+        SELECT
+          rn.reserva_id AS reservaId,
+          SUM(
+            CASE
+              WHEN rn.created_at > COALESCE(rnr.last_read_at, '1970-01-01T00:00:00.000Z')
+                AND (rn.author_uid IS NULL OR rn.author_uid = '' OR rn.author_uid <> ?)
+                AND (rn.author_email IS NULL OR LOWER(rn.author_email) <> ?)
+              THEN 1
+              ELSE 0
+            END
+          ) AS unreadCount
+        FROM reserva_notes rn
+        LEFT JOIN reserva_notes_reads rnr
+          ON rnr.reserva_id = rn.reserva_id
+         AND rnr.user_id = ?
+        WHERE rn.reserva_id IN (${placeholders})
+        GROUP BY rn.reserva_id
+      `,
+      [uid, email, uid, ...allowed]
+    );
+
+    const counts = {};
+    for (const rid of allowed) counts[rid] = 0;
+    for (const r of rows || []) {
+      const rid = String(r?.reservaId || "").trim();
+      if (!rid) continue;
+      counts[rid] = Number(r?.unreadCount || 0) || 0;
+    }
+
+    return res.json({ counts });
+  } catch (e) {
+    console.error("POST /api/reservas/notes/unread-counts error:", e);
+    return res.status(500).json({ error: "No se pudieron calcular notas no leídas" });
+  }
+});
+
+router.post("/:id/notes/read", verifyToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    await ensureReadsSchema();
+
+    const reservaId = String(req.params.id || "").trim();
+    if (!reservaId) return res.status(400).json({ error: "Reserva inválida" });
+
+    const access = await assertReservaAccess(req, reservaId);
+    if (!access?.ok) return res.status(access?.status || 403).json({ error: access?.error || "No autorizado" });
+
+    const uid = String(req.user?.uid || req.user?.id || "").trim();
+    if (!uid) return res.status(401).json({ error: "No autorizado" });
+
+    const ts = new Date().toISOString();
+
+    await query(
+      `
+        INSERT INTO reserva_notes_reads (reserva_id, user_id, last_read_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(reserva_id, user_id)
+        DO UPDATE SET last_read_at = excluded.last_read_at
+      `,
+      [reservaId, uid, ts]
+    );
+
+    return res.json({ ok: true, reservaId, lastReadAt: ts });
+  } catch (e) {
+    console.error("POST /api/reservas/:id/notes/read error:", e);
+    return res.status(500).json({ error: "No se pudo marcar como leído" });
+  }
+});
+
+
 router.get("/:id/notes", verifyToken, async (req, res) => {
   try {
     await ensureSchema();

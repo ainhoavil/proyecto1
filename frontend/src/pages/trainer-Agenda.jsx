@@ -315,7 +315,33 @@ const [notesError, setNotesError] = useState("");
     if (!f) return;
     try {
       const r = await http(`/api/reservas/trainer/day?fecha=${f}`, { auth: true });
-      setReservasDia(Array.isArray(r) ? r : []);
+
+      const base = Array.isArray(r) ? r : [];
+      try {
+        const ids = base
+          .map((x) => String(x?.id || x?.reservaId || x?.reserva_id || "").trim())
+          .filter(Boolean);
+
+        if (ids.length) {
+          const resp = await http("/api/reservas/notes/unread-counts", {
+            method: "POST",
+            auth: true,
+            data: { reservaIds: ids },
+          });
+
+          const counts = resp?.counts && typeof resp.counts === "object" ? resp.counts : {};
+          const enriched = base.map((x) => {
+            const rid = String(x?.id || x?.reservaId || x?.reserva_id || "").trim();
+            const n = rid ? Number(counts?.[rid] || 0) || 0 : 0;
+            return { ...x, notesUnreadCount: n };
+          });
+          setReservasDia(enriched);
+        } else {
+          setReservasDia(base);
+        }
+      } catch {
+        setReservasDia(base);
+      }
     } catch {
       setReservasDia([]);
       showError("No se pudo cargar la agenda del día.");
@@ -650,6 +676,16 @@ const [notesError, setNotesError] = useState("");
     const r = await http(`/api/reservas/${reservaId}/notes`, { auth: true });
     const arr = Array.isArray(r?.items) ? r.items : Array.isArray(r) ? r : [];
     setNotesItems(arr);
+
+    // Al abrir notas, marcar como leídas (best-effort) y apagar badge
+    http(`/api/reservas/${reservaId}/notes/read`, { method: "POST", auth: true }).catch(() => {});
+    setReservasDia((prev) =>
+      (Array.isArray(prev) ? prev : []).map((x) =>
+        String(x?.id || x?.reservaId || x?.reserva_id || "") === String(reservaId)
+          ? { ...x, notesUnreadCount: 0 }
+          : x
+      )
+    );
   } catch (e) {
     console.error("No se pudieron cargar las notas", e);
     setNotesItems([]);
@@ -1013,7 +1049,7 @@ async function deleteReservaNote(noteId) {
                       className="btn-outline"
                       onClick={() => openReservaNotes(r)}
                     >
-                      Notas
+                      Notas{(Number(r?.notesUnreadCount || 0) || 0) ? ` (${Number(r?.notesUnreadCount || 0) || 0})` : ""}
                     </button>
                   </div>
                 </div>

@@ -405,6 +405,8 @@ export default function ChatsPage() {
               c?.created_at ??
               "";
 
+            const unread = Number(c?.unreadCount ?? c?.unread_count ?? 0) || 0;
+
             return (
               <div key={stableKey} className="card" style={{ padding: 14 }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -426,7 +428,7 @@ export default function ChatsPage() {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {other.label}{" "}
+                        {other.label}
                         <span style={{ fontSize: 12, opacity: 0.6 }}>· {other.roleLabel}</span>
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.7, whiteSpace: "nowrap" }}>
@@ -444,8 +446,17 @@ export default function ChatsPage() {
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button className="btn-primary" type="button" onClick={() => openChat(id)} disabled={!id}>
+                    <button className="btn-primary df-chat-open-btn" type="button" onClick={() => openChat(id)} disabled={!id}>
                       Abrir
+                      {unread > 0 ? (
+                        <span
+                          className="df-unread-pill"
+                          aria-label={`${unread} mensajes sin leer`}
+                          title={`${unread} mensajes sin leer`}
+                        >
+                          {unread}
+                        </span>
+                      ) : null}
                     </button>
                     <button
                       className="btn-secondary"
