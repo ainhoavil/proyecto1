@@ -1,6 +1,5 @@
 import { normalizeEmail } from "./admin";
 
-
 function normalizeRole(raw) {
   const r = String(raw || "").trim().toLowerCase();
   if (!r) return "client";

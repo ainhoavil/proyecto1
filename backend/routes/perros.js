@@ -105,7 +105,7 @@ router.get("/", verifyToken, allowRoles(["client", "adiestrador"]), async (req, 
               COALESCE(avatar_url, avatarURL) AS avatarURL,
               created_at AS createdAt, updated_at AS updatedAt
        FROM ${TABLE}
-       WHERE user_id = ? 
+       WHERE user_id = ?
        ORDER BY nombre COLLATE NOCASE ASC`,
       [userId]
     );

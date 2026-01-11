@@ -1,9 +1,6 @@
 // backend/utils/trainerAccess.js
-// ============================================================
 // Helpers compartidos para permisos Adiestrador ↔ Cliente
 // - Evita duplicar lógica en rutas (trainers, trainerNotes, etc.)
-// ============================================================
-
 import { query } from "../db.js";
 
 export function getAuthUserId(req) {

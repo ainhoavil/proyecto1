@@ -1,12 +1,9 @@
 // frontend/src/pages/ChatsPage.jsx
-// ============================================================
 // Lista de chats del usuario
 // - UI lista + abrir chat + borrar (si el backend lo soporta)
 // - Buscador por nombre (filtra en frontend)
 // - Robusto con token id/uid/sub
 // - Robusto con backend: { items: [...] } + otherName/otherEmail/otherPhotoUrl
-// ============================================================
-
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";

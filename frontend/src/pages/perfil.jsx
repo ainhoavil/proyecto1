@@ -527,7 +527,6 @@ if (roleFromProfile) {
     setEditingDogId("");
     setDogForm(emptyDog);
     setCreatingDog(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const editDog = (dog) => {
@@ -542,7 +541,6 @@ if (roleFromProfile) {
       avatarURL: absUrl(dog.avatarURL || ""),
     });
     setCreatingDog(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const cancelDogForm = () => {
@@ -706,7 +704,8 @@ if (roleFromProfile) {
               </div>
               <div className="perfil-avatar__actions">
                 <label className="btn-ghost">
-                  Cambiar foto
+                  
+                  {perfil.avatarURL ? "Cambiar foto" : "Añadir foto"}
                   <input type="file" accept="image/*" onChange={handlePickProfile} style={{ display: "none" }} />
                 </label>
                 {perfil.avatarURL && (
@@ -966,7 +965,7 @@ if (roleFromProfile) {
                   </div>
                   <div className="perfil-dog-photo__actions">
                     <label className="btn-ghost">
-                      Cambiar foto
+                      {dogForm.avatarURL ? "Cambiar foto" : "Añadir foto"}
                       <input type="file" accept="image/*" onChange={handlePickDog} style={{ display: "none" }} />
                     </label>
                     {dogForm.avatarURL && (
@@ -1081,7 +1080,6 @@ if (roleFromProfile) {
           )}
           </section>
         )}
-
 
         {/* ELIMINAR CUENTA */}
         {!isAdmin && (

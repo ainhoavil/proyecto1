@@ -1,10 +1,7 @@
 // backend/services/notifications.js
-// ============================================================
 // Notificaciones por email (reservas, notas, chat)
 // - Se ejecutan en modo "best-effort": nunca deben romper la API
 // - Si el mailer no está configurado, imprime un DEV LOG
-// ============================================================
-
 import { query } from "../db.js";
 import { sendReservationEmail, sendChatEmail } from "../utils/mailer.js";
 
@@ -28,12 +25,8 @@ function money(price, currency) {
   if (!p) return "";
   return `${p} ${c}`;
 }
-
-// ============================================================
 // CHAT EMAIL THROTTLE (1 email / día / cliente)
 // - Requisito: cuando el adiestrador envía mensajes, no saturar
-// ============================================================
-
 let chatThrottleEnsured = false;
 
 function getMadridDayStr(now = new Date()) {
@@ -85,6 +78,35 @@ async function getUserById(uid) {
   return rows[0] || null;
 }
 
+async function listAdminEmails() {
+  // Devuelve una lista de emails de administradores (pueden ser varios)
+  // - Best-effort: si la tabla no existe o falla, devuelve []
+  // - Dedupe y normaliza
+  const out = new Set();
+
+  // 1) Variable de entorno opcional (para instalaciones con 1 admin fijo)
+  const envAdmin = normEmail(process.env.ADMIN_EMAIL || process.env.APP_ADMIN_EMAIL || "");
+  if (envAdmin) out.add(envAdmin);
+
+  try {
+    const rows = await query(
+      `SELECT email
+         FROM usuarios
+        WHERE LOWER(rol) = 'admin'
+          AND email IS NOT NULL
+          AND TRIM(email) <> ''`
+    );
+    for (const r of rows || []) {
+      const e = normEmail(r?.email);
+      if (e) out.add(e);
+    }
+  } catch {
+    // ignore
+  }
+
+  return Array.from(out);
+}
+
 async function getReservaById(reservaId) {
   const id = safeStr(reservaId).trim();
   if (!id) return null;
@@ -107,6 +129,7 @@ async function getReservaById(reservaId) {
         admin_note AS adminNote,
         cancel_reason AS cancelReason,
         status,
+        origin,
         COALESCE(trainer_id, entrenador_id) AS trainerId
       FROM reservas
       WHERE id = ?
@@ -187,11 +210,7 @@ async function safeRun(label, fn) {
     console.warn(`[notify] ${label} falló:`, e?.message || e);
   }
 }
-
-// ============================================================
 // RESERVAS
-// ============================================================
-
 export async function notifyReservationCreated(reservaId) {
   await safeRun("notifyReservationCreated", async () => {
     const r = await getReservaById(reservaId);
@@ -371,6 +390,24 @@ export async function notifyReservationRejected(reservaId, { note } = {}) {
       actionPath: "/contratar",
       actionText: "Reservar otra hora",
     });
+
+const trainer = r.trainerId ? await getUserById(r.trainerId) : null;
+const trainerEmail = normEmail(trainer?.email);
+if (trainerEmail) {
+  await sendReservationEmail({
+    to: trainerEmail,
+    subject: `${appName} · Reserva rechazada`,
+    title: "Reserva rechazada",
+    intro: "El centro ha rechazado una reserva asignada a ti.",
+    lines: [
+      ...buildReservaLines(r),
+      ...extra,
+      clientEmail ? `Cliente: ${clientEmail}` : "",
+    ].filter(Boolean),
+    actionPath: "/trainer-agenda",
+    actionText: "Ver agenda",
+  });
+}
   });
 }
 
@@ -454,6 +491,29 @@ export async function notifyReservationNoteAdded({ reservaId, author, text } = {
           actionText: "Ver agenda",
         });
       }
+
+
+// Nota del cliente => avisamos también a los administradores
+const adminEmails = await listAdminEmails();
+for (const adminTo of adminEmails) {
+  if (!adminTo) continue;
+  if (trainerEmail && adminTo === trainerEmail) continue;
+  if (clientEmail && adminTo === clientEmail) continue;
+
+  await sendReservationEmail({
+    to: adminTo,
+    subject: `${appName} · Nueva nota del cliente`,
+    title: "Nueva nota en una reserva",
+    intro: "Un cliente ha añadido una nota a una reserva.",
+    lines: [
+      ...lines,
+      clientEmail ? `Cliente: ${clientEmail}` : "",
+    ].filter(Boolean),
+    actionPath: "/admin",
+    actionText: "Ver reservas",
+  });
+}
+
       return;
     }
 
@@ -471,11 +531,7 @@ export async function notifyReservationNoteAdded({ reservaId, author, text } = {
     }
   });
 }
-
-// ============================================================
 // CHAT
-// ============================================================
-
 export async function notifyChatMessage({ conversationId, senderId, preview } = {}) {
   await safeRun("notifyChatMessage", async () => {
     const cid = safeStr(conversationId).trim();

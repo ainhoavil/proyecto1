@@ -42,10 +42,7 @@ export default function Login() {
       stateNext: location.state?.next || null,
     };
   }, [nextParam, location.state]);
-
-  // ============================================================
   // GOOGLE SIGN-IN (GIS)
-  // ============================================================
   useEffect(() => {
     const clientId = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
 

@@ -6,7 +6,7 @@ import {
   hasDecided,
   readConsent,
   writeConsent,
-} 
+}
 from "../helpers/consentStore";
 
 export default function CookieConsentModal() {

@@ -102,7 +102,6 @@ async function upsertTrainerPhoto(trainerId, photoUrl) {
   }
 }
 
-
 /* -------------------- GET /api/perfil -------------------- */
 /** Devuelve el perfil del usuario autenticado.
  *  Respuesta: { email, profile: { ... , foto, avatarURL, ... } }
@@ -211,7 +210,6 @@ router.patch("/", auth, async (req, res) => {
         req.user.sub,
       ]
     );
-
 
     // Si el usuario es adiestrador y se ha modificado la foto, la reflejamos también
     // en trainer_profiles para que admin/perfil público vean lo mismo.

@@ -1,5 +1,4 @@
 // backend/routes/chat.js
-// ============================================================
 // Chat Cliente–Adiestrador
 // ✅ 1 conversación por PAREJA (trainer_id + client_id)
 // ✅ Mensajes con adjuntos (fotos / vídeos / archivos)
@@ -14,8 +13,6 @@
 // ✅ Soporta distintos nombres de columnas en la tabla reservas
 // ✅ Detecta tabla usuarios/users para nombres/fotos sin romper
 // ✅ Detecta columna owner en files (owner_uid / owner_id / user_id / uid)
-// ============================================================
-
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
@@ -31,11 +28,7 @@ const getUserId = (req) => String(req.user?.id || req.user?.uid || "");
 // 👇 Tu rol puede venir como rol o role.
 const getUserRole = (req) =>
   String(req.user?.rol || req.user?.role || "").toLowerCase();
-
-// ============================================================
 // CONFIG
-// ============================================================
-
 const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "pending", "pending_user"]);
 
 function canonStatus(raw) {
@@ -97,11 +90,7 @@ function normalizeAttachments(input) {
   }
   return out;
 }
-
-// ============================================================
 // IDENT / COLUMN HELPERS
-// ============================================================
-
 function qIdent(name) {
   const s = String(name || "").trim();
   if (!s) return null;
@@ -115,11 +104,7 @@ function pickCol(colMap, candidates) {
   }
   return null;
 }
-
-// ============================================================
 // USERS TABLE DETECTION (usuarios / users) + column map
-// ============================================================
-
 let usersMetaPromise = null;
 
 async function getUsersMeta() {
@@ -269,11 +254,7 @@ function buildSenderJoin(usersMeta) {
     senderSelectSql: `${senderName} AS senderName, ${senderPhoto} AS senderPhotoUrl`,
   };
 }
-
-// ============================================================
 // SCHEMA (auto-create / auto-migrate)
-// ============================================================
-
 let schemaPromise = null;
 let conversationsIdIsInteger = false;
 let messagesIdIsInteger = false;
@@ -475,11 +456,7 @@ async function migrateLegacyConversations() {
     console.warn("[chat] Migración legacy (best-effort) falló:", e?.message || e);
   }
 }
-
-// ============================================================
 // RESERVAS SCHEMA DETECTION (robusto)
-// ============================================================
-
 let reservasColsPromise = null;
 
 async function getReservasColMap() {
@@ -540,11 +517,7 @@ function buildClientCol(colMap) {
 function buildReservaIdCol(colMap) {
   return pickCol(colMap, ["id", "reserva_id"]);
 }
-
-// ============================================================
 // HELPERS
-// ============================================================
-
 async function relationshipExists(trainerId, clientId) {
   const colMap = await getReservasColMap();
   if (!colMap.size) return false;
@@ -786,11 +759,7 @@ async function verifyAttachmentsOwnership({ userId, attachments }) {
     }
   }
 }
-
-// ============================================================
 // ENDPOINTS
-// ============================================================
-
 router.get(
   "/",
   verifyToken,

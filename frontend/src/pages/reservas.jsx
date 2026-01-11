@@ -13,7 +13,6 @@ export default function Reservas() {
 
   if (rolBase === "user") rolBase = "client";
 
-
   const esAdmin = rolBase === "admin";
   const esAdiestrador = rolBase === "adiestrador";
 

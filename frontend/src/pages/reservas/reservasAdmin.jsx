@@ -67,7 +67,6 @@ function isPastFechaHora(fecha, hora) {
   return dt.getTime() < Date.now();
 }
 
-
 function parseMin(hhmm) {
   const s = String(hhmm || '').trim();
   const [hh, mm = '0'] = s.split(':');
@@ -498,7 +497,6 @@ export default function ReservasAdmin() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [quickEmail, trainerEmailSet]);
 
-
 // ---------- Helpers API (fallback de endpoints) ----------
 const tryHttpCandidates = async (candidates) => {
   let lastErr = null;
@@ -814,7 +812,6 @@ const eliminarBloqueoAdmin = async (b) => {
     };
   }, [adminList]);
 
-
 const blocksDayView = useMemo(() => {
   const arr = Array.isArray(blocksDay) ? blocksDay : [];
   const today = new Date().toISOString().slice(0, 10);
@@ -884,8 +881,6 @@ const blocksListView = useMemo(() => {
       await loadBloqueosListAdmin();
     }
   };
-
-
 
   useEffect(() => {
     loadServicios();
@@ -1063,7 +1058,6 @@ const blocksListView = useMemo(() => {
           </div>
         </div>
       </section>
-
 
 {/* Bloqueos avanzados (admin) */}
 <section className="admin-blocks" style={{ marginTop: 16 }}>

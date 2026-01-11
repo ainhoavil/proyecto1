@@ -168,7 +168,6 @@ async function getWorkDogs(trainerId) {
   }
 }
 
-
 async function syncUserPhoto(trainerId, photoUrl) {
   try {
     // Mantener sincronizada la foto del usuario (tabla users) con el perfil público.
@@ -227,7 +226,6 @@ async function upsertTrainerProfile(trainerId, body = {}) {
       [trainerId, displayName, bio, photoUrl, experienceYears, specialties]
     );
   }
-
 
   if (hasPhotoUrl) {
     await syncUserPhoto(trainerId, photoUrl);

@@ -718,8 +718,6 @@ async function deleteReservaNote(noteId) {
   }
 }
 
-
-
   return (
     <div id="trainer-agenda-top">
       {notice.text && <div style={noticeStyle}>{notice.text}</div>}
@@ -1169,7 +1167,6 @@ async function deleteReservaNote(noteId) {
     </div>
   </div>
 ) : null}
-
 
       {/* ================= HISTÓRICO (MIS RESERVAS) ================= */}
       <details style={{ marginTop: 18 }}>

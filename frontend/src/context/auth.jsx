@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { http } from "../helpers/http";
 
-
-
 function normalizeRole(raw) {
   const r = String(raw || "").trim().toLowerCase();
   if (!r) return "client";
@@ -25,10 +23,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(false);
 
   const isAuthenticated = !!token;
-
-  // ============================================================
   // VERIFICAR TOKEN CON /api/auth/me
-  // ============================================================
   useEffect(() => {
     let cancel = false;
 
@@ -73,10 +68,7 @@ export function AuthProvider({ children }) {
     };
     // eslint-disable-next-line
   }, [token]);
-
-  // ============================================================
   // LOGIN SUCCESS —> ARREGLADO TOTALMENTE
-  // ============================================================
   function loginSuccess(payload) {
     const t = payload?.token || null;
     if (!t) return;
@@ -102,10 +94,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem("user", JSON.stringify(nextUser));
     localStorage.setItem("usuarioLogueado", "1"); // legacy
   }
-
-  // ============================================================
   // LOGOUT
-  // ============================================================
   function logout() {
     setToken(null);
     setRole(normalizeRole("user"));

@@ -181,7 +181,6 @@ async function promoteToAdminIfNeeded({ uid, email }) {
   return true;
 }
 
-
 /* ============================================================
    🛠️ ASEGURAR TABLAS (se ajusta a tu esquema real)
 ============================================================ */
@@ -433,7 +432,6 @@ router.post("/register", async (req, res) => {
         error: "La contraseña debe tener mínimo 8 caracteres e incluir letras y números.",
       });
     }
-
 
     const rolBootstrap = isBootstrapAdmin(emailNorm) ? "admin" : "client";
 

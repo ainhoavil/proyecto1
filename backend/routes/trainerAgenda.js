@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
 import { ensureBloqueosSchema } from "../utils/bloqueosSchema.js";
-import { notifyReservationCenterConfirmed } from "../services/notifications.js";
+import { notifyReservationCreated } from "../services/notifications.js";
 
 const router = express.Router();
 
@@ -263,10 +263,8 @@ router.post(
         [id]
       );
 
-      if (status === "pending_user") {
-        // Email al cliente: debe aceptar/rechazar la reserva creada por el centro/adiestrador
-        void notifyReservationCenterConfirmed(id);
-      }
+      // Notificaciones por email (cliente +, si aplica, adiestrador)
+      void notifyReservationCreated(id);
 
       res.status(201).json(rows[0] || { id });
     } catch (e) {
@@ -333,7 +331,6 @@ router.get(
     }
   }
 );
-
 
 /* Mis reservas (adiestrador) - compat */
 // GET /api/reservas/mias-trainer?limit=300

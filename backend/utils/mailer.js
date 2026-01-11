@@ -20,7 +20,6 @@ function escapeHtml(input) {
     .replaceAll("'", "&#039;");
 }
 
-
 function roleLabel(role) {
   const r = String(role || "").trim().toLowerCase();
   if (!r) return "";
@@ -342,8 +341,6 @@ export async function sendAccountCreatedEmail({ to, email, tempPassword, role })
   return await sendMail({ to, subject, text, html });
 }
 
-
-
 export async function sendWelcomeEmail({ to, name, role } = {}) {
   const appName = getAppName();
   const subject = `${appName} · Bienvenido/a`;
@@ -377,7 +374,6 @@ export async function sendWelcomeEmail({ to, name, role } = {}) {
   return await sendMail({ to, subject, text, html });
 }
 
-
 export async function sendRoleChangedEmail({ to, name, role } = {}) {
   const appName = getAppName();
   const subject = `${appName} · Cambio de rol`;
@@ -407,7 +403,6 @@ export async function sendRoleChangedEmail({ to, name, role } = {}) {
 
   return await sendMail({ to, subject, text, html });
 }
-
 
 export async function sendAccountDeletedEmail({ to, name } = {}) {
   const appName = getAppName();

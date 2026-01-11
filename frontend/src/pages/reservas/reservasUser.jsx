@@ -225,21 +225,26 @@ function ReservaCard({
 
   const displayStatus = needsUserConfirm ? "pending_user" : normalizedStatus;
 
-  const puedeCancelar =
-    displayStatus === "pending" ||
-    displayStatus === "pendiente" ||
-    displayStatus === "confirmada" ||
-    displayStatus === "confirmed" ||
-    displayStatus === "pending_user";
+  // UX: si la reserva está "pendiente por ti" (confirmación del cliente),
+  // mostramos únicamente Aceptar/Rechazar (y Notas). No se muestra Chat ni
+  // Cancelar hasta que el cliente haya tomado una decisión.
+  const isPendingUser = displayStatus === "pending_user";
 
-  const puedeAceptarRechazar = displayStatus === "pending_user";
+  const puedeCancelar =
+    !isPendingUser &&
+    (displayStatus === "pending" ||
+      displayStatus === "pendiente" ||
+      displayStatus === "confirmada" ||
+      displayStatus === "confirmed");
+
+  const puedeAceptarRechazar = isPendingUser;
 
   const puedeChat =
-    displayStatus === "confirmed" ||
-    displayStatus === "confirmada" ||
-    displayStatus === "pending" ||
-    displayStatus === "pendiente" ||
-    displayStatus === "pending_user";
+    !isPendingUser &&
+    (displayStatus === "confirmed" ||
+      displayStatus === "confirmada" ||
+      displayStatus === "pending" ||
+      displayStatus === "pendiente");
 
   const countNotas =
     typeof r?.notesCount === "number"
@@ -1019,7 +1024,6 @@ export default function ReservasUser() {
           </div>
         )}
       </section>
-
 
       <section className="reservas-section">
         <h2>Confirmadas</h2>

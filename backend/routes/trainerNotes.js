@@ -1,11 +1,8 @@
 // backend/routes/trainerNotes.js
-// ============================================================
 // Notas PRIVADAS del adiestrador
 // - Se guardan por (trainer_id, client_id, dog_id?)
 // - SOLO visibles para el adiestrador (no admin, no cliente)
 // - NO se mezclan con el chat
-// ============================================================
-
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
@@ -14,11 +11,7 @@ import { dogBelongsToClient, trainerHasClient, getAuthUserId } from "../utils/tr
 
 const router = express.Router();
 const nowISO = () => new Date().toISOString();
-
-// ============================================================
 // SCHEMA (auto-create)
-// ============================================================
-
 let schemaReady = false;
 let schemaPromise = null;
 
@@ -65,19 +58,12 @@ async function ensureSchema() {
 ensureSchema().catch((e) => {
   console.warn("[trainerNotes] No se pudo asegurar schema:", e?.message || e);
 });
-
-// ============================================================
 // Helpers
-// ============================================================
-
 function cleanText(v) {
   return String(v ?? "").trim();
 }
-
-// ============================================================
 // GET /api/trainer-notes?clientId=...&dogId=...
 // Lista notas del adiestrador (por cliente, opcional por perro)
-// ============================================================
 router.get(
   "/",
   verifyToken,
@@ -155,11 +141,8 @@ router.get(
     }
   }
 );
-
-// ============================================================
 // POST /api/trainer-notes
 // body: { clientId, dogId?, title?, text }
-// ============================================================
 router.post(
   "/",
   verifyToken,
@@ -234,11 +217,8 @@ router.post(
     }
   }
 );
-
-// ============================================================
 // PATCH /api/trainer-notes/:id
 // body: { title?, text? }
-// ============================================================
 router.patch(
   "/:id",
   verifyToken,
@@ -329,10 +309,7 @@ router.patch(
     }
   }
 );
-
-// ============================================================
 // DELETE /api/trainer-notes/:id
-// ============================================================
 router.delete(
   "/:id",
   verifyToken,

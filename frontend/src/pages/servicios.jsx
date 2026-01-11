@@ -4,8 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/auth';
 import { http } from '../helpers/http';
 import { useUi } from '../context/ui';
-import { useState as useStateReact } from 'react';
-
 // Base del backend para construir URLs absolutas (imágenes / archivos)
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
 const absUrl = (u = '') =>
@@ -38,10 +36,38 @@ function getModalitiesFromItem(item) {
   if (txt.includes('presencial')) set.add('presencial');
   if (txt.includes('online')) set.add('online');
   if (txt.includes('domicilio')) set.add('a domicilio');
-
-  if (!set.size) set.add('presencial');
   return Array.from(set);
 }
+
+const MODALITY_OPTIONS = [
+  { key: 'presencial', label: 'Presencial' },
+  { key: 'a domicilio', label: 'A domicilio' },
+  { key: 'online', label: 'Online' },
+];
+
+/**
+ * Mantiene `mode` como string pero permite selección múltiple por checkboxes.
+ * Nota: se permite selección vacía en UI, pero se valida al guardar.
+ */
+function toggleModalitiesInMode(modeStr = '', optionKey, checked) {
+  const current = new Set(getModalitiesFromItem({ mode: modeStr }));
+  if (checked) current.add(optionKey);
+  else current.delete(optionKey);
+  return Array.from(current).join(', ');
+}
+
+const NUEVO_SERVICIO_DEFAULT = {
+  title: '',
+  short: '',
+  long: '',
+  price: '',
+  currency: 'EUR',
+  duration: '',
+  mode: '',
+  order: '',
+  imageUrl: '',
+};
+
 
 /* ==========================
    Utilidades subida/borrado imagen
@@ -187,24 +213,12 @@ export default function Servicios({ embedded = false } = {}) {
     setSel(null);
     setSelModalidad('');
   };
-
-  // ---------------------------
   // CREAR SERVICIO (ADMIN)
-  // ---------------------------
-  const [nuevo, setNuevo] = useState({
-    title: '',
-    short: '',
-    long: '',
-    price: '',
-    currency: 'EUR',
-    duration: '',
-    mode: '',
-    order: '',
-    imageUrl: '',
-  });
+  const [nuevo, setNuevo] = useState({ ...NUEVO_SERVICIO_DEFAULT });
 
   const [msgNuevo, setMsgNuevo] = useState('');
   const [nuevoImgFile, setNuevoImgFile] = useState(null);
+  const [nuevoImageInputKey, setNuevoImageInputKey] = useState(0);
 
   const crearServicio = async (e) => {
     e.preventDefault();
@@ -217,6 +231,15 @@ export default function Servicios({ embedded = false } = {}) {
       if (nuevoImgFile) {
         setMsgNuevo('Subiendo imagen…');
         imageUrl = await uploadServiceImage(nuevoImgFile);
+      }
+
+
+      // Validación: al menos una modalidad seleccionada
+      const selectedModalities = getModalitiesFromItem({ mode: nuevo.mode });
+      if (!selectedModalities.length) {
+        setMsgNuevo('❌ Selecciona al menos una modalidad.');
+        setSaving(false);
+        return;
       }
 
       const body = {
@@ -241,17 +264,8 @@ export default function Servicios({ embedded = false } = {}) {
       await http('/api/servicios', { method: 'POST', data: body, auth: true });
       setMsgNuevo('✅ Servicio creado');
 
-      setNuevo({
-        title: '',
-        short: '',
-        long: '',
-        price: '',
-        currency: 'EUR',
-        duration: '',
-        mode: '',
-        order: '',
-        imageUrl: '',
-      });
+      setNuevo({ ...NUEVO_SERVICIO_DEFAULT });
+      setNuevoImageInputKey((k) => k + 1);
       setNuevoImgFile(null);
 
       await refresh();
@@ -276,9 +290,13 @@ export default function Servicios({ embedded = false } = {}) {
     setMsgNuevo('✅ Imagen seleccionada. Se subirá al guardar el servicio.');
   };
 
-  // ---------------------------
+const descartarNuevo = () => {
+  setNuevo({ ...NUEVO_SERVICIO_DEFAULT, mode: '' });setNuevoImgFile(null);
+  setNuevoImageInputKey((k) => k + 1);
+  setMsgNuevo('');
+};
+
   // EDITAR SERVICIO (ADMIN)
-  // ---------------------------
   const guardarEdicion = async (id, data) => {
     setSaving(true);
 
@@ -386,8 +404,6 @@ export default function Servicios({ embedded = false } = {}) {
       </header>
       )}
 
-      
-
       {error && <p className="error-msg">{error}</p>}
 
       {/* CREAR SERVICIO - SOLO ADMIN */}
@@ -475,15 +491,27 @@ export default function Servicios({ embedded = false } = {}) {
                   />
                 </label>
 
-                <label>
-                  Modalidad
-                  <input
-                    value={nuevo.mode}
-                    onChange={(e) =>
-                      setNuevo({ ...nuevo, mode: e.target.value })
-                    }
-                  />
-                </label>
+
+<fieldset className="modalidades-fieldset">
+  <legend>Modalidad</legend>
+  <div className="modalidades-options">
+    {MODALITY_OPTIONS.map((opt) => (
+      <label key={opt.key} className="modalidad-option">
+        <input
+          type="checkbox"
+          checked={getModalitiesFromItem({ mode: nuevo.mode }).includes(opt.key)}
+          onChange={(e) =>
+            setNuevo((prev) => ({
+              ...prev,
+              mode: toggleModalitiesInMode(prev.mode, opt.key, e.target.checked),
+            }))
+          }
+        />
+        {opt.label}
+      </label>
+    ))}
+  </div>
+</fieldset>
               </div>
 
               <div className="admin-form__row">
@@ -502,6 +530,7 @@ export default function Servicios({ embedded = false } = {}) {
               <label className="full">
                 Subir imagen destacada
                 <input
+                  key={nuevoImageInputKey}
                   type="file"
                   accept="image/*"
                   onChange={handleNuevoImageFile}
@@ -515,7 +544,7 @@ export default function Servicios({ embedded = false } = {}) {
             </div>
 
             <div className="form-actions">
-              <button type="button" className="btn-secondary" disabled={saving}>
+              <button type="button" className="btn-secondary" onClick={descartarNuevo} disabled={saving}>
                 Descartar
               </button>
               <button type="submit" className="btn-primary" disabled={saving}>
@@ -575,19 +604,20 @@ export default function Servicios({ embedded = false } = {}) {
                     abrir(item);
                   }}
                 >
-                  Ver más
+                  {esAdmin ? 'Modificar' : 'Ver más'}
                 </button>
 
                 {esAdmin ? (
                   <button
                     type="button"
-                    className="btn-primary"
+                    className="btn-danger"
+                    disabled={saving}
                     onClick={(e) => {
                       e.stopPropagation();
-                      abrir(item);
+                      borrarServicio(item.id);
                     }}
                   >
-                    Editar
+                    Borrar
                   </button>
                 ) : (
                   <button
@@ -691,7 +721,7 @@ export default function Servicios({ embedded = false } = {}) {
 ========================== */
 
 function ServiceEditor({ item, onSave, onDelete, saving }) {
-  const [form, setForm] = useStateReact({
+  const [form, setForm] = useState({
     title: item.title || '',
     short: item.short || '',
     long: item.long || '',
@@ -704,9 +734,9 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
     featured: false, // ✅ casilla eliminada: mantenemos campo pero sin UI
   });
 
-  const [msg, setMsg] = useStateReact('');
-  const [pendingFile, setPendingFile] = useStateReact(null);
-  const [workingImg, setWorkingImg] = useStateReact(false);
+  const [msg, setMsg] = useState('');
+  const [pendingFile, setPendingFile] = useState(null);
+  const [workingImg, setWorkingImg] = useState(false);
 
   // ⚠️ Este componente está fuera del scope de `ui` del componente principal.
   // Necesita su propia instancia para confirmaciones/toasts.
@@ -742,6 +772,14 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
 
         const url = await uploadServiceImage(pendingFile);
         next.imageUrl = url;
+      }
+
+
+      // Validación: al menos una modalidad seleccionada
+      const selectedModalities = getModalitiesFromItem({ mode: next.mode });
+      if (!selectedModalities.length) {
+        setMsg('❌ Selecciona al menos una modalidad.');
+        return;
       }
 
       await onSave(next);
@@ -842,10 +880,27 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
           <input value={form.duration} onChange={handleChange('duration')} />
         </label>
 
-        <label>
-          Modalidad
-          <input value={form.mode} onChange={handleChange('mode')} />
-        </label>
+
+<fieldset className="modalidades-fieldset">
+  <legend>Modalidad</legend>
+  <div className="modalidades-options">
+    {MODALITY_OPTIONS.map((opt) => (
+      <label key={opt.key} className="modalidad-option">
+        <input
+          type="checkbox"
+          checked={getModalitiesFromItem({ mode: form.mode }).includes(opt.key)}
+          onChange={(e) =>
+            setForm((prev) => ({
+              ...prev,
+              mode: toggleModalitiesInMode(prev.mode, opt.key, e.target.checked),
+            }))
+          }
+        />
+        {opt.label}
+      </label>
+    ))}
+  </div>
+</fieldset>
       </div>
 
       <div className="admin-form__row">
@@ -859,32 +914,69 @@ function ServiceEditor({ item, onSave, onDelete, saving }) {
         </label>
       </div>
 
-      <label className="full">
-        Subir nueva imagen
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleFilePick}
-          disabled={saving || workingImg}
-        />
-        {pendingFile && <small>Archivo seleccionado: {pendingFile.name}</small>}
-        {!pendingFile && <small>La imagen se subirá al guardar cambios.</small>}
-      </label>
+      <div className="full service-image-editor">
+        <div className="service-image-editor__body">
+          {form.imageUrl ? (
+            <img
+              src={absUrl(form.imageUrl)}
+              alt="Imagen del servicio"
+              className="service-image-editor__preview"
+            />
+          ) : (
+            <div className="service-image-editor__placeholder">Sin imagen</div>
+          )}
+
+          <div className="service-image-editor__controls">
+            <label className="btn-ghost">
+              {form.imageUrl ? 'Cambiar imagen' : 'Añadir imagen'}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFilePick}
+                disabled={saving || workingImg}
+                style={{ display: 'none' }}
+              />
+            </label>
+
+            {pendingFile && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setPendingFile(null);
+                  setMsg('');
+                }}
+                disabled={saving || workingImg}
+              >
+                Quitar imagen nueva
+              </button>
+            )}
+
+            {form.imageUrl && (
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={eliminarImagen}
+                disabled={saving || workingImg}
+              >
+                Eliminar imagen actual
+              </button>
+            )}
+
+            {pendingFile ? (
+              <small>Archivo nuevo: {pendingFile.name} (se subirá al guardar)</small>
+            ) : (
+              <small>Selecciona una imagen para añadirla o reemplazarla.</small>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* ✅ Casilla eliminada (Destacado) */}
 
       <div className="form-actions form-actions--edit">
         <button type="submit" className="btn-primary" disabled={saving || workingImg}>
           {saving || workingImg ? 'Guardando…' : 'Guardar cambios'}
-        </button>
-
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={eliminarImagen}
-          disabled={saving || workingImg}
-        >
-          Eliminar imagen
         </button>
 
         <button

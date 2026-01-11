@@ -92,7 +92,6 @@ function normHora(h) {
   return s.slice(0, 5);
 }
 
-
 /* ===================== Auto-rechazo de reservas por bloqueo (admin) ===================== */
 
 let _reservasColsPromise = null;

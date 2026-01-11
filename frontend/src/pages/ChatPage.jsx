@@ -1,5 +1,4 @@
 // frontend/src/pages/ChatPage.jsx
-// ============================================================
 // Chat Cliente–Adiestrador
 // ✅ 1 chat por adiestrador (1 conversación por pareja trainer+client)
 // ✅ Soporta adjuntos: fotos / vídeos / archivos (vía /api/upload-db)
@@ -9,8 +8,6 @@
 // ✅ Borrado lógico desde UI (botón "Borrar chat")
 // ✅ Mejora: si vienes desde Reservas, al volver/borrar te lleva a /reservas
 // ✅ Mejora: decode JWT base64url robusto
-// ============================================================
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";

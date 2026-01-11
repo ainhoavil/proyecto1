@@ -13,13 +13,13 @@ export default function TopBar() {
     (async () => {
       try {
         const j = await http("/settings/topbar");
-        setData(prev => ({ 
-          ...prev, 
-          ...j, 
-          social: { 
-            instagram: j.social?.instagram || '', 
-            facebook: j.social?.facebook || '' 
-          } 
+        setData(prev => ({
+          ...prev,
+          ...j,
+          social: {
+            instagram: j.social?.instagram || '',
+            facebook: j.social?.facebook || ''
+          }
         }));
       } catch (_) {
         /* Fallback silencioso */
@@ -35,7 +35,7 @@ export default function TopBar() {
           <span>📧 {data.email}</span>
           <span>📱 {data.phone}</span>
         </div>
-        
+
         <div className="right">
           {data.social?.instagram && (
             <a href={data.social.instagram} target="_blank" rel="noreferrer">Instagram</a>

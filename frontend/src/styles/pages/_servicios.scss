@@ -176,6 +176,7 @@
 .servicios .chip {
   display: inline-flex;
   align-items: center;
+  z-index: 2;
   justify-content: center;
   padding: 6px 10px;
   border-radius: 999px;
@@ -198,7 +199,6 @@
 }
 
 /* Badge "Destacado" */
-
 
 /* Acciones inferiores: precio izquierda, botones derecha */
 .servicios .actions {
@@ -223,7 +223,6 @@
   background: $color-white;
 }
 
-
 .servicios .price {
   font-family: $font-display;
   font-size: 16px;
@@ -246,11 +245,9 @@
   justify-content: center;
 }
 
-
 /* =========================================
    BOTONES (solo para la página de Servicios)
 ========================================= */
-
 
 /* Relleno (Contratar) */
 
@@ -270,7 +267,7 @@
   align-items: center;
   justify-content: center;
   padding: 32px 16px;
-  z-index: 40;
+  z-index: 200;
 }
 
 .servicios .modal-card {
@@ -284,12 +281,15 @@
   padding: 24px 24px 20px;
   overflow: auto;
   border: 1px solid $color-border;
+  display: flex;
+  flex-direction: column;
 }
 
+
 .servicios .close-modal {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+  position: sticky;
+  top: 12px;
+  align-self: flex-end;
   border: 1px solid rgba(234, 215, 206, 0.9);
   background: $color-brand-light;
   width: 32px;
@@ -301,6 +301,7 @@
   color: $color-text;
   display: inline-flex;
   align-items: center;
+  z-index: 2;
   justify-content: center;
 
   &:hover {
@@ -518,6 +519,7 @@
 .servicios .delete-btn {
   display: inline-flex;
   align-items: center;
+  z-index: 2;
   justify-content: center;
   height: $control-height;
   padding: 0 16px;
@@ -621,5 +623,135 @@
     width: 100%;
     justify-content: center;
     text-align: center;
+  }
+}
+
+
+/* =========================================================
+   MODALIDAD (CHECKBOXES) – FORMULARIO ADMIN
+   Nota: los labels globales suelen ir en columna; aquí forzamos fila
+========================================================= */
+
+.servicios .modalidades-fieldset {
+  margin: 0;
+  padding: $sp-3 $sp-4 $sp-4;
+  border: 1px solid $color-border;
+  border-radius: $radius;
+  background: $color-white;
+}
+
+.servicios .modalidades-fieldset legend {
+  padding: 0 $sp-2;
+  font-size: 12px;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.servicios .modalidades-options {
+  margin-top: $sp-2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: $sp-2;
+  align-items: center;
+}
+
+.servicios .modalidades-fieldset .modalidad-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: $sp-2;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(234, 215, 206, 0.9);
+  background: $color-bg;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.servicios .modalidad-option input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: $color-brand;
+}
+
+.servicios .modalidad-option:hover {
+  border-color: rgba(230, 138, 78, 0.35);
+  box-shadow: $shadow-soft;
+}
+
+.servicios .modalidad-option:has(input:checked) {
+  background: $color-brand-light;
+  border-color: rgba(230, 138, 78, 0.45);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .servicios .modalidades-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .servicios .modalidades-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* =========================================================
+   EDITOR ADMIN – BLOQUE DE IMAGEN (previsualización)
+========================================================= */
+
+.servicios .service-image-editor {
+  display: block;
+}
+
+.servicios .service-image-editor__body {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: $sp-3;
+  align-items: start;
+}
+
+.servicios .service-image-editor__preview {
+  width: 160px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: $radius;
+  border: 1px solid $color-border;
+  background: $color-bg;
+}
+
+.servicios .service-image-editor__placeholder {
+  width: 160px;
+  height: 120px;
+  border-radius: $radius;
+  border: 1px dashed rgba(234, 215, 206, 0.9);
+  background: $color-bg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: $color-text-light;
+}
+
+.servicios .service-image-editor__controls {
+  display: flex;
+  flex-direction: column;
+  gap: $sp-2;
+}
+
+@media (max-width: 650px) {
+  .servicios .service-image-editor__body {
+    grid-template-columns: 1fr;
+  }
+
+  .servicios .service-image-editor__preview,
+  .servicios .service-image-editor__placeholder {
+    width: 100%;
+    height: 160px;
   }
 }

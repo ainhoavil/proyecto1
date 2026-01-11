@@ -7,10 +7,7 @@ import { verifyToken } from "../middleware/auth.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-
-// ============================================================
 // Asegurar tabla files (BLOB en BD)
-// ============================================================
 async function ensureFilesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS files (
@@ -42,12 +39,9 @@ async function ensureFilesTable() {
 }
 
 await ensureFilesTable();
-
-// ============================================================
 // POST /api/upload-db
 // multipart/form-data con campo "file"
 // Devuelve { id, url, mime, size, name }
-// ============================================================
 router.post("/upload-db", verifyToken, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Falta file" });
@@ -111,10 +105,7 @@ router.post("/upload-db", verifyToken, upload.single("file"), async (req, res) =
     return res.status(500).json({ error: "Error interno" });
   }
 });
-
-// ============================================================
 // GET /api/files/:id
-// ============================================================
 router.get("/files/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -135,10 +126,7 @@ router.get("/files/:id", async (req, res) => {
     return res.status(500).send("Error interno");
   }
 });
-
-// ============================================================
 // DELETE /api/files/:id (solo dueño)
-// ============================================================
 router.delete("/files/:id", verifyToken, async (req, res) => {
   try {
     const id = req.params.id;

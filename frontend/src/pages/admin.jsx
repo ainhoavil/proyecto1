@@ -28,7 +28,6 @@ function isStrongPassword(pw) {
   return /\d/.test(s) && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(s);
 }
 
-
 /* ==================== UTILS ==================== */
 function formatEUR(value, currency = 'EUR') {
   if (value == null) return 'A consultar';
@@ -164,7 +163,7 @@ export default function Admin() {
 
 /* ==================== PESTAÑA USUARIOS ==================== */
 function UsersTab() {
-  const ui = useUi(); 
+  const ui = useUi();
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -446,7 +445,7 @@ function UsersTab() {
 
 /* ==================== PESTAÑA SERVICIOS ==================== */
 function ServiciosTab() {
-  const ui = useUi(); 
+  const ui = useUi();
   const [servicios, setServicios] = useState([]);
   const [nuevo, setNuevo] = useState({
     title: '',
@@ -662,7 +661,6 @@ function AdiestradoresTab() {
 
     return absUrl(url);
   };
-
 
   const safeRevokeObjectUrl = (maybeUrl) => {
     try {

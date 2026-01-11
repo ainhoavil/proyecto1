@@ -17,6 +17,8 @@ import {
   notifyReservationCenterConfirmed,
   notifyReservationUserConfirmed,
   notifyReservationRejected,
+  notifyReservationCreated,
+  notifyReservationCancelled,
 } from "../services/notifications.js";
 
 const router = express.Router();
@@ -418,7 +420,6 @@ router.get("/disponibilidad", async (req, res) => {
       slots.push(`${String(h).padStart(2, "0")}:00`);
     }
 
-
     slots = filterHourSlotsForFecha(String(fecha), slots);
 
     const index = await buildAvailabilityIndex({ fecha: String(fecha) });
@@ -685,6 +686,9 @@ router.post("/", verifyToken, async (req, res) => {
       });
     }
 
+    // Notificaciones por email (best-effort)
+    void notifyReservationCreated(id);
+
     const rows = await query(
       `SELECT id, uid, email, fecha, hora, duration_min AS durationMin,
               servicio_id AS servicioId, servicio_titulo AS servicioTitulo,
@@ -842,10 +846,8 @@ router.post("/admin", verifyToken, requireAdmin, async (req, res) => {
       );
     });
 
-    if (status === "pending_user") {
-      // Email al cliente: debe aceptar/rechazar la reserva creada por el centro
-      void notifyReservationCenterConfirmed(id, { note: adminNote || "" });
-    }
+    // Notificaciones por email (cliente +, si aplica, adiestrador)
+    void notifyReservationCreated(id);
 
     res.status(201).json({ ok: true, id, trainerId: trainerIdFinal });
   } catch (e) {
@@ -931,7 +933,6 @@ router.get(
   }
 );
 
-
 /* ===================== Agenda del adiestrador (compat) ===================== */
 // Alias: GET /api/reservas/trainer?fecha=YYYY-MM-DD
 router.get(
@@ -988,7 +989,6 @@ router.get(
     }
   }
 );
-
 
 /* ===================== Mis reservas (adiestrador) ✅ NUEVO ===================== */
 // GET /api/reservas/mias-trainer
@@ -1076,11 +1076,71 @@ router.get(["/mias", "/mis"], verifyToken, async (req, res) => {
 
     await autoExpireIfPast(rows);
 
+    // Hydratar info del adiestrador (para que el cliente vea con quién tiene la reserva)
+    const trainerIds = Array.from(
+      new Set(
+        (Array.isArray(rows) ? rows : [])
+          .map((r) => String(r?.trainerId || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    let trainerMap = new Map();
+    if (trainerIds.length) {
+      // Intentamos obtener nombre+email (si existe la tabla users con el campo nombre)
+      try {
+        const placeholders = trainerIds.map(() => "?").join(",");
+        const tRows = await query(
+          `SELECT u.id AS id,
+                  u.email AS email,
+                  COALESCE(us.nombre, '') AS nombre
+             FROM usuarios u
+             LEFT JOIN users us ON us.uid = u.id
+            WHERE u.id IN (${placeholders})`,
+          trainerIds
+        );
+
+        trainerMap = new Map(
+          (Array.isArray(tRows) ? tRows : []).map((t) => [
+            String(t?.id || ""),
+            {
+              email: String(t?.email || "").trim().toLowerCase(),
+              nombre: String(t?.nombre || "").trim(),
+            },
+          ])
+        );
+      } catch {
+        // Fallback: solo email desde usuarios
+        try {
+          const placeholders = trainerIds.map(() => "?").join(",");
+          const tRows = await query(
+            `SELECT id, email FROM usuarios WHERE id IN (${placeholders})`,
+            trainerIds
+          );
+
+          trainerMap = new Map(
+            (Array.isArray(tRows) ? tRows : []).map((t) => [
+              String(t?.id || ""),
+              { email: String(t?.email || "").trim().toLowerCase(), nombre: "" },
+            ])
+          );
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     res.json(
-      rows.map((r) => ({
-        ...r,
-        pricing: parseJSONSafe(r.pricing, null),
-      }))
+      (Array.isArray(rows) ? rows : []).map((r) => {
+        const tid = String(r?.trainerId || "").trim();
+        const t = tid ? trainerMap.get(tid) : null;
+        return {
+          ...r,
+          pricing: parseJSONSafe(r.pricing, null),
+          trainerEmail: t?.email || r?.trainerEmail || null,
+          trainerName: t?.nombre || r?.trainerName || null,
+        };
+      })
     );
   } catch (e) {
     console.error("GET /reservas/mias", e);
@@ -1140,8 +1200,6 @@ router.get(
 );
 
 /* ===================== NOTAS TIPO HILO ===================== */
-
-
 
 /* Notas de reserva: gestionadas en backend/routes/reservaNotes.js (router montado en /api/reservas) */
 
@@ -1395,7 +1453,10 @@ router.patch("/:id/user-reject", verifyToken, async (req, res) => {
       );
     }
 
-    res.json({ ok: true });
+    // Email: cancelación/rechazo por el usuario
+    void notifyReservationCancelled(id, { reason: reason || "rechazado por usuario", by: "user" });
+
+        res.json({ ok: true });
   } catch (e) {
     console.error("PATCH /reservas/:id/user-reject", e);
     res.status(500).json({ error: "No se pudo rechazar la reserva" });
@@ -1467,7 +1528,10 @@ router.patch("/:id/cancel", verifyToken, async (req, res) => {
       );
     }
 
-    res.json({ ok: true });
+    // Email: cancelación
+    void notifyReservationCancelled(id, { reason: reason || "", by: isAdmin ? "staff" : "user" });
+
+        res.json({ ok: true });
   } catch (e) {
     console.error("PATCH /reservas/:id/cancel", e);
     res.status(500).json({ error: "No se pudo cancelar" });
@@ -1661,6 +1725,10 @@ router.patch("/:id", verifyToken, async (req, res) => {
          WHERE id=?`,
         [adminNote || "", nowISO(), id]
       );
+
+      // Email: el centro solicita confirmación al cliente
+      void notifyReservationCenterConfirmed(id, { note: adminNote || "" });
+
       return res.json({ ok: true });
     }
 
@@ -1708,6 +1776,9 @@ router.patch("/:id", verifyToken, async (req, res) => {
           [adminNote || "", nowISO(), id]
         );
       }
+      // Email: reserva rechazada
+      void notifyReservationRejected(id, { note: adminNote || "" });
+
       return res.json({ ok: true });
     }
 
@@ -1765,6 +1836,9 @@ router.patch("/:id", verifyToken, async (req, res) => {
           [cancelReason || "", nowISO(), id]
         );
       }
+      // Email: reserva cancelada
+      void notifyReservationCancelled(id, { reason: cancelReason || "", by: isStaff ? "staff" : "user" });
+
       return res.json({ ok: true });
     }
 

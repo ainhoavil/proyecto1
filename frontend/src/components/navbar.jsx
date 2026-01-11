@@ -26,7 +26,14 @@ export default function Navbar() {
         <div className="navbar__left">
           <Link to="/" className="navbar__logo" onClick={closeMenu}>
             <span className="navbar__logo-circle">
-              <span className="paw">🐾</span>
+              <img
+                className="navbar__logo-img"
+                src="/img/dogform.png"
+                alt="Dogform"
+                width={22}
+                height={22}
+                decoding="async"
+              />
             </span>
             <span className="navbar__logo-text">Dogform</span>
           </Link>
@@ -64,7 +71,8 @@ export default function Navbar() {
                 </Link>
               </li>
             )}
-            {!esAdmin && (
+            {/* Contacto solo para usuarios/visitantes (no admin, no adiestrador) */}
+            {!esAdmin && !esTrainer && (
               <li>
                 <Link to="/contacto" onClick={closeMenu}>
                   Contacto
@@ -179,7 +187,7 @@ export default function Navbar() {
               </Link>
             </li>
           )}
-          {!esAdmin && (
+          {!esAdmin && !esTrainer && (
             <li>
               <Link to="/contacto" onClick={closeMenu}>
                 Contacto

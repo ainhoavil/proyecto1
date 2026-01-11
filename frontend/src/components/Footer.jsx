@@ -20,7 +20,15 @@ export default function Footer() {
         {/* BRAND + TEXTO */}
         <div className="df-footer__brand-row">
           <div className="df-footer__logo">
-            <span className="df-footer__logo-icon">🐾</span>
+            <img
+              className="df-footer__logo-img"
+              src="/img/dogform.png"
+              alt="Dogform"
+              width={20}
+              height={20}
+              decoding="async"
+              loading="lazy"
+            />
           </div>
 
           <div className="df-footer__brand-text">

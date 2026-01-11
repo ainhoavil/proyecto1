@@ -53,7 +53,6 @@ async function ensureTrainerProfilesSchema() {
   return _trainerProfilesSchemaPromise;
 }
 
-
 /* ===================== users fallback (safe joins) ===================== */
 
 const _colsCache = new Map();
@@ -130,7 +129,6 @@ async function getTrainerExprConfig() {
     photoExpr: `COALESCE(${photoParts.join(", ")})`,
   };
 }
-
 
 /* ============================================================
    Helpers disponibilidad (bloqueos/reservas) por adiestrador
