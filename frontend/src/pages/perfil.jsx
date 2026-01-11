@@ -676,7 +676,6 @@ if (roleFromProfile) {
       <div className="perfil-container">
         {/* Cabecera */}
         <header className="perfil-header">
-          <div className="perfil-eyebrow">SESIÓN INICIADA</div>
           <h1 className="perfil-title">Mi perfil</h1>
           {isAdmin ? (
             <p className="perfil-lead">

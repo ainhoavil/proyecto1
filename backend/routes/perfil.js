@@ -22,6 +22,87 @@ function auth(req, res, next) {
 // Convierte undefined -> NULL para que COALESCE conserve valor anterior
 const u2n = (v) => (v === undefined ? null : v);
 
+// ===== trainer_profiles sync (solo foto) =====
+let _tpReady = false;
+let _tpPromise = null;
+
+async function ensureTrainerProfilesSchema() {
+  if (_tpReady) return;
+  if (_tpPromise) return _tpPromise;
+
+  _tpPromise = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS trainer_profiles (
+        trainer_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        bio TEXT,
+        photo_url TEXT,
+        experience_years INTEGER,
+        specialties TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    `);
+
+    try {
+      const cols = await query("PRAGMA table_info(trainer_profiles)");
+      const names = new Set((cols || []).map((c) => c.name));
+
+      const addCol = async (name, type) => {
+        if (names.has(name)) return;
+        await query(`ALTER TABLE trainer_profiles ADD COLUMN ${name} ${type}`);
+        names.add(name);
+      };
+
+      await addCol("photo_url", "TEXT");
+      await addCol("updated_at", "TEXT");
+      await addCol("created_at", "TEXT");
+    } catch {
+      // best-effort
+    }
+
+    _tpReady = true;
+  })().finally(() => {
+    if (!_tpReady) _tpPromise = null;
+  });
+
+  return _tpPromise;
+}
+
+async function upsertTrainerPhoto(trainerId, photoUrl) {
+  try {
+    await ensureTrainerProfilesSchema();
+    const tid = String(trainerId || "").trim();
+    if (!tid) return;
+
+    const exists = await query(
+      `SELECT 1 FROM trainer_profiles WHERE trainer_id = ? LIMIT 1`,
+      [tid]
+    );
+
+    const val = String(photoUrl ?? "").trim();
+
+    if (exists.length) {
+      await query(
+        `UPDATE trainer_profiles
+            SET photo_url = ?,
+                updated_at = datetime('now')
+          WHERE trainer_id = ?`,
+        [val, tid]
+      );
+    } else {
+      await query(
+        `INSERT INTO trainer_profiles (trainer_id, photo_url, created_at, updated_at)
+         VALUES (?, ?, datetime('now'), datetime('now'))`,
+        [tid, val]
+      );
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+
 /* -------------------- GET /api/perfil -------------------- */
 /** Devuelve el perfil del usuario autenticado.
  *  Respuesta: { email, profile: { ... , foto, avatarURL, ... } }
@@ -130,6 +211,18 @@ router.patch("/", auth, async (req, res) => {
         req.user.sub,
       ]
     );
+
+
+    // Si el usuario es adiestrador y se ha modificado la foto, la reflejamos también
+    // en trainer_profiles para que admin/perfil público vean lo mismo.
+    const roleLower = String(req.user?.rol || req.user?.role || "")
+      .toLowerCase()
+      .trim();
+    const isTrainer = roleLower === "adiestrador" || roleLower === "trainer";
+
+    if (isTrainer && (avatarURL !== undefined || foto !== undefined)) {
+      await upsertTrainerPhoto(req.user?.sub, photoVal);
+    }
 
     // Devolver perfil actualizado
     const rows = await query(
