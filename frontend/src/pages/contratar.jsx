@@ -29,13 +29,14 @@ function addMinutes(hhmm, mins) {
   const mm = String(total % 60).padStart(2, '0');
   return `${hh}:${mm}`;
 }
-const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 
+const getTrainerId = (t) => String(t?.uid ?? t?.id ?? '').trim();
 const getDogId = (p) => String(p?.id ?? p?.uid ?? p?._id ?? '').trim();
+
 const DISPLAY_HOURS = { start: 9, end: 20, skip: new Set([14, 15]) };
 
 function dayOfWeekFromYMD(ymdStr) {
-  const s = String(ymdStr || "").trim();
+  const s = String(ymdStr || '').trim();
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   const y = Number(m[1]);
@@ -218,6 +219,99 @@ export default function Contratar() {
 
   const canLoadTrainers = !!servicioIdResolved && !!modalidad && authReady;
 
+  // ======= FIX PEDIDO: UN ADIESTRADOR NO PUEDE ELEGIRSE A SÍ MISMO =======
+  const isTrainerRole = useMemo(() => {
+    const r = String(user?.rol || '').toLowerCase();
+    return r === 'adiestrador' || r === 'trainer';
+  }, [user]);
+
+  const myEmail = useMemo(() => String(user?.email || '').trim().toLowerCase(), [user]);
+
+  const myPossibleIds = useMemo(() => {
+    const ids = [
+      user?.uid,
+      user?.id,
+      user?.userId,
+      user?._id,
+      user?.profile?.id,
+      user?.profile?.uid
+    ]
+      .map((x) => String(x || '').trim())
+      .filter(Boolean);
+    return new Set(ids);
+  }, [user]);
+
+  const myPossibleNames = useMemo(() => {
+    const names = [
+      user?.nombre,
+      user?.name,
+      user?.displayName,
+      user?.profile?.nombre,
+      user?.profile?.name
+    ]
+      .map((x) => String(x || '').trim().toLowerCase())
+      .filter(Boolean);
+    return new Set(names);
+  }, [user]);
+
+  const getTrainerEmail = (t) => String(t?.email || '').trim().toLowerCase();
+  const getTrainerName = (t) => String(t?.displayName || t?.nombre || '').trim().toLowerCase();
+  const getTrainerIdAny = (t) => String(t?.uid ?? t?.id ?? t?.userId ?? t?._id ?? '').trim();
+
+  const isSelfTrainer = (tOrChoiceId) => {
+    if (!isTrainerRole) return false;
+
+    // Si viene un id (trainerChoice)
+    if (typeof tOrChoiceId === 'string') {
+      const choiceId = String(tOrChoiceId || '').trim();
+      if (choiceId && myPossibleIds.has(choiceId)) return true;
+      return false;
+    }
+
+    const t = tOrChoiceId || {};
+    const tid = getTrainerIdAny(t);
+    const temail = getTrainerEmail(t);
+    const tname = getTrainerName(t);
+
+    if (tid && myPossibleIds.has(tid)) return true;
+    if (myEmail && temail && temail === myEmail) return true;
+    if (tname && myPossibleNames.has(tname)) return true;
+
+    return false;
+  };
+
+  const trainersForSelect = useMemo(() => {
+    const base = Array.isArray(trainers) ? trainers : [];
+    if (!isTrainerRole) return base;
+    return base.filter((t) => !isSelfTrainer(t));
+  }, [trainers, isTrainerRole]); // isSelfTrainer usa closures del user
+
+  useEffect(() => {
+    if (!isTrainerRole) return;
+
+    if (trainerChoice !== 'any') {
+      // 1) bloqueo por id directo
+      if (myPossibleIds.has(String(trainerChoice || '').trim())) {
+        setTrainerChoice('any');
+        setTrainerHint('Se ha cambiado a “Cualquiera disponible” porque no puedes reservar contigo mismo.');
+        return;
+      }
+
+      // 2) bloqueo por email/nombre si podemos resolver el objeto
+      const chosenObj =
+        (Array.isArray(trainers) ? trainers : []).find(
+          (t) => getTrainerIdAny(t) === String(trainerChoice || '').trim()
+        ) || null;
+
+      if (chosenObj && isSelfTrainer(chosenObj)) {
+        setTrainerChoice('any');
+        setTrainerHint('Se ha cambiado a “Cualquiera disponible” porque no puedes reservar contigo mismo.');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTrainerRole, trainerChoice, trainers, myEmail]);
+  // ======= FIN FIX =======
+
   const loadEligibleTrainers = async () => {
     if (!canLoadTrainers) return;
 
@@ -235,13 +329,14 @@ export default function Contratar() {
       const arr = Array.isArray(data) ? data : data?.items || [];
       setTrainers(arr);
 
+      // Validación del trainerChoice actual (respetando el "no reservar conmigo mismo")
+      const arrForCheck = isTrainerRole ? arr.filter((t) => !isSelfTrainer(t)) : arr;
+
       if (trainerChoice !== 'any') {
-        const ok = arr.some((t) => getTrainerId(t) === String(trainerChoice));
+        const ok = arrForCheck.some((t) => getTrainerId(t) === String(trainerChoice));
         if (!ok) {
           setTrainerChoice('any');
-          setTrainerHint(
-            'El adiestrador seleccionado no está disponible para este servicio/modalidad. Se ha cambiado a “Cualquiera disponible”.'
-          );
+          setTrainerHint('El adiestrador seleccionado no está disponible para este servicio/modalidad. Se ha cambiado a “Cualquiera disponible”.');
         }
       }
     } catch (e) {
@@ -261,17 +356,17 @@ export default function Contratar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canLoadTrainers, servicioIdResolved, modalidad]);
 
-  const hasAnyEligibleTrainer = useMemo(() => trainers.length > 0, [trainers]);
+  const hasAnyEligibleTrainer = useMemo(() => trainersForSelect.length > 0, [trainersForSelect]);
 
   const selectedTrainerInList = useMemo(() => {
     if (trainerChoice === 'any') return true;
-    return trainers.some((t) => getTrainerId(t) === String(trainerChoice));
-  }, [trainers, trainerChoice]);
+    return trainersForSelect.some((t) => getTrainerId(t) === String(trainerChoice));
+  }, [trainersForSelect, trainerChoice]);
 
   const selectedTrainer = useMemo(() => {
     if (trainerChoice === 'any') return null;
-    return trainers.find((t) => getTrainerId(t) === String(trainerChoice)) || null;
-  }, [trainers, trainerChoice]);
+    return trainersForSelect.find((t) => getTrainerId(t) === String(trainerChoice)) || null;
+  }, [trainersForSelect, trainerChoice]);
 
   /* =====================================================
         CALENDARIO + DISPONIBILIDAD
@@ -330,9 +425,7 @@ export default function Contratar() {
 
         if (hora && !libresOrdered.includes(hora)) {
           setHora('');
-          setAvailabilityHint(
-            '⚠️ El adiestrador seleccionado no está disponible en la hora elegida. Elige otra hora u otro adiestrador.'
-          );
+          setAvailabilityHint('⚠️ El adiestrador seleccionado no está disponible en la hora elegida. Elige otra hora u otro adiestrador.');
         } else if (day && libresOrdered.length === 0) {
           setAvailabilityHint('⚠️ No hay horas disponibles para este adiestrador en la fecha seleccionada.');
         }
@@ -342,7 +435,7 @@ export default function Contratar() {
 
       // === CUALQUIERA (ANY) ===
       // Regla: un slot es "libre" si al menos 1 adiestrador lo tiene libre.
-      const eligible = Array.isArray(trainers) ? trainers : [];
+      const eligible = Array.isArray(trainersForSelect) ? trainersForSelect : [];
       const ids = eligible.map(getTrainerId).filter(Boolean);
 
       if (!ids.length) {
@@ -376,9 +469,7 @@ export default function Contratar() {
 
       if (hora && !union.has(hora)) {
         setHora('');
-        setAvailabilityHint(
-          '⚠️ La hora seleccionada ya no está disponible para ningún adiestrador. Elige otra hora u otro adiestrador.'
-        );
+        setAvailabilityHint('⚠️ La hora seleccionada ya no está disponible para ningún adiestrador. Elige otra hora u otro adiestrador.');
       } else if (libresUnion.length === 0) {
         setAvailabilityHint('⚠️ No hay horas disponibles en esa fecha para ningún adiestrador.');
       } else if (okCount < ids.length) {
@@ -398,7 +489,7 @@ export default function Contratar() {
   useEffect(() => {
     if (fecha) cargarDisponibilidad(fecha);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fecha, durationMin, trainerChoice, trainers]);
+  }, [fecha, durationMin, trainerChoice, trainersForSelect]);
 
   const isSlotBusy = (t) => {
     if (loadingAvailability) return true;
@@ -534,8 +625,6 @@ export default function Contratar() {
         observaciones: ''
       });
 
-      // si había un perro "no guardado" de esta reserva, lo mantenemos (no lo tocamos)
-
       const name = String(createdItem?.nombre || '').trim();
       setDogMsg(name ? `✅ ${name} añadido a tu perfil.` : '✅ Perro añadido a tu perfil.');
       return createdItem;
@@ -578,16 +667,19 @@ export default function Contratar() {
       observaciones: String(p?.notas || p?.observaciones || '').trim()
     }));
 
-    const extra = perroNoGuardado && String(perroNoGuardado?.nombre || '').trim()
-      ? [{
-          id: '',
-          nombre: String(perroNoGuardado.nombre || '').trim(),
-          razaTamaño: String(perroNoGuardado.razaTamaño || '').trim(),
-          nacimiento: String(perroNoGuardado.nacimiento || '').trim(),
-          castrado: !!perroNoGuardado.castrado,
-          observaciones: String(perroNoGuardado.observaciones || '').trim()
-        }]
-      : [];
+    const extra =
+      perroNoGuardado && String(perroNoGuardado?.nombre || '').trim()
+        ? [
+            {
+              id: '',
+              nombre: String(perroNoGuardado.nombre || '').trim(),
+              razaTamaño: String(perroNoGuardado.razaTamaño || '').trim(),
+              nacimiento: String(perroNoGuardado.nacimiento || '').trim(),
+              castrado: !!perroNoGuardado.castrado,
+              observaciones: String(perroNoGuardado.observaciones || '').trim()
+            }
+          ]
+        : [];
 
     // dedupe por (id) cuando exista
     const seen = new Set();
@@ -660,6 +752,25 @@ export default function Contratar() {
 
     if (!hasAnyEligibleTrainer) {
       return setMsg('❌ No hay adiestradores disponibles para este servicio y modalidad.');
+    }
+
+    // Bloqueo extra: un adiestrador no puede reservarse a sí mismo (por si manipulan el DOM)
+    if (isTrainerRole && trainerChoice !== 'any') {
+      const chosenObj =
+        (Array.isArray(trainers) ? trainers : []).find(
+          (t) => getTrainerIdAny(t) === String(trainerChoice || '').trim()
+        ) || null;
+
+      if (chosenObj && isSelfTrainer(chosenObj)) {
+        setMsg('❌ No puedes reservar contigo mismo. Elige “Cualquiera disponible” u otro adiestrador.');
+        return;
+      }
+
+      // Si no encontramos objeto pero el id coincide con mis ids, también fuera
+      if (myPossibleIds.has(String(trainerChoice || '').trim())) {
+        setMsg('❌ No puedes reservar contigo mismo. Elige “Cualquiera disponible” u otro adiestrador.');
+        return;
+      }
     }
 
     setGuardando(true);
@@ -1049,9 +1160,7 @@ export default function Contratar() {
 
           {showNewDogForm && (
             <>
-              <p style={{ marginTop: 10 }}>
-                Puedes guardar el perro en tu perfil y seleccionarlo junto con otros, o continuar sin guardarlo.
-              </p>
+              <p style={{ marginTop: 10 }}>Puedes guardar el perro en tu perfil y seleccionarlo junto con otros, o continuar sin guardarlo.</p>
 
               <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' }}>
                 <label>
@@ -1164,7 +1273,8 @@ export default function Contratar() {
               >
                 <option value="any">Cualquiera disponible</option>
                 {trainerChoice !== 'any' && !selectedTrainerInList && <option value={trainerChoice}>Adiestrador seleccionado</option>}
-                {trainers.map((t) => {
+
+                {trainersForSelect.map((t) => {
                   const tid = getTrainerId(t);
                   const label = t.displayName || t.nombre || t.email || tid;
                   return (
@@ -1178,7 +1288,7 @@ export default function Contratar() {
               {loadingTrainers && <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>Cargando adiestradores…</div>}
               {trainersErr && <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>{trainersErr}</div>}
               {!trainersErr && trainerHint && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{trainerHint}</div>}
-              {canLoadTrainers && !loadingTrainers && !trainersErr && trainers.length === 0 && (
+              {canLoadTrainers && !loadingTrainers && !trainersErr && trainersForSelect.length === 0 && (
                 <div style={{ fontSize: 12, color: 'crimson', marginTop: 4 }}>No hay adiestradores disponibles para este servicio/modalidad.</div>
               )}
             </label>
@@ -1209,7 +1319,11 @@ export default function Contratar() {
 
           <div className="actions">
             <button onClick={atras}>Atrás</button>
-            <button className="btn-primary" disabled={!fecha || !hora || !telefonoValido || !direccionValida || !hasAnyEligibleTrainer || loadingAvailability} onClick={() => setStep(4)}>
+            <button
+              className="btn-primary"
+              disabled={!fecha || !hora || !telefonoValido || !direccionValida || !hasAnyEligibleTrainer || loadingAvailability}
+              onClick={() => setStep(4)}
+            >
               Continuar
             </button>
           </div>

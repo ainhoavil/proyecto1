@@ -131,6 +131,46 @@ async function getTrainerExprConfig() {
 }
 
 /* ============================================================
+   Helpers: excluir "yo mismo" de listados de trainers
+   (robusto por id y por email)
+============================================================ */
+function isTrainerRoleFromReq(req) {
+  const r = String(req.user?.rol || req.user?.role || "").toLowerCase();
+  return r === "adiestrador" || r === "trainer";
+}
+
+function getMeId(req) {
+  return String(req.user?.uid ?? req.user?.id ?? req.user?._id ?? "").trim();
+}
+
+function getMeEmail(req) {
+  return String(req.user?.email ?? "").trim().toLowerCase();
+}
+
+function filterOutSelfTrainer(rows, req) {
+  const arr = Array.isArray(rows) ? rows : [];
+  if (!arr.length) return arr;
+
+  if (!isTrainerRoleFromReq(req)) return arr;
+
+  const meId = getMeId(req);
+  const meEmail = getMeEmail(req);
+
+  // Si no tenemos nada para comparar, no filtramos (pero normalmente email está)
+  if (!meId && !meEmail) return arr;
+
+  return arr.filter((t) => {
+    const tid = String(t?.uid ?? t?.id ?? "").trim();
+    const temail = String(t?.email ?? "").trim().toLowerCase();
+
+    if (meId && tid && tid === meId) return false;
+    if (meEmail && temail && temail === meEmail) return false;
+
+    return true;
+  });
+}
+
+/* ============================================================
    Helpers disponibilidad (bloqueos/reservas) por adiestrador
 ============================================================ */
 let _bloqueosHasTrainerId = null;
@@ -216,7 +256,8 @@ router.get(
           ORDER BY displayName ASC, au.email ASC
           `
         );
-        return rows;
+        // ✅ EXCLUIRME SI SOY ADIESTRADOR
+        return filterOutSelfTrainer(rows, req);
       };
 
       // SIN FILTROS → TODOS
@@ -257,8 +298,11 @@ router.get(
         rows = [];
       }
 
+      // ✅ EXCLUIRME SI SOY ADIESTRADOR (también aquí)
+      rows = filterOutSelfTrainer(rows, req);
+
       if (!rows || rows.length === 0) {
-        const fallback = await getAll();
+        const fallback = await getAll(); // ya filtra
         return res.json(fallback);
       }
 
@@ -448,25 +492,25 @@ router.get(
         // Bloqueos por hora (global o por trainer)
         if (!blocked) {
           for (const b of bloqueos || []) {
-          if (hasAllDayCol && Number(b?.allDay || 0) === 1) continue;
-          const bh = String(b?.hora || '').trim();
-          if (!bh) continue;
-          if (hasTrainerCol) {
-            const bt = String(b?.trainerId || '').trim();
-            const isGlobal = !bt;
-            if (isGlobal || bt === tid) {
+            if (hasAllDayCol && Number(b?.allDay || 0) === 1) continue;
+            const bh = String(b?.hora || '').trim();
+            if (!bh) continue;
+            if (hasTrainerCol) {
+              const bt = String(b?.trainerId || '').trim();
+              const isGlobal = !bt;
+              if (isGlobal || bt === tid) {
+                if (overlaps(h, dur, bh, 60)) {
+                  blocked = true;
+                  break;
+                }
+              }
+            } else {
               if (overlaps(h, dur, bh, 60)) {
                 blocked = true;
                 break;
               }
             }
-          } else {
-            if (overlaps(h, dur, bh, 60)) {
-              blocked = true;
-              break;
-            }
           }
-        }
         }
         if (blocked) continue;
 
