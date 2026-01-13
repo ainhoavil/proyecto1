@@ -13,8 +13,6 @@ import reservaNotesRoutes from "./routes/reservaNotes.js";
 import contactoRoutes from "./routes/contacto.js";
 import settingsRoutes from "./routes/settings.js";
 import serviciosRoutes from "./routes/servicios.js";
-import paquetesRoutes from "./routes/paquetes.js";
-import cuestionariosRoutes from "./routes/cuestionarios.js";
 import perfilRoutes from "./routes/perfil.js";
 import perrosRoutes from "./routes/perros.js";
 import filesRoutes from "./routes/files.js";
@@ -89,8 +87,6 @@ app.use("/api/reservas", reservaNotesRoutes);
 app.use("/api/contacto", contactoRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/servicios", serviciosRoutes);
-app.use("/api/paquetes", paquetesRoutes);
-app.use("/api/cuestionarios", cuestionariosRoutes);
 app.use("/api/perfil", perfilRoutes);
 app.use("/api/perros", perrosRoutes);
 

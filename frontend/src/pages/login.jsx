@@ -8,7 +8,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [recordar, setRecordar] = useState(false); // solo visual, por ahora
+  const [recordar, setRecordar] = useState(false); // si no marcas, la sesión se guarda solo en esta pestaña/sesión
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -331,8 +331,7 @@ export default function Login() {
                 <span className="access-benefits__icon">②</span>
                 <div>
                   <p>
-                    Consulta el historial de servicios, pagos y notas del
-                    educador canino sobre la evolución de tu perro.
+                    Consulta el historial de servicios,.
                   </p>
                 </div>
               </li>
@@ -351,7 +350,7 @@ export default function Login() {
             <p className="access-help">
               Si tienes cualquier problema para acceder, también puedes
               escribirnos a{" "}
-              <a href="mailto:hola@dogform.es">hola@dogform.es</a> o por WhatsApp
+              <a href="mailto:hola@dogform.es">dogformtraining@gmail.com</a> o por WhatsApp
               al <a href="tel:+34600123456">+34 600 123 456</a>.
             </p>
           </aside>

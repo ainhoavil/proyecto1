@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";
 import { useUi } from "../context/ui";
-import { isLogged } from "../helpers/auth";
+import { isLogged, getToken } from "../helpers/auth";
 
 // API base para construir URLs de archivos (no usa fetch helper)
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
@@ -164,14 +164,14 @@ export default function ChatPage() {
   const [emojiOpen, setEmojiOpen] = useState(false);
 
   const myUserId = useMemo(() => {
-    const token = localStorage.getItem("token");
+    const token = getToken();
     if (!token) return "";
     const payload = decodeJwtPayload(token);
     return String(payload?.id || payload?.uid || payload?.sub || "");
   }, []);
 
   const myName = useMemo(() => {
-    const token = localStorage.getItem("token");
+    const token = getToken();
     if (!token) return "";
     const payload = decodeJwtPayload(token);
     return String(
@@ -185,7 +185,7 @@ export default function ChatPage() {
   }, []);
 
   const myAvatar = useMemo(() => {
-    const token = localStorage.getItem("token");
+    const token = getToken();
     if (!token) return "";
     const payload = decodeJwtPayload(token);
     return String(

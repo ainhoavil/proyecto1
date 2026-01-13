@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
+import { getToken } from "../helpers/auth";
 import { useAuth } from "../context/auth";
 import { useUi } from "../context/ui";
 
@@ -399,7 +400,7 @@ if (roleFromProfile) {
     const form = new FormData();
     form.append("file", file);
 
-    const token = localStorage.getItem("token");
+    const token = getToken();
 
     const res = await fetch(`${API_BASE}/api/upload-db`, {
       method: "POST",

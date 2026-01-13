@@ -12,15 +12,21 @@ function normalizeRole(raw) {
    TOKEN
 ====================================================== */
 export function getToken() {
-  return localStorage.getItem("token") || null;
+  return (
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token") ||
+    null
+  );
 }
 
 export function setToken(token) {
+  // Mantiene compatibilidad (persistente) para usos antiguos.
   if (token) localStorage.setItem("token", token);
 }
 
 export function clearToken() {
   localStorage.removeItem("token");
+  sessionStorage.removeItem("token");
 }
 
 /* ======================================================

@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
-import { isLogged } from "../helpers/auth";
+import { isLogged, getToken } from "../helpers/auth";
 import { useUi } from "../context/ui";
 
 // API base para construir URLs de avatar si vienen como ruta relativa
@@ -182,7 +182,7 @@ export default function ChatsPage() {
   // ✅ sacamos TODOS los posibles IDs del token para comparar (id/uid/sub)
   const myIds = useMemo(() => {
     try {
-      const token = localStorage.getItem("token");
+      const token = getToken();
       if (!token) return [];
       const payload = JSON.parse(atob(token.split(".")[1] || ""));
       const vals = [

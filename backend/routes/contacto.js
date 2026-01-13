@@ -93,7 +93,20 @@ router.post("/", async (req, res) => {
         .json({ error: "Teléfono inválido (España: 9 dígitos)" });
     }
 
-    const nowIso = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const tz = String(process.env.APP_TZ || process.env.TZ || "Europe/Madrid");
+    const nowHuman = now
+      .toLocaleString("es-ES", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
+      .replace(",", "");
 
     // (Opcional) Rate limit + guardado en BD si existe tabla "mensajes"
     try {
@@ -156,7 +169,7 @@ router.post("/", async (req, res) => {
       `Email: ${emailNorm}`,
       phoneNorm ? `Teléfono: ${phoneNorm}` : null,
       tipoServicio ? `Tipo de servicio: ${tipoServicio}` : null,
-      `Fecha: ${nowIso}`,
+      `Fecha: ${nowHuman}`,
     ].filter(Boolean);
 
     const text = `${linesTxt.join("\n")}\n\nMensaje:\n${mensaje}\n`;
@@ -180,7 +193,7 @@ router.post("/", async (req, res) => {
         `Email: ${emailNorm}`,
         phoneNorm ? `Teléfono: ${phoneNorm}` : "",
         tipoServicio ? `Tipo de servicio: ${tipoServicio}` : "",
-        `Fecha: ${nowIso}`,
+        `Fecha: ${nowHuman}`,
       ].filter(Boolean),
       contentHtml,
       footer: "DogForm · Formulario de contacto",
