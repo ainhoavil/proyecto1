@@ -13,6 +13,11 @@
 // ✅ Soporta distintos nombres de columnas en la tabla reservas
 // ✅ Detecta tabla usuarios/users para nombres/fotos sin romper
 // ✅ Detecta columna owner en files (owner_uid / owner_id / user_id / uid)
+//
+// NUEVO (FIX DEL CASO "BORRÉ Y QUIERO REABRIR VACÍO"):
+// ✅ “Borrar chat” = limpiar historial para mí (sin eliminar conversación)
+// ✅ Si lo reabro desde reserva, se abre vacío (no muestra mensajes anteriores)
+// ✅ Se implementa con cleared_by_trainer_at / cleared_by_client_at como “corte” por usuario
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "../db.js";
@@ -26,37 +31,18 @@ const nowISO = () => new Date().toISOString();
 const getUserId = (req) => String(req.user?.id || req.user?.uid || "");
 
 // 👇 Tu rol puede venir como rol o role.
-const getUserRole = (req) =>
-  String(req.user?.rol || req.user?.role || "").toLowerCase();
+const getUserRole = (req) => String(req.user?.rol || req.user?.role || "").toLowerCase();
+
 // CONFIG
 const CHAT_ALLOWED_STATUSES = new Set(["confirmed", "pending", "pending_user"]);
 
 function canonStatus(raw) {
   const s = String(raw || "").toLowerCase().trim();
   if (!s) return "";
-  if (
-    [
-      "confirmed",
-      "confirmada",
-      "confirmado",
-      "aceptada",
-      "aceptado",
-      "pagada",
-      "pagado",
-      "paid",
-    ].includes(s)
-  )
+  if (["confirmed", "confirmada", "confirmado", "aceptada", "aceptado", "pagada", "pagado", "paid"].includes(s))
     return "confirmed";
   if (["pending", "pendiente"].includes(s)) return "pending";
-  if (
-    [
-      "pending_user",
-      "pending-user",
-      "pendiente_cliente",
-      "pendiente-cliente",
-    ].includes(s)
-  )
-    return "pending_user";
+  if (["pending_user", "pending-user", "pendiente_cliente", "pendiente-cliente"].includes(s)) return "pending_user";
   if (["cancelled", "cancelada", "cancelado"].includes(s)) return "cancelled";
   if (["rejected", "rechazada", "rechazado"].includes(s)) return "rejected";
   return s;
@@ -90,6 +76,7 @@ function normalizeAttachments(input) {
   }
   return out;
 }
+
 // IDENT / COLUMN HELPERS
 function qIdent(name) {
   const s = String(name || "").trim();
@@ -104,6 +91,7 @@ function pickCol(colMap, candidates) {
   }
   return null;
 }
+
 // USERS TABLE DETECTION (usuarios / users) + column map
 let usersMetaPromise = null;
 
@@ -122,13 +110,7 @@ async function getUsersMeta() {
 
       const table = String(t?.[0]?.name || "").trim();
       if (!table) {
-        return {
-          table: null,
-          idCols: [],
-          nameCol: null,
-          emailCol: null,
-          photoCol: null,
-        };
+        return { table: null, idCols: [], nameCol: null, emailCol: null, photoCol: null };
       }
 
       const cols = await query(`PRAGMA table_info(${table})`);
@@ -143,14 +125,7 @@ async function getUsersMeta() {
       const id2 = pickCol(map, ["id"]);
       const idCols = [id1, id2].filter(Boolean);
 
-      const nameCol = pickCol(map, [
-        "nombre",
-        "name",
-        "full_name",
-        "fullname",
-        "username",
-        "user_name",
-      ]);
+      const nameCol = pickCol(map, ["nombre", "name", "full_name", "fullname", "username", "user_name"]);
       const emailCol = pickCol(map, ["email", "mail", "correo"]);
       const photoCol = pickCol(map, [
         "foto",
@@ -174,14 +149,10 @@ async function getUsersMeta() {
 }
 
 function buildUserJoinOnAlias(aliasName, usersMeta) {
-  // aliasName: e.g. "c.otherId" (sin placeholders)
   const table = usersMeta?.table;
   const idCols = Array.isArray(usersMeta?.idCols) ? usersMeta.idCols : [];
   if (!table || idCols.length === 0) {
-    return {
-      joinSql: "",
-      selectSql: `'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl`,
-    };
+    return { joinSql: "", selectSql: `'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl` };
   }
 
   const onParts = [];
@@ -190,10 +161,7 @@ function buildUserJoinOnAlias(aliasName, usersMeta) {
     if (qc) onParts.push(`u.${qc} = ${aliasName}`);
   }
   if (!onParts.length) {
-    return {
-      joinSql: "",
-      selectSql: `'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl`,
-    };
+    return { joinSql: "", selectSql: `'' AS otherName, '' AS otherEmail, '' AS otherPhotoUrl` };
   }
 
   const nameQ = qIdent(usersMeta.nameCol);
@@ -254,6 +222,7 @@ function buildSenderJoin(usersMeta) {
     senderSelectSql: `${senderName} AS senderName, ${senderPhoto} AS senderPhotoUrl`,
   };
 }
+
 // SCHEMA (auto-create / auto-migrate)
 let schemaPromise = null;
 let conversationsIdIsInteger = false;
@@ -274,7 +243,9 @@ async function ensureChatSchema() {
         last_message_at TEXT,
         last_message_preview TEXT,
         deleted_by_trainer_at TEXT,
-        deleted_by_client_at TEXT
+        deleted_by_client_at TEXT,
+        cleared_by_trainer_at TEXT,
+        cleared_by_client_at TEXT
       )
     `);
 
@@ -295,11 +266,7 @@ async function ensureChatSchema() {
 
     const convIdCol = convCols.find((c) => String(c.name || "").toLowerCase() === "id");
     const convIdType = String(convIdCol?.type || "").toLowerCase();
-    conversationsIdIsInteger = !!(
-      convIdCol &&
-      Number(convIdCol.pk) === 1 &&
-      convIdType.includes("int")
-    );
+    conversationsIdIsInteger = !!(convIdCol && Number(convIdCol.pk) === 1 && convIdType.includes("int"));
 
     const addConvCol = async (name, typeSql = "TEXT") => {
       if (convNames.has(name)) return;
@@ -320,6 +287,10 @@ async function ensureChatSchema() {
     await addConvCol("last_message_preview");
     await addConvCol("deleted_by_trainer_at");
     await addConvCol("deleted_by_client_at");
+
+    // ✅ nuevo: corte por usuario (para reabrir vacío)
+    await addConvCol("cleared_by_trainer_at");
+    await addConvCol("cleared_by_client_at");
 
     const msgCols = await query(`PRAGMA table_info(messages)`);
     const msgNames = new Set(msgCols.map((c) => String(c.name || "").toLowerCase()));
@@ -402,14 +373,11 @@ async function ensureChatReadSchema() {
       )
     `);
 
-    // Índices útiles (best-effort)
     try {
       await query(`CREATE INDEX IF NOT EXISTS idx_conv_reads_user ON conversation_reads("user_id")`);
     } catch {}
     try {
-      await query(
-        `CREATE INDEX IF NOT EXISTS idx_conv_reads_conv ON conversation_reads("conversation_id")`
-      );
+      await query(`CREATE INDEX IF NOT EXISTS idx_conv_reads_conv ON conversation_reads("conversation_id")`);
     } catch {}
   })();
 
@@ -452,21 +420,14 @@ async function migrateLegacyConversations() {
       const canonicalId = String(canonical.id);
 
       if (String(canonical.reserva_id || "") !== key) {
-        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [
-          key,
-          nowISO(),
-          canonicalId,
-        ]);
+        await query(`UPDATE conversations SET reserva_id = ?, updated_at = ? WHERE id = ?`, [key, nowISO(), canonicalId]);
       }
 
       for (const other of list) {
         const otherId = String(other.id);
         if (otherId === canonicalId) continue;
 
-        await query(`UPDATE messages SET conversation_id = ? WHERE conversation_id = ?`, [
-          canonicalId,
-          otherId,
-        ]);
+        await query(`UPDATE messages SET conversation_id = ? WHERE conversation_id = ?`, [canonicalId, otherId]);
         await query(`DELETE FROM conversations WHERE id = ?`, [otherId]);
       }
 
@@ -487,6 +448,7 @@ async function migrateLegacyConversations() {
     console.warn("[chat] Migración legacy (best-effort) falló:", e?.message || e);
   }
 }
+
 // RESERVAS SCHEMA DETECTION (robusto)
 let reservasColsPromise = null;
 
@@ -548,6 +510,7 @@ function buildClientCol(colMap) {
 function buildReservaIdCol(colMap) {
   return pickCol(colMap, ["id", "reserva_id"]);
 }
+
 // HELPERS
 async function relationshipExists(trainerId, clientId) {
   const colMap = await getReservasColMap();
@@ -584,12 +547,7 @@ async function relationshipExists(trainerId, clientId) {
   const fechaQ = qIdent(fechaCol);
   const horaQ = qIdent(horaCol);
 
-  const orderBy =
-    fechaQ && horaQ
-      ? `ORDER BY ${fechaQ} DESC, ${horaQ} DESC`
-      : fechaQ
-      ? `ORDER BY ${fechaQ} DESC`
-      : ``;
+  const orderBy = fechaQ && horaQ ? `ORDER BY ${fechaQ} DESC, ${horaQ} DESC` : fechaQ ? `ORDER BY ${fechaQ} DESC` : ``;
 
   const trainerWhere = trainerCols.map((c) => `${c} = ?`).join(" OR ");
 
@@ -660,6 +618,9 @@ async function getOrCreateConversationByPair({ trainerId, clientId }) {
   return { conversationId: convId, exists: false };
 }
 
+// ✅ Restaurar visibilidad del chat para el usuario SIN quitar el “corte” (cleared)
+// - Si el usuario lo había borrado, se vuelve a mostrar la conversación
+// - Pero los mensajes anteriores al cleared_* NO se verán (chat “vacío”)
 async function restoreConversationForUser({ conversationId, userId }) {
   const rows = await query(
     `
@@ -679,16 +640,10 @@ async function restoreConversationForUser({ conversationId, userId }) {
   const ts = nowISO();
 
   if (uid && uid === trainerId && String(c.deleted_by_trainer_at || "").trim()) {
-    await query(`UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`, [
-      ts,
-      conversationId,
-    ]);
+    await query(`UPDATE conversations SET deleted_by_trainer_at = NULL, updated_at = ? WHERE id = ?`, [ts, conversationId]);
   }
   if (uid && uid === clientId && String(c.deleted_by_client_at || "").trim()) {
-    await query(`UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`, [
-      ts,
-      conversationId,
-    ]);
+    await query(`UPDATE conversations SET deleted_by_client_at = NULL, updated_at = ? WHERE id = ?`, [ts, conversationId]);
   }
 }
 
@@ -778,11 +733,7 @@ async function verifyAttachmentsOwnership({ userId, attachments }) {
       throw err;
     }
 
-    const rows = await query(`SELECT id FROM files WHERE id = ? AND ${ownerQ} = ? LIMIT 1`, [
-      String(a.id),
-      String(userId),
-    ]);
-
+    const rows = await query(`SELECT id FROM files WHERE id = ? AND ${ownerQ} = ? LIMIT 1`, [String(a.id), String(userId)]);
     if (!rows.length) {
       const err = new Error("Adjunto no válido (no existe o no te pertenece)");
       err.status = 400;
@@ -790,7 +741,45 @@ async function verifyAttachmentsOwnership({ userId, attachments }) {
     }
   }
 }
+
+// ✅ Devuelve el “corte” (clearAfter) aplicable al usuario en esta conversación.
+// Usa cleared_* si existe; si no existe aún (legacy), cae a deleted_* para compat.
+async function getClearAfterForUser({ conversationId, userId }) {
+  const rows = await query(
+    `
+      SELECT
+        trainer_id,
+        client_id,
+        cleared_by_trainer_at,
+        cleared_by_client_at,
+        deleted_by_trainer_at,
+        deleted_by_client_at
+      FROM conversations
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [String(conversationId)]
+  );
+  if (!rows.length) return "1970-01-01T00:00:00.000Z";
+
+  const c = rows[0];
+  const trainerId = String(c.trainer_id || "");
+  const clientId = String(c.client_id || "");
+  const uid = String(userId || "");
+
+  if (uid && uid === trainerId) {
+    const v = String(c.cleared_by_trainer_at || c.deleted_by_trainer_at || "").trim();
+    return v || "1970-01-01T00:00:00.000Z";
+  }
+  if (uid && uid === clientId) {
+    const v = String(c.cleared_by_client_at || c.deleted_by_client_at || "").trim();
+    return v || "1970-01-01T00:00:00.000Z";
+  }
+  return "1970-01-01T00:00:00.000Z";
+}
+
 // ENDPOINTS
+
 router.get(
   "/",
   verifyToken,
@@ -807,60 +796,63 @@ router.get(
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ error: "No autorizado" });
 
-      const targetUserId =
-        isAdmin && req.query.userId ? String(req.query.userId).trim() : userId;
+      const targetUserId = isAdmin && req.query.userId ? String(req.query.userId).trim() : userId;
       if (!targetUserId) return res.status(400).json({ error: "userId requerido" });
 
       const usersMeta = await getUsersMeta();
       const { joinSql, selectSql } = buildUserJoinOnAlias("c.otherId", usersMeta);
 
-      // Subquery para calcular otherId SIN duplicar placeholders en el JOIN
-      
-// Subquery para calcular otherId SIN duplicar placeholders en el JOIN
-const rows = await query(
-  `
-    SELECT
-      c.id AS conversationId,
-      c.trainer_id AS trainerId,
-      c.client_id AS clientId,
-      c.last_message_at AS lastMessageAt,
-      c.last_message_preview AS lastMessagePreview,
-      c.updated_at AS updatedAt,
-      c.otherId AS otherId,
-      ${selectSql},
-      COALESCE((
-        SELECT COUNT(1)
-        FROM messages m
-        WHERE
-          m.conversation_id = c.id
-          AND m.sender_id <> ?
-          AND m.created_at > COALESCE(cr.last_read_at, '1970-01-01T00:00:00.000Z')
-      ), 0) AS unreadCount
-    FROM (
-      SELECT
-        c.*,
-        (CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END) AS otherId
-      FROM conversations c
-      WHERE
-        (
-          c.trainer_id = ?
-          AND (c.deleted_by_trainer_at IS NULL OR c.deleted_by_trainer_at = '')
-        )
-        OR
-        (
-          c.client_id = ?
-          AND (c.deleted_by_client_at IS NULL OR c.deleted_by_client_at = '')
-        )
-    ) c
-    LEFT JOIN conversation_reads cr
-      ON cr.conversation_id = c.id
-     AND cr.user_id = ?
-    ${joinSql}
-    ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
-    LIMIT 100
-  `,
-  [targetUserId, targetUserId, targetUserId, targetUserId, targetUserId]
-);
+      // ✅ incluye clearAfter para que unreadCount no cuente mensajes “anteriores al borrado”
+      const rows = await query(
+        `
+          SELECT
+            c.id AS conversationId,
+            c.trainer_id AS trainerId,
+            c.client_id AS clientId,
+            c.last_message_at AS lastMessageAt,
+            c.last_message_preview AS lastMessagePreview,
+            c.updated_at AS updatedAt,
+            c.otherId AS otherId,
+            ${selectSql},
+            COALESCE((
+              SELECT COUNT(1)
+              FROM messages m
+              WHERE
+                m.conversation_id = c.id
+                AND m.sender_id <> ?
+                AND m.created_at > COALESCE(cr.last_read_at, '1970-01-01T00:00:00.000Z')
+                AND m.created_at > COALESCE(c.clearAfter, '1970-01-01T00:00:00.000Z')
+            ), 0) AS unreadCount
+          FROM (
+            SELECT
+              c.*,
+              (CASE WHEN c.trainer_id = ? THEN c.client_id ELSE c.trainer_id END) AS otherId,
+              (CASE
+                WHEN c.trainer_id = ? THEN COALESCE(c.cleared_by_trainer_at, c.deleted_by_trainer_at)
+                WHEN c.client_id = ? THEN COALESCE(c.cleared_by_client_at, c.deleted_by_client_at)
+                ELSE NULL
+              END) AS clearAfter
+            FROM conversations c
+            WHERE
+              (
+                c.trainer_id = ?
+                AND (c.deleted_by_trainer_at IS NULL OR c.deleted_by_trainer_at = '')
+              )
+              OR
+              (
+                c.client_id = ?
+                AND (c.deleted_by_client_at IS NULL OR c.deleted_by_client_at = '')
+              )
+          ) c
+          LEFT JOIN conversation_reads cr
+            ON cr.conversation_id = c.id
+           AND cr.user_id = ?
+          ${joinSql}
+          ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC
+          LIMIT 100
+        `,
+        [targetUserId, targetUserId, targetUserId, targetUserId, targetUserId, targetUserId, targetUserId]
+      );
 
       return res.json({ items: rows });
     } catch (e) {
@@ -885,7 +877,7 @@ router.post(
       const conversationId = String(req.params.conversationId || "").trim();
       if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
 
-      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
+      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req), allowDeleted: true });
 
       const ts = nowISO();
 
@@ -933,12 +925,10 @@ router.post(
       const idQ = qIdent(idCol);
       const clientQ = qIdent(clientCol);
 
-      if (!idQ)
-        return res.status(500).json({ error: "Tabla reservas sin columna id (o reserva_id)" });
+      if (!idQ) return res.status(500).json({ error: "Tabla reservas sin columna id (o reserva_id)" });
       if (!trainerExpr)
         return res.status(500).json({
-          error:
-            "Tabla reservas sin columnas de entrenador (trainer_id / entrenador_id / adiestrador_id)",
+          error: "Tabla reservas sin columnas de entrenador (trainer_id / entrenador_id / adiestrador_id)",
         });
       if (!clientQ)
         return res.status(500).json({
@@ -966,10 +956,7 @@ router.post(
       const r = rr[0];
       const status = normStatus(r.status);
       if (status && !CHAT_ALLOWED_STATUSES.has(status)) {
-        return res.status(403).json({
-          error: "Chat no disponible para el estado actual de la reserva",
-          status,
-        });
+        return res.status(403).json({ error: "Chat no disponible para el estado actual de la reserva", status });
       }
 
       const clientId = String(r.clientId || "").trim();
@@ -988,6 +975,9 @@ router.post(
       }
 
       const out = await getOrCreateConversationByPair({ trainerId, clientId });
+
+      // ✅ Si el usuario lo había “borrado”, lo restauramos SOLO como conversación visible.
+      // Los mensajes antiguos seguirán ocultos por el corte cleared_*.
       await restoreConversationForUser({ conversationId: out.conversationId, userId });
 
       return res.json(out);
@@ -1098,18 +1088,30 @@ router.delete(
       }
 
       const ts = nowISO();
+
+      // ✅ Borrado lógico = ocultar en lista + fijar “corte” para que al reabrir salga vacío
       if (String(userId) === String(trainerId)) {
-        await query(`UPDATE conversations SET deleted_by_trainer_at = ?, updated_at = ? WHERE id = ?`, [
-          ts,
-          ts,
-          conversationId,
-        ]);
+        await query(
+          `
+            UPDATE conversations
+            SET deleted_by_trainer_at = ?,
+                cleared_by_trainer_at = COALESCE(cleared_by_trainer_at, ?),
+                updated_at = ?
+            WHERE id = ?
+          `,
+          [ts, ts, ts, conversationId]
+        );
       } else if (String(userId) === String(clientId)) {
-        await query(`UPDATE conversations SET deleted_by_client_at = ?, updated_at = ? WHERE id = ?`, [
-          ts,
-          ts,
-          conversationId,
-        ]);
+        await query(
+          `
+            UPDATE conversations
+            SET deleted_by_client_at = ?,
+                cleared_by_client_at = COALESCE(cleared_by_client_at, ?),
+                updated_at = ?
+            WHERE id = ?
+          `,
+          [ts, ts, ts, conversationId]
+        );
       }
 
       return res.json({ ok: true });
@@ -1135,9 +1137,13 @@ router.get(
       const conversationId = String(req.params.conversationId || "").trim();
       if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
 
-      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
+      // ✅ allowDeleted true: aunque lo hayas “borrado”, si llegas aquí (p.ej. por reserva) puedes verlo (vacío)
+      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req), allowDeleted: true });
 
       const before = req.query.before ? String(req.query.before) : null;
+
+      // ✅ corte para ocultar mensajes antiguos tras “borrar”
+      const clearAfter = await getClearAfterForUser({ conversationId, userId });
 
       const usersMeta = await getUsersMeta();
       const { joinSql, senderSelectSql } = buildSenderJoin(usersMeta);
@@ -1156,6 +1162,7 @@ router.get(
             FROM messages m
             ${joinSql}
             WHERE m.conversation_id = ?
+              AND m.created_at > ?
               AND m.created_at < ?
             ORDER BY m.created_at DESC
             LIMIT 30
@@ -1173,11 +1180,14 @@ router.get(
             FROM messages m
             ${joinSql}
             WHERE m.conversation_id = ?
+              AND m.created_at > ?
             ORDER BY m.created_at DESC
             LIMIT 30
           `;
 
-      const rows = await query(sql, before ? [conversationId, before] : [conversationId]);
+      const params = before ? [conversationId, clearAfter, before] : [conversationId, clearAfter];
+
+      const rows = await query(sql, params);
 
       const items = [...rows].reverse().map((m) => ({
         ...m,
@@ -1213,10 +1223,9 @@ router.post(
       const bodyTrim = body.trim();
 
       if (!conversationId) return res.status(400).json({ error: "conversationId requerido" });
-      if (!bodyTrim && attachments.length === 0)
-        return res.status(400).json({ error: "Mensaje vacío" });
+      if (!bodyTrim && attachments.length === 0) return res.status(400).json({ error: "Mensaje vacío" });
 
-      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req) });
+      await ensureCanAccessConversation({ conversationId, userId, role: getUserRole(req), allowDeleted: true });
       await verifyAttachmentsOwnership({ userId, attachments });
 
       const ts = nowISO();
@@ -1258,6 +1267,8 @@ router.post(
         ? `📎 ${attachments.length} archivo(s)`
         : "";
 
+      // ✅ al enviar un mensaje: re-muestra el chat a ambos (si lo habían ocultado),
+      // pero NO tocamos cleared_* (el corte se mantiene, así no reaparecen mensajes antiguos)
       await query(
         `
           UPDATE conversations
@@ -1271,12 +1282,7 @@ router.post(
         [ts, ts, preview, conversationId]
       );
 
-      // Email al cliente (throttle 1/día) cuando escribe el adiestrador
-      void notifyChatMessage({
-        conversationId,
-        senderId: userId,
-        preview,
-      });
+      void notifyChatMessage({ conversationId, senderId: userId, preview });
 
       return res.json({ ok: true, messageId: msgId, createdAt: ts });
     } catch (e) {

@@ -8,6 +8,13 @@
 // ✅ Borrado lógico desde UI (botón "Borrar chat")
 // ✅ Mejora: si vienes desde Reservas, al volver/borrar te lleva a /reservas
 // ✅ Mejora: decode JWT base64url robusto
+//
+// FIX FRONTEND (2026-01):
+// ✅ Si el chat fue borrado por este usuario, el backend debería responder 404/410 al leer.
+//    En ese caso:
+//    - mostramos "Has eliminado este chat" (sin re-abrir)
+//    - detenemos polling para no insistir
+//    - deshabilitamos composer/borrar (porque ya no existe para ti)
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { http } from "../helpers/http";
@@ -155,6 +162,9 @@ export default function ChatPage() {
   // ✅ borrado lógico desde UI
   const [deletingChat, setDeletingChat] = useState(false);
 
+  // ✅ si el chat está “no accesible para mí” (borrado lógico / no existe)
+  const [chatUnavailable, setChatUnavailable] = useState(false);
+
   // adjuntos
   const [attachments, setAttachments] = useState([]); // [{id,mime,name,size}]
   const [uploading, setUploading] = useState(false);
@@ -247,8 +257,19 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  const markUnavailable = (message) => {
+    setChatUnavailable(true);
+    setItems([]);
+    setErrMsg(message || "Has eliminado este chat.");
+    // evitar que el usuario intente enviar
+    setText("");
+    setAttachments([]);
+    setEmojiOpen(false);
+  };
+
   const loadMessages = async ({ silent = false } = {}) => {
     if (!conversationId) return;
+    if (chatUnavailable) return; // ✅ si ya no es accesible, no insistimos
 
     const shouldStick = silent ? stickToBottomRef.current : true;
 
@@ -263,7 +284,10 @@ export default function ChatPage() {
       try {
         const me = String(myUserId || "").trim();
         if (me) {
-          const lastOther = [...arr].reverse().find((m) => String(m?.senderId || m?.sender_id || "").trim() && String(m?.senderId || m?.sender_id || "").trim() !== me);
+          const lastOther = [...arr].reverse().find((m) => {
+            const sid = String(m?.senderId || m?.sender_id || "").trim();
+            return sid && sid !== me;
+          });
           const sig = lastOther
             ? `${String(lastOther.id || "")}:${String(lastOther.createdAt || lastOther.created_at || "")}`
             : "";
@@ -276,7 +300,6 @@ export default function ChatPage() {
       } catch {
         // ignore
       }
-
 
       setItems((prev) => {
         const prevLast = prev?.length ? prev[prev.length - 1] : null;
@@ -304,9 +327,19 @@ export default function ChatPage() {
 
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para ver este chat.");
-      else if (status === 404) {
-        if (apiErr.toLowerCase().includes("eliminado")) setErrMsg("Has eliminado este chat.");
-        else setErrMsg("Chat no encontrado.");
+      else if (status === 404 || status === 410) {
+        // ✅ Caso “borrado lógico” para este usuario (o no existente)
+        const lower = apiErr.toLowerCase();
+        if (
+          lower.includes("no encontrado") ||
+          lower.includes("chat no encontrado") ||
+          lower.includes("eliminado") ||
+          lower.includes("deleted")
+        ) {
+          markUnavailable("Has eliminado este chat.");
+        } else {
+          markUnavailable("Chat no encontrado.");
+        }
       } else setErrMsg("No se pudieron cargar los mensajes.");
 
       setItems([]);
@@ -320,18 +353,22 @@ export default function ChatPage() {
       navigate(`/login?next=/chat/${conversationId || ""}`, { replace: true });
       return;
     }
+    // reset flags al cambiar de conversación
+    setChatUnavailable(false);
+    lastMarkedRef.current = "";
     loadMessages({ silent: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   useEffect(() => {
     if (!conversationId) return;
+    if (chatUnavailable) return; // ✅ no polling si no existe para mí
     const t = setInterval(() => {
       loadMessages({ silent: true });
     }, 4500);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId]);
+  }, [conversationId, chatUnavailable]);
 
   const insertEmoji = (emoji) => {
     const el = inputRef.current;
@@ -362,6 +399,7 @@ export default function ChatPage() {
     const list = Array.from(files || []);
     if (!list.length) return;
     if (uploading) return;
+    if (chatUnavailable) return;
 
     setUploadErr("");
     setUploading(true);
@@ -422,6 +460,7 @@ export default function ChatPage() {
   const send = async () => {
     if (!conversationId) return;
     if (sending) return;
+    if (chatUnavailable) return;
 
     const bodyTrim = text.trim();
     if (!bodyTrim && attachments.length === 0) return;
@@ -454,9 +493,14 @@ export default function ChatPage() {
 
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para enviar mensajes aquí.");
-      else if (status === 404 && apiErr.toLowerCase().includes("eliminado"))
-        setErrMsg("Has eliminado este chat. Vuelve atrás y reábrelo desde la reserva.");
-      else setErrMsg(e?.data?.error || "No se pudo enviar el mensaje.");
+      else if (status === 404 || status === 410) {
+        const lower = apiErr.toLowerCase();
+        if (lower.includes("eliminado") || lower.includes("no encontrado")) {
+          markUnavailable("Has eliminado este chat.");
+        } else {
+          markUnavailable("Chat no encontrado.");
+        }
+      } else setErrMsg(e?.data?.error || "No se pudo enviar el mensaje.");
     } finally {
       setSending(false);
     }
@@ -470,6 +514,11 @@ export default function ChatPage() {
   const handleDeleteChat = async () => {
     if (!conversationId) return;
     if (deletingChat) return;
+    if (chatUnavailable) {
+      // ya está borrado para mí: simplemente volver
+      navigate(backUrl, { replace: true });
+      return;
+    }
 
     const ok = await ui.confirm({
       title: "Borrar chat",
@@ -502,6 +551,9 @@ export default function ChatPage() {
       setDeletingChat(false);
     }
   };
+
+  const composerDisabled =
+    chatUnavailable || deletingChat || sending || uploading;
 
   return (
     <div className="df-chat">
@@ -538,7 +590,7 @@ export default function ChatPage() {
             disabled={deletingChat}
             title="Borrar chat (solo para ti)"
           >
-            {deletingChat ? "Borrando…" : "Borrar chat"}
+            {deletingChat ? "Borrando…" : chatUnavailable ? "Volver" : "Borrar chat"}
           </button>
         </div>
       </div>
@@ -551,7 +603,9 @@ export default function ChatPage() {
           {loading ? (
             <div className="df-chat__empty">Cargando mensajes…</div>
           ) : items.length === 0 ? (
-            <div className="df-chat__empty">No hay mensajes todavía. Escribe el primero.</div>
+            <div className="df-chat__empty">
+              {chatUnavailable ? "Este chat no está disponible para ti." : "No hay mensajes todavía. Escribe el primero."}
+            </div>
           ) : (
             items.map((m) => {
               const mine = myUserId && String(m.senderId) === String(myUserId);
@@ -643,6 +697,7 @@ export default function ChatPage() {
               type="button"
               onClick={() => setEmojiOpen((v) => !v)}
               title="Emoticonos"
+              disabled={composerDisabled}
             >
               🙂
             </button>
@@ -651,7 +706,7 @@ export default function ChatPage() {
               className="df-btn df-btn--ghost df-btn--icon"
               type="button"
               onClick={() => fileRef.current?.click()}
-              disabled={uploading}
+              disabled={composerDisabled}
               title="Adjuntar archivo"
             >
               📎
@@ -664,11 +719,12 @@ export default function ChatPage() {
               multiple
               accept="image/*,video/*,application/pdf,text/plain"
               onChange={(e) => onPickFiles(e.target.files)}
+              disabled={composerDisabled}
             />
           </div>
 
           <div className="df-chat__composerMain">
-            {emojiOpen && (
+            {emojiOpen && !composerDisabled && (
               <div className="df-emoji">
                 {EMOJIS.map((em) => (
                   <button
@@ -693,10 +749,11 @@ export default function ChatPage() {
                 if (e.key !== "Enter") return;
                 if (e.nativeEvent?.isComposing) return;
                 e.preventDefault();
-                if (sending || uploading) return;
+                if (composerDisabled) return;
                 send();
               }}
-              placeholder="Escribe un mensaje…"
+              placeholder={chatUnavailable ? "Chat eliminado para ti." : "Escribe un mensaje…"}
+              disabled={composerDisabled}
             />
 
             {attachments.length > 0 && (
@@ -709,6 +766,7 @@ export default function ChatPage() {
                       className="df-pending__remove"
                       onClick={() => removeAttachment(a.id)}
                       title="Quitar"
+                      disabled={composerDisabled}
                     >
                       ✕
                     </button>
@@ -723,7 +781,7 @@ export default function ChatPage() {
           <button
             className="df-btn df-btn--primary"
             type="submit"
-            disabled={sending || uploading || (!text.trim() && attachments.length === 0)}
+            disabled={composerDisabled || (!text.trim() && attachments.length === 0)}
           >
             {sending ? "Enviando…" : uploading ? "Subiendo…" : "Enviar"}
           </button>

@@ -17,7 +17,6 @@ function reservaIdOf(r) {
 function reservaDateTimeMs(r) {
   const f = String(r?.fecha || "").slice(0, 10);
   const h = String(r?.hora || "00:00").slice(0, 5) || "00:00";
-  // Date('YYYY-MM-DDTHH:mm:ss') se interpreta en local time del navegador
   const iso = `${f}T${h}:00`;
   const d = new Date(iso);
   const ms = d.getTime();
@@ -85,12 +84,9 @@ function noteAuthorLabel(n) {
       : rawRole || "Autor";
 
   const email = String(n?.author_email ?? n?.authorEmail ?? n?.email ?? "").trim();
-  const uid = String(
-    n?.author_uid ?? n?.authorUid ?? n?.author_id ?? n?.authorId ?? ""
-  ).trim();
+  const uid = String(n?.author_uid ?? n?.authorUid ?? n?.author_id ?? n?.authorId ?? "").trim();
 
-  const who =
-    email || uid || String(n?.authorName ?? n?.author_name ?? n?.name ?? "").trim();
+  const who = email || uid || String(n?.authorName ?? n?.author_name ?? n?.name ?? "").trim();
 
   return who ? `${roleLabel} (${who})` : roleLabel;
 }
@@ -148,7 +144,10 @@ function renderPerro(perro) {
     }
   }
   if (Array.isArray(perro)) {
-    return perro.map((p) => renderPerro(p)).filter(Boolean).join(", ");
+    return perro
+      .map((p) => renderPerro(p))
+      .filter(Boolean)
+      .join(", ");
   }
   if (typeof perro === "object") {
     const nombre = perro.nombre || perro.name;
@@ -220,14 +219,10 @@ function ReservaCard({
   // Compatibilidad: algunas reservas antiguas creadas por staff pueden venir como status=pending.
   const needsUserConfirm =
     normalizedStatus === "pending_user" ||
-    ((normalizedStatus === "pending" || normalizedStatus === "pendiente") &&
-      staffOrigin);
+    ((normalizedStatus === "pending" || normalizedStatus === "pendiente") && staffOrigin);
 
   const displayStatus = needsUserConfirm ? "pending_user" : normalizedStatus;
 
-  // UX: si la reserva está "pendiente por ti" (confirmación del cliente),
-  // mostramos únicamente Aceptar/Rechazar (y Notas). No se muestra Chat ni
-  // Cancelar hasta que el cliente haya tomado una decisión.
   const isPendingUser = displayStatus === "pending_user";
 
   const puedeCancelar =
@@ -247,7 +242,6 @@ function ReservaCard({
       displayStatus === "pendiente");
 
   const unreadNotas = Number(r?.notesUnreadCount ?? r?.notes_unread_count ?? 0) || 0;
-
   const countNotas = unreadNotas > 0 ? unreadNotas : null;
 
   return (
@@ -304,10 +298,7 @@ function ReservaCard({
       </div>
 
       {!readOnly && (
-        <div
-          style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
-          className="reservas-actions-row"
-        >
+        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }} className="reservas-actions-row">
           <button className="btn-secondary" onClick={() => onToggleNotes?.(r)}>
             📝 Notas{countNotas != null ? ` (${countNotas})` : ""}
           </button>
@@ -352,17 +343,11 @@ function ReservaCard({
           ) : (
             <div className="reservas-notes__list">
               {notes.map((n, idx) => (
-                <div
-                  key={noteIdOf(n) || `${rid}-note-${idx}`}
-                  className="reservas-notes__item"
-                >
+                <div key={noteIdOf(n) || `${rid}-note-${idx}`} className="reservas-notes__item">
                   <div>
-                    {/* ✅ AQUÍ estaba el error: spans mal cerrados. Ya está limpio */}
                     <div className="reservas-notes__meta">
                       <b>{noteAuthorLabel(n) || "Centro"}</b>
-                      {noteCreatedAt(n) ? (
-                        <span> · {formatDateTime(noteCreatedAt(n))}</span>
-                      ) : null}
+                      {noteCreatedAt(n) ? <span> · {formatDateTime(noteCreatedAt(n))}</span> : null}
                     </div>
 
                     <div className="reservas-notes__text">{noteText(n)}</div>
@@ -390,11 +375,7 @@ function ReservaCard({
               value={newNote}
               onChange={(e) => onChangeNote?.(e.target.value)}
             />
-            <button
-              className="btn-primary"
-              onClick={onAddNote}
-              disabled={!newNote.trim()}
-            >
+            <button className="btn-primary" onClick={onAddNote} disabled={!newNote.trim()}>
               Agregar nota
             </button>
           </div>
@@ -424,9 +405,7 @@ export default function ReservasUser() {
   const [search, setSearch] = useState("");
 
   // calendario
-  const [mesBase, setMesBase] = useState(
-    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-  );
+  const [mesBase, setMesBase] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(todayYMD());
 
   // notas
@@ -444,9 +423,7 @@ export default function ReservasUser() {
 
       // Enriquecer con contadores de notas no leídas (por reserva)
       try {
-        const ids = arr
-          .map((r) => String(reservaIdOf(r) || "").trim())
-          .filter(Boolean);
+        const ids = arr.map((r) => String(reservaIdOf(r) || "").trim()).filter(Boolean);
 
         if (ids.length) {
           const resp = await http("/api/reservas/notes/unread-counts", {
@@ -580,14 +557,7 @@ export default function ReservasUser() {
         const s = String(r?.status || "").toLowerCase();
         const origin = String(r?.origin || "").toLowerCase();
         const staffOrigin = origin === "admin" || origin === "trainer";
-
-        // Pendiente de confirmación del usuario:
-        // - status pending_user
-        // - compat: status pending + origin staff (reservas creadas por el centro/adiestrador con status antiguo)
-        return (
-          s === "pending_user" ||
-          ((s === "pending" || s === "pendiente") && staffOrigin)
-        );
+        return s === "pending_user" || ((s === "pending" || s === "pendiente") && staffOrigin);
       }),
     [reservasFiltradas]
   );
@@ -617,12 +587,7 @@ export default function ReservasUser() {
     () =>
       reservasFiltradas.filter((r) => {
         const s = String(r?.status || "").toLowerCase();
-        return (
-          s === "cancelled" ||
-          s === "cancelada" ||
-          s === "rejected" ||
-          s === "rechazada"
-        );
+        return s === "cancelled" || s === "cancelada" || s === "rejected" || s === "rechazada";
       }),
     [reservasFiltradas]
   );
@@ -672,10 +637,7 @@ export default function ReservasUser() {
 
     try {
       if (isConfirm) {
-        await http(`/api/reservas/${rid}/user-confirm`, {
-          method: "PATCH",
-          auth: true,
-        });
+        await http(`/api/reservas/${rid}/user-confirm`, { method: "PATCH", auth: true });
       } else {
         await http(`/api/reservas/${rid}/user-reject`, {
           method: "PATCH",
@@ -691,7 +653,10 @@ export default function ReservasUser() {
     }
   };
 
-  // Chat
+  // Chat (CORREGIDO para tu requerimiento)
+  // - Si tú lo borraste, el backend puede:
+  //   A) devolver 404 (viejo) -> en ese caso reintenta con POST y crea/recupera (si tu backend ya lo hace, no entrará aquí)
+  //   B) devolver 200 con conversationId y chat "limpio" -> perfecto
   const handleOpenChat = async (r) => {
     const rid = reservaIdOf(r);
     if (!rid) return;
@@ -700,12 +665,9 @@ export default function ReservasUser() {
     try {
       setOpeningChatId(rid);
 
-      const resp = await http(`/api/chats/by-reserva/${rid}`, {
-        method: "POST",
-        auth: true,
-      });
-
+      const resp = await http(`/api/chats/by-reserva/${rid}`, { method: "POST", auth: true });
       const conversationId = resp?.conversationId || resp?.id;
+
       if (!conversationId) {
         ui.notify({
           type: "error",
@@ -714,15 +676,30 @@ export default function ReservasUser() {
         return;
       }
 
-      navigate(`/chat/${conversationId}`, { state: { from: "/reservas" } });
+      // ✅ siempre dejamos volver a /reservas, y pasamos reservaId por si lo quieres usar
+      navigate(`/chat/${conversationId}`, { state: { from: "/reservas", reservaId: rid } });
     } catch (e) {
       console.error("Error abriendo chat:", e);
-      const msg =
-        e?.data?.error ||
-        e?.responseData?.error ||
-        e?.message ||
-        "No se pudo abrir el chat para esta reserva.";
-      ui.notify({ type: "error", message: msg });
+
+      const status = e?.status || e?.response?.status;
+      const apiErr = String(e?.data?.error || e?.responseData?.error || e?.message || "");
+
+      // ✅ CAMBIO CLAVE: no bloqueamos el flujo con “chat eliminado”
+      // Si tu backend ya está implementado como te dije, NO debería caer aquí.
+      // Si cae (404), avisamos con mensaje útil sin impedir que reintentes.
+      if (status === 404) {
+        ui.notify({
+          type: "error",
+          message:
+            "No se encontró el chat para esta reserva. Si acabas de borrarlo, debería recrearse/abrirse vacío si el backend está actualizado.",
+        });
+        return;
+      }
+
+      ui.notify({
+        type: "error",
+        message: apiErr || "No se pudo abrir el chat para esta reserva.",
+      });
     } finally {
       setOpeningChatId(null);
     }
@@ -805,10 +782,7 @@ export default function ReservasUser() {
     if (!ok) return;
 
     try {
-      await http(`/api/reservas/${openNotesId}/notes/${noteId}`, {
-        method: "DELETE",
-        auth: true,
-      });
+      await http(`/api/reservas/${openNotesId}/notes/${noteId}`, { method: "DELETE", auth: true });
       await loadNotes(openNotesId);
     } catch (e) {
       console.error("Error eliminando nota", e);
@@ -842,8 +816,7 @@ export default function ReservasUser() {
     <div className="card contratar-page">
       <h1>Reservas</h1>
       <p className="reservas-subtitle">
-        Consulta tu calendario de reservas, gestiona su estado y abre el chat asociado desde
-        cada reserva.
+        Consulta tu calendario de reservas, gestiona su estado y abre el chat asociado desde cada reserva.
       </p>
 
       <div
@@ -857,8 +830,7 @@ export default function ReservasUser() {
           fontSize: 14,
         }}
       >
-        ⚠️ <b>Cancelaciones:</b> solo es posible cancelar una reserva con más de <b>24 horas</b>{" "}
-        de antelación.
+        ⚠️ <b>Cancelaciones:</b> solo es posible cancelar una reserva con más de <b>24 horas</b> de antelación.
       </div>
 
       {/* Buscador */}
@@ -877,9 +849,7 @@ export default function ReservasUser() {
           <button
             className="btn-ghost"
             type="button"
-            onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))
-            }
+            onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() - 1, 1))}
           >
             ‹
           </button>
@@ -892,9 +862,7 @@ export default function ReservasUser() {
           <button
             className="btn-ghost"
             type="button"
-            onClick={() =>
-              setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))
-            }
+            onClick={() => setMesBase(new Date(mesBase.getFullYear(), mesBase.getMonth() + 1, 1))}
           >
             ›
           </button>

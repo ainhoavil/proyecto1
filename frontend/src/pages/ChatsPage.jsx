@@ -2,8 +2,11 @@
 // Lista de chats del usuario
 // - UI lista + abrir chat + borrar (si el backend lo soporta)
 // - Buscador por nombre (filtra en frontend)
-// - Robusto con token id/uid/sub
+// - Robusto con token id/uid/sub (base64url safe)
 // - Robusto con backend: { items: [...] } + otherName/otherEmail/otherPhotoUrl
+// - Workaround: ocultar en /chats los chats borrados "solo para ti" (localStorage),
+//   para que no reaparezcan por el listado del backend.
+
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { http } from "../helpers/http";
@@ -11,10 +14,64 @@ import { isLogged, getToken } from "../helpers/auth";
 import { useUi } from "../context/ui";
 
 // API base para construir URLs de avatar si vienen como ruta relativa
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(
-  /\/+$/,
-  ""
-);
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+
+/* =========================
+   Workaround borrado local
+   ========================= */
+const LS_DELETED_KEY = "df_deleted_chats_v1";
+
+function loadDeletedSet() {
+  try {
+    const raw = localStorage.getItem(LS_DELETED_KEY);
+    const arr = JSON.parse(raw || "[]");
+    return new Set(Array.isArray(arr) ? arr.map((x) => String(x)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDeletedSet(set) {
+  try {
+    localStorage.setItem(LS_DELETED_KEY, JSON.stringify(Array.from(set)));
+  } catch {
+    // ignore
+  }
+}
+
+function markChatDeletedLocally(conversationId) {
+  const id = String(conversationId || "").trim();
+  if (!id) return;
+  const s = loadDeletedSet();
+  s.add(id);
+  saveDeletedSet(s);
+}
+
+function unmarkChatDeletedLocally(conversationId) {
+  const id = String(conversationId || "").trim();
+  if (!id) return;
+  const s = loadDeletedSet();
+  if (s.has(id)) {
+    s.delete(id);
+    saveDeletedSet(s);
+  }
+}
+
+/* =========================
+   Helpers comunes
+   ========================= */
+function decodeJwtPayload(token) {
+  try {
+    const part = (token || "").split(".")[1] || "";
+    if (!part) return null;
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4 ? "=".repeat(4 - (base64.length % 4)) : "";
+    const json = atob(base64 + pad);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 function normalizeAvatarUrl(url = "") {
   const s = String(url || "").trim();
@@ -125,7 +182,11 @@ function pickOtherParty({ chat, myIds }) {
     "";
 
   const clientName =
-    chat?.clientName ?? chat?.client_name ?? chat?.clientNombre ?? chat?.client_nombre ?? "";
+    chat?.clientName ??
+    chat?.client_name ??
+    chat?.clientNombre ??
+    chat?.client_nombre ??
+    "";
   const clientEmail = chat?.clientEmail ?? chat?.client_email ?? "";
   const clientAvatar =
     chat?.clientAvatar ??
@@ -179,26 +240,21 @@ export default function ChatsPage() {
   // buscador
   const [qName, setQName] = useState("");
 
-  // ✅ sacamos TODOS los posibles IDs del token para comparar (id/uid/sub)
+  // ✅ sacamos TODOS los posibles IDs del token para comparar (id/uid/sub) con decode base64url safe
   const myIds = useMemo(() => {
-    try {
-      const token = getToken();
-      if (!token) return [];
-      const payload = JSON.parse(atob(token.split(".")[1] || ""));
-      const vals = [
-        payload?.id,
-        payload?.uid,
-        payload?.sub,
-        payload?.userId,
-        payload?.user_id,
-      ]
-        .map((v) => String(v || "").trim())
-        .filter(Boolean);
-      // únicos
-      return Array.from(new Set(vals));
-    } catch {
-      return [];
-    }
+    const token = getToken();
+    if (!token) return [];
+    const payload = decodeJwtPayload(token);
+    const vals = [
+      payload?.id,
+      payload?.uid,
+      payload?.sub,
+      payload?.userId,
+      payload?.user_id,
+    ]
+      .map((v) => String(v || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set(vals));
   }, []);
 
   const loadChats = async () => {
@@ -207,20 +263,20 @@ export default function ChatsPage() {
 
     try {
       const data = await http("/api/chats", { auth: true });
-      const arr = Array.isArray(data?.items)
-        ? data.items
-        : Array.isArray(data)
-        ? data
-        : [];
-      setItems(arr);
+      const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+
+      // ✅ Workaround: ocultar chats borrados "solo para mí" aunque el backend los devuelva
+      const deletedSet = loadDeletedSet();
+      const filteredArr = (Array.isArray(arr) ? arr : []).filter((c) => {
+        const id = getConvId(c);
+        return id && !deletedSet.has(id);
+      });
+
+      setItems(filteredArr);
     } catch (e) {
       console.error("Error cargando chats:", e);
       const status = e?.status || e?.response?.status;
-      const apiErr =
-        e?.data?.error ||
-        e?.responseData?.error ||
-        e?.message ||
-        "";
+      const apiErr = e?.data?.error || e?.responseData?.error || e?.message || "";
 
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para ver los chats.");
@@ -247,6 +303,10 @@ export default function ChatsPage() {
   const openChat = (conversationId) => {
     const id = String(conversationId || "").trim();
     if (!id) return;
+
+    // Si lo abres, lo "rehabilitamos" en la lista (evita incoherencias con localStorage)
+    unmarkChatDeletedLocally(id);
+
     navigate(`/chat/${id}`);
   };
 
@@ -271,16 +331,15 @@ export default function ChatsPage() {
     try {
       await http(`/api/chats/${id}`, { method: "DELETE", auth: true });
 
+      // ✅ marcar borrado local para que no reaparezca en /chats aunque el backend lo liste
+      markChatDeletedLocally(id);
+
       // UI optimista
       setItems((prev) => (Array.isArray(prev) ? prev : []).filter((c) => getConvId(c) !== id));
     } catch (e) {
       console.error("Error borrando chat:", e);
       const status = e?.status || e?.response?.status;
-      const apiErr =
-        e?.data?.error ||
-        e?.responseData?.error ||
-        e?.message ||
-        "";
+      const apiErr = e?.data?.error || e?.responseData?.error || e?.message || "";
 
       if (status === 401) setErrMsg("Tu sesión ha expirado. Inicia sesión otra vez.");
       else if (status === 403) setErrMsg("No tienes permisos para borrar este chat.");
@@ -382,7 +441,8 @@ export default function ChatsPage() {
 
             // key estable aunque falte id (no uses Math.random)
             const stableKey =
-              id || `${getTrainerId(c) || "t"}:${getClientId(c) || "c"}:${String(c?.reserva_id || "")}`;
+              id ||
+              `${getTrainerId(c) || "t"}:${getClientId(c) || "c"}:${String(c?.reserva_id || "")}`;
 
             const other = pickOtherParty({ chat: c, myIds });
             const avatarUrl = normalizeAvatarUrl(other.avatar);
@@ -440,13 +500,32 @@ export default function ChatsPage() {
                       {lastPreview ? lastPreview : <span style={{ opacity: 0.6 }}>(Sin texto)</span>}
                     </div>
 
-                    <div style={{ marginTop: 6, fontSize: 11, opacity: 0.6, wordBreak: "break-all" }}>
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 11,
+                        opacity: 0.6,
+                        wordBreak: "break-all",
+                      }}
+                    >
                       ID: {id || "(sin id)"}
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button className="btn-primary df-chat-open-btn" type="button" onClick={() => openChat(id)} disabled={!id}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <button
+                      className="btn-primary df-chat-open-btn"
+                      type="button"
+                      onClick={() => openChat(id)}
+                      disabled={!id}
+                    >
                       Abrir
                       {unread > 0 ? (
                         <span
@@ -458,6 +537,7 @@ export default function ChatsPage() {
                         </span>
                       ) : null}
                     </button>
+
                     <button
                       className="btn-secondary"
                       type="button"
